@@ -1,0 +1,242 @@
+{
+  "adminPassword": "quemah123",
+  "employees": [
+    {
+      "id": "emp001",
+      "name": "atharv naik",
+      "dept": "IT",
+      "email": "",
+      "phone": "",
+      "bday": "",
+      "joining": "2026-06-05",
+      "designation": "",
+      "cl": 7.5,
+      "sl": 3,
+      "ul": 0,
+      "active": true,
+      "password": "atharv123"
+    },
+    {
+      "id": "emp002",
+      "name": "atharv naik",
+      "dept": "Finance",
+      "email": "atharvashishn@gmail.com",
+      "phone": "+91 8767069789",
+      "bday": "2006-10-17",
+      "joining": "2026-06-05",
+      "designation": "new",
+      "cl": 7.5,
+      "sl": 3,
+      "ul": 0,
+      "active": true,
+      "password": "atharv1234"
+    },
+    {
+      "id": "emp003",
+      "name": "rahul",
+      "dept": "Engineering",
+      "email": "tdtyfjhhjlkl@gmail.com",
+      "phone": "59865696565",
+      "bday": "",
+      "joining": "2026-06-05",
+      "designation": "senior",
+      "cl": 7.5,
+      "sl": 3,
+      "ul": 0,
+      "active": true,
+      "password": "atharahj"
+    },
+    {
+      "id": "emp004",
+      "name": "rohit sharma",
+      "dept": "IT",
+      "email": "tdtyfygthjlkl@gmail.com",
+      "phone": "5986569656",
+      "bday": "",
+      "joining": "2026-06-05",
+      "designation": "senior",
+      "cl": 7.5,
+      "sl": 3,
+      "ul": 0,
+      "active": true,
+      "password": "asdfghjk"
+    },
+    {
+      "id": "emp005",
+      "name": "virat kohli",
+      "dept": "IT",
+      "email": "tdtyfygthjlkl@gmail.com",
+      "phone": "5986569656",
+      "bday": "",
+      "joining": "2026-06-05",
+      "designation": "senior",
+      "cl": 7.5,
+      "sl": 3,
+      "ul": 0,
+      "active": true,
+      "password": "asdfghjk"
+    },
+    {
+      "id": "emp006",
+      "name": "monkey d luffy",
+      "dept": "Engineering",
+      "email": "luffyd@gmail.com",
+      "phone": "789642145",
+      "bday": "",
+      "joining": "2026-06-05",
+      "designation": "senior",
+      "cl": 7.5,
+      "sl": 3,
+      "ul": 0,
+      "active": true,
+      "password": "wertyui"
+    },
+    {
+      "id": "emp007",
+      "name": "Rahul Gandhi",
+      "dept": "Marketing",
+      "email": "gandhid@gmail.com",
+      "phone": "+91 8779865226",
+      "bday": "1990-07-27",
+      "joining": "2026-06-05",
+      "designation": "senior",
+      "cl": 7.5,
+      "sl": 3,
+      "ul": 0,
+      "active": true,
+      "password": "qwertyuio"
+    }
+  ],
+  "archivedEmployees": [
+    {
+      "id": "EMP001",
+      "name": "Rahul Sharma",
+      "dept": "Engineering",
+      "status": "Deleted",
+      "joining": "2023-01-10",
+      "exit": "2026-06-05"
+    },
+    {
+      "id": "EMP002",
+      "name": "Priya Patel",
+      "dept": "HR",
+      "status": "Deleted",
+      "joining": "2023-03-15",
+      "exit": "2026-06-05"
+    }
+  ],
+  "attendanceRecords": [
+    {
+      "id": "emp002",
+      "name": "atharv naik",
+      "dept": "Finance",
+      "date": "2026-06-05",
+      "in": "14:29",
+      "out": "",
+      "hours": 0,
+      "status": "Half-Day"
+    },
+    {
+      "id": "emp001",
+      "name": "atharv naik",
+      "dept": "IT",
+      "date": "2026-06-05",
+      "in": "17:16",
+      "out": "",
+      "hours": 0,
+      "status": "Half-Day"
+    }
+  ],
+  "leaveRequests": [],
+  "announcements": [
+    {
+      "date": "2026-06-05",
+      "subject": "ahjhu",
+      "body": "scscscsc",
+      "by": "Admin"
+    },
+    {
+      "date": "2026-06-05",
+      "subject": "scscscv",
+      "body": "vdvvdv",
+      "by": "Admin"
+    },
+    {
+      "date": "2026-06-05",
+      "subject": "scscscv",
+      "body": "vdvvdv",
+      "by": "Admin"
+    }
+  ],
+  "adminNotifications": [
+    {
+      "text": "New leave request from atharv naik (CL) for 05 Jun 2026.",
+      "target": "admin",
+      "time": "02:23 PM",
+      "unread": true
+    }
+  ],
+  "empNotifications": [
+    {
+      "text": "New Announcement: scscscv",
+      "time": "02:24 PM",
+      "unread": true
+    },
+    {
+      "text": "New Announcement: scscscv",
+      "target": "emp",
+      "time": "02:24 PM",
+      "unread": true
+    }
+  ],
+  "departments": [
+    "Engineering",
+    "HR",
+    "IT",
+    "Marketing",
+    "Finance",
+    "Operations"
+  ],
+  "calendarEvents": {
+    "2026-01-01": {
+      "title": "New Year's Day",
+      "category": "holiday"
+    },
+    "2026-01-26": {
+      "title": "Republic Day",
+      "category": "holiday"
+    },
+    "2026-03-25": {
+      "title": "Holi",
+      "category": "holiday"
+    },
+    "2026-04-14": {
+      "title": "Dr. Ambedkar Jayanti",
+      "category": "holiday"
+    },
+    "2026-08-15": {
+      "title": "Independence Day",
+      "category": "holiday"
+    },
+    "2026-10-02": {
+      "title": "Gandhi Jayanti",
+      "category": "holiday"
+    },
+    "2026-11-04": {
+      "title": "Diwali",
+      "category": "holiday"
+    },
+    "2026-12-25": {
+      "title": "Christmas",
+      "category": "holiday"
+    },
+    "2026-06-01": {
+      "title": "Company Anniversary 🎉",
+      "category": "occasion"
+    },
+    "2026-10-17": {
+      "title": "atharv naik's Birthday 🎂",
+      "category": "birthday"
+    }
+  }
+}

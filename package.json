@@ -1,0 +1,16 @@
+{
+  "name": "quemahtech-ems",
+  "version": "1.0.0",
+  "description": "QUEMAHTECH - Employee Management System with real-time server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ws": "^8.18.0",
+    "cors": "^2.8.5",
+    "nodemailer": "^6.9.15"
+  }
+}
