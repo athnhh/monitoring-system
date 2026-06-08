@@ -141,8 +141,8 @@ async function refreshState() {
 function seedDefaultData() {
   if (!employees.length) {
     employees = [
-      { id: 'EMP001', name: 'Rahul Sharma', dept: 'Engineering', email: 'rahul@quemahtech.com', phone: '+91 98765 43210', bday: '1990-05-15', joining: '2023-01-10', designation: 'Senior Developer', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' },
-      { id: 'EMP002', name: 'Priya Patel', dept: 'HR', email: 'priya@quemahtech.com', phone: '+91 87654 32109', bday: '1992-08-22', joining: '2023-03-15', designation: 'HR Manager', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' }
+      { id: 'EMP001', name: 'Rahul Sharma', dept: 'Engineering', email: 'rahul@test.com', phone: '+91 98765 43210', bday: '1990-05-15', joining: '2023-01-10', designation: 'Senior Developer', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' },
+      { id: 'EMP002', name: 'Priya Patel', dept: 'HR', email: 'priya@test.com', phone: '+91 87654 32109', bday: '1992-08-22', joining: '2023-03-15', designation: 'HR Manager', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' }
     ];
   }
   if (!attendanceRecords.length) {
@@ -1588,7 +1588,7 @@ function sendOTP() {
   
   if (uid === 'quemahtech') {
     userFound = true;
-    userEmail = 'admin@quemahtech.com';
+    userEmail = 'admin@test.com';
     userName = 'Administrator';
   } else {
     const emp = employees.find(e => e.id === uid && e.active);
@@ -1626,10 +1626,10 @@ function sendOTP() {
       method: 'POST',
       body: {
         to: userEmail,
-        subject: 'QUEMAHTECH — Password Reset OTP',
+        subject: 'TEST — Password Reset OTP',
         html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">
           <div style="background:#0f2744;padding:20px;text-align:center;border-radius:10px 10px 0 0;">
-            <h1 style="color:#f59e0b;margin:0;font-size:20px;">🛡️ QUEMAHTECH</h1>
+            <h1 style="color:#f59e0b;margin:0;font-size:20px;">🛡️ TEST</h1>
             <p style="color:#94a3b8;margin:4px 0 0;font-size:12px;">Employee Management System</p>
           </div>
           <div style="padding:24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 10px 10px;">

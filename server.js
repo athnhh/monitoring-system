@@ -21,8 +21,8 @@ let state = {
 };
 
 const DEFAULT_EMPLOYEES = [
-  { id: 'EMP001', name: 'Rahul Sharma', dept: 'Engineering', email: 'rahul@quemahtech.com', phone: '+91 98765 43210', bday: '1990-05-15', joining: '2023-01-10', designation: 'Senior Developer', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' },
-  { id: 'EMP002', name: 'Priya Patel', dept: 'HR', email: 'priya@quemahtech.com', phone: '+91 87654 32109', bday: '1992-08-22', joining: '2023-03-15', designation: 'HR Manager', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' }
+  { id: 'EMP001', name: 'Rahul Sharma', dept: 'Engineering', email: 'rahul@test.com', phone: '+91 98765 43210', bday: '1990-05-15', joining: '2023-01-10', designation: 'Senior Developer', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' },
+  { id: 'EMP002', name: 'Priya Patel', dept: 'HR', email: 'priya@test.com', phone: '+91 87654 32109', bday: '1992-08-22', joining: '2023-03-15', designation: 'HR Manager', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' }
 ];
 
 // ── Data Persistence ──
@@ -308,7 +308,7 @@ async function handleAPI(req, res) {
         try {
           const result = await sendEmail({
             host: body.host, port: parseInt(body.port), user: body.user, pass: body.pass,
-            to: body.user, subject: 'QUEMAHTECH — SMTP Test',
+            to: body.user, subject: 'TEST — SMTP Test',
             html: '<h2>SMTP Configuration Verified ✓</h2>'
           });
           return sendJSON(res, 200, result);
@@ -397,14 +397,16 @@ const server = http.createServer(async (req, res) => {
   res.end('Not found');
 });
 
-// ── WebSocket ──
-const wss = new WebSocketServer({ server });
-wss.on('connection', (ws) => {
-  clients.add(ws);
-  console.log(`WS connected. ${clients.size} clients`);
-  ws.on('close', () => { clients.delete(ws); console.log(`WS disconnected. ${clients.size} clients`); });
-  ws.on('error', () => clients.delete(ws));
-});
+// ── WebSocket (local only — Vercel does not support persistent WS) ──
+if (!process.env.VERCEL) {
+  const wss = new WebSocketServer({ server });
+  wss.on('connection', (ws) => {
+    clients.add(ws);
+    console.log(`WS connected. ${clients.size} clients`);
+    ws.on('close', () => { clients.delete(ws); console.log(`WS disconnected. ${clients.size} clients`); });
+    ws.on('error', () => clients.delete(ws));
+  });
+}
 
 // ── SMTP (built-in, no nodemailer) ──
 const net = require('net');
@@ -472,11 +474,18 @@ function sendEmail({ host, port, user, pass, to, subject, html }) {
   });
 }
 
-// ── Start ──
+// ── Start (always) ──
 loadData();
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n  QUEMAHTECH Employee Management System`);
-  console.log(`  http://localhost:${PORT}`);
-  console.log(`  Admin: quemahtech / quemah123`);
-  console.log(`  Emp:   EMP001 / emp123\n`);
-});
+
+// ── Export for Vercel ──
+module.exports = server;
+
+// ── Local server listen ──
+if (!process.env.VERCEL) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n  TEST Employee Management System`);
+    console.log(`  http://localhost:${PORT}`);
+    console.log(`  Admin: quemahtech / quemah123`);
+    console.log(`  Emp:   EMP001 / emp123\n`);
+  });
+}

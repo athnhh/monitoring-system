@@ -1,7 +1,7 @@
 @echo off
 echo.
 echo ============================================
-echo   QUEMAHTECH - Employee Management System
+echo   TEST - Employee Management System
 echo ============================================
 echo.
 echo Installing dependencies...
