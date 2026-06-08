@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QUEMAHTECH — Employee Management System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+<div id="notif-bar" class="notif-bar" style="display:none;">
+  <span class="notif-icon" id="notif-icon">✓</span>
+  <span class="notif-text" id="notif-text"></span>
+  <button class="notif-close" onclick="hideNotifBar()">×</button>
+</div>
+<div id="notif-panel" class="notif-panel">
+  <div class="notif-panel-header">
+    <h3>🔔 Notifications</h3>
+    <button class="close-modal-btn" onclick="toggleNotifPanel()">×</button>
+  </div>
+  <div class="notif-panel-body" id="notif-panel-body">
+    <!-- populated by JS -->
+  </div>
+</div>
+
+<!-- LOGIN PAGE -->
+<div id="page-login" class="page active">
+  <div class="login-bg">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="login-logo-icon"><img src="logo.webp" width="60" height="60" style="border-radius: 45%;"></div>
+        <div class="login-logo-text">
+          <h2>QUEMAHTECH</h2>
+          <p>EMPLOYEE MANAGEMENT SYSTEM</p>
+        </div>
+      </div>
+      <div class="role-switch">
+        <button class="role-btn active" id="role-admin" onclick="setRole('admin')">🛡️ Admin</button>
+        <button class="role-btn" id="role-emp" onclick="setRole('employee')">👤 Employee</button>
+      </div>
+      <div class="field">
+        <label id="uid-label">Username</label>
+        <input type="text" id="uid" placeholder="Enter username" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="pwd" placeholder="Enter password" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <label class="remember-row">
+        <input type="checkbox" id="remember-me" checked>
+        <span class="remember-check"></span>
+        <span class="remember-text">Remember me</span>
+      </label>
+      <button class="login-btn" onclick="doLogin()">
+        <span>→</span> Sign In
+      </button>
+      <div class="error-msg" id="err-msg" style="display:none;">
+        ⚠ Invalid credentials. Please try again.
+      </div>
+      <a class="forgot-link" onclick="openForgotModal()">Forgot password?</a>
+      <hr class="divider">
+    </div>
+  </div>
+</div>
+<!-- ADMIN PAGE -->
+<div id="page-admin" class="page">
+  <div class="topbar">
+    <div class="topbar-brand">
+      <div class="brand-icon"><img src="logo.webp" width="50" height="50" style="border-radius: 45%;"></div>
+      <div>
+        <h1>QUEMAHTECH</h1>
+        <small>ADMIN PANEL</small>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="tb-clock" id="admin-clock"></span>
+      <button class="notif-bell-btn no-print" onclick="toggleNotifPanel()">
+        🔔<span class="notif-badge" id="admin-notif-count">3</span>
+      </button>
+      <span class="badge badge-admin">🛡 Administrator</span>
+      <button class="dark-toggle-btn no-print" onclick="toggleDarkMode()" id="dm-admin-btn" title="Toggle Dark Mode">🌙</button>
+      <button class="logout-btn no-print" onclick="logout()">← Logout</button>
+    </div>
+  </div>
+  <div class="nav">
+    <button class="nav-btn active" onclick="adminTab('dashboard',this)">📊 Dashboard</button>
+    <button class="nav-btn" onclick="adminTab('records',this)">📋 Records</button>
+    <button class="nav-btn" onclick="adminTab('employees',this)">👥 Employees</button>
+    <button class="nav-btn" onclick="adminTab('leaves',this)">📅 Leave Mgmt</button>
+    <button class="nav-btn" onclick="adminTab('calendar',this)">🗓 Calendar</button>
+    <button class="nav-btn" onclick="adminTab('reports',this)">📈 Reports</button>
+    <button class="nav-btn" onclick="adminTab('departments',this)">🏬 Departments</button>
+    <button class="nav-btn" onclick="adminTab('announcements',this)">📢 Announce</button>
+    <button class="nav-btn" onclick="adminTab('settings',this)">⚙️ Settings</button>
+  </div>
+  <div class="content">
+
+    <!-- DASHBOARD TAB -->
+    <div id="admin-dashboard" class="atab show">
+      <div class="welcome-header">
+        <h2 id="admin-greeting">Good morning, Administrator 👋</h2>
+        <p id="today-date"></p>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-card-accent blue"></div>
+          <div class="stat-label">Total Employees</div>
+          <div class="stat-val" id="stat-total-emp">0</div>
+          <div class="stat-sub">Active staff members</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-accent green"></div>
+          <div class="stat-label">Present Today</div>
+          <div class="stat-val green-v" id="stat-present-today">0</div>
+          <div class="stat-sub" id="stat-present-rate">—% attendance</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-accent red"></div>
+          <div class="stat-label">Absent Today</div>
+          <div class="stat-val red-v" id="stat-absent-today">0</div>
+          <div class="stat-sub">Leave / unexcused</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-accent amber"></div>
+          <div class="stat-label">Late Arrivals</div>
+          <div class="stat-val amber-v" id="stat-late-today">0</div>
+          <div class="stat-sub">After 9:15 AM today</div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="sec-title" id="title-present-count">Present (0)</div>
+          <div id="a-present"><p style="color:var(--subtle);font-size:13px;">No data yet.</p></div>
+        </div>
+        <div class="card">
+          <div class="sec-title" id="title-absent-count">Absent (0)</div>
+          <div id="a-absent"><p style="color:var(--subtle);font-size:13px;">No data yet.</p></div>
+          <div style="margin-top:18px;">
+            <div class="sec-title">Department Attendance Rate</div>
+            <div id="a-bars"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="sec-title" style="margin:0;">Today's Attendance Log — <span id="today-date2" style="text-transform:none;letter-spacing:0;font-weight:400;"></span></div>
+          <button class="btn btn-sm no-print" onclick="adminTab('records',document.querySelector('.nav-btn:nth-child(2)'))">View All →</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Employee</th><th>Department</th><th>Sign In</th><th>Sign Out</th><th>Hours</th><th>Status</th></tr></thead>
+            <tbody id="a-log"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sec-title">Pending Leave Requests</div>
+        <div id="dash-pending-leaves"></div>
+      </div>
+    </div>
+
+    <!-- RECORDS TAB -->
+    <div id="admin-records" class="atab">
+      <div class="card">
+        <div class="card-header">
+          <div class="sec-title" style="margin:0;">All Attendance Records</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;" class="no-print">
+            <button class="btn" onclick="window.print()">🖨 Print</button>
+            <button class="btn btn-primary" onclick="exportCSV()">↓ Export CSV</button>
+            <button class="btn" style="background:var(--green);color:#fff;border-color:var(--green);" onclick="exportExcel('records')">↓ Export Excel</button>
+          </div>
+        </div>
+        <div class="filters no-print">
+          <input type="date" id="rec-date" oninput="renderRecords()">
+          <select id="rec-dept" oninput="renderRecords()"><option value="">All Departments</option></select>
+          <select id="rec-status" oninput="renderRecords()">
+            <option value="">All Status</option>
+            <option>Present</option><option>Late</option>
+            <option>Half-Day</option><option>Absent</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Employee</th><th>Dept</th><th>Date</th><th>Sign In</th><th>Sign Out</th><th>Hrs</th><th>Status</th><th>Notes</th></tr></thead>
+            <tbody id="a-records"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMPLOYEES TAB -->
+    <div id="admin-employees" class="atab">
+      <div class="history-toggle" id="archived-toggle" onclick="toggleArchived()">
+        📦 View Archived / Past Employee History
+        <span style="margin-left:auto;font-size:18px;" id="archived-arrow">›</span>
+      </div>
+      <div id="archived-section" style="display:none;">
+        <div class="archived-banner">
+          <span>⚠️</span>
+          <span>You are viewing <strong>archived/terminated employees</strong>. Their data is read-only for compliance and audit purposes.</span>
+        </div>
+        <div class="card">
+          <div class="sec-title">Archived Employees</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Name</th><th>Dept</th><th>Status</th><th>Join Date</th><th>Exit Date</th><th>Action</th></tr></thead>
+              <tbody id="archived-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div id="active-emp-section">
+        <div class="card">
+          <div class="card-header">
+            <div class="sec-title" style="margin:0;">Active Employee Directory</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn" style="background:var(--green);color:#fff;border-color:var(--green);font-size:12px;padding:4px 10px;" onclick="exportExcel('employees')">📊 Excel</button>
+            <button class="btn btn-primary no-print" onclick="openAddEmpModal()">+ Add Employee</button>
+          </div>
+          </div>
+          <div class="filters no-print">
+            <input type="text" id="emp-search" placeholder="🔍 Search name or ID…" oninput="renderEmpTable()" style="width:200px;">
+            <select id="emp-dept-filter" oninput="renderEmpTable()"><option value="">All Departments</option></select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Avatar</th><th>ID</th><th>Name</th><th>Dept</th><th>Designation</th><th>Email</th><th>Phone</th><th>Birthday</th><th>Actions</th></tr></thead>
+              <tbody id="emp-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LEAVE MANAGEMENT TAB -->
+    <div id="admin-leaves" class="atab">
+      <div class="two-col">
+        <div class="card">
+          <div class="sec-title">Pending Leave Requests</div>
+          <div id="leave-requests-list"></div>
+        </div>
+        <div class="card">
+          <div class="sec-title">Leave Policy Rules</div>
+          <div class="rule-note"><span class="rule-icon">💼</span><span><strong>Casual Leave (CL):</strong> Accrues 1.0 day/month. Carry-forward allowed. Shortfall converts to Unpaid.</span></div>
+          <div class="rule-note"><span class="rule-icon">🏥</span><span><strong>Sick Leave (SL):</strong> Accrues 0.5 days/month. Carry-forward allowed. Full SL day = 0.5 SL + 0.5 Unpaid.</span></div>
+          <div class="rule-note"><span class="rule-icon">💸</span><span><strong>Unpaid Leave (UL):</strong> Applied when CL/SL balance insufficient or by request.</span></div>
+          <div class="rule-note"><span class="rule-icon">🕑</span><span><strong>Half-Day:</strong> Auto-flagged if first login after 14:00. Admin override available.</span></div>
+          <div class="rule-note"><span class="rule-icon">✅</span><span><strong>Approved Leave:</strong> Overrides automated "Absent" flags in all reports.</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sec-title">Employee Leave Balances</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Employee</th><th>Dept</th><th>CL Balance</th><th>SL Balance</th><th>UL Used</th><th>Manage</th></tr></thead>
+            <tbody id="leave-balances-table"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sec-title">Leave History Log</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Status</th><th>Reason</th></tr></thead>
+            <tbody id="leave-history-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- CALENDAR TAB -->
+    <div id="admin-calendar" class="atab">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="sec-title" style="margin:0;color:var(--primary);padding:12px 0;font-size:14px;">📅 QUEMAHTECH EVENT CALENDER</div>
+          </div>
+        </div>
+        <iframe src="https://calendar.google.com/calendar/embed?src=en-gb.indian%23holiday%40group.v.calendar.google.com&ctz=Asia%2FKolkata" style="border: 0" width="800" height="600" frameborder="0" scrolling="no"></iframe>
+      </div>
+    </div>
+
+    <!-- REPORTS TAB -->
+    <div id="admin-reports" class="atab">
+      <div class="rtabs no-print">
+        <button class="rtab active" onclick="setReport('daily',this)">📅 Daily</button>
+        <button class="rtab" onclick="setReport('weekly',this)">📆 Weekly</button>
+        <button class="rtab" onclick="setReport('monthly',this)">🗓 Monthly</button>
+      </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="sec-title" id="rpt-title" style="margin-bottom:12px;"></div>
+        <div class="sum-row" id="rpt-summary"></div>
+        <div class="two-col">
+          <div><div class="sec-title">Attendance Rate by Dept</div><div id="rpt-att-bars"></div></div>
+          <div><div class="sec-title">Avg Working Hours by Dept</div><div id="rpt-hr-bars"></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="sec-title" style="margin:0;" id="rpt-table-title"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;" class="no-print">
+            <button class="btn" onclick="window.print()">🖨 Print</button>
+            <button class="btn btn-primary" onclick="exportCSV()">↓ Export CSV</button>
+            <button class="btn" style="background:var(--green);color:#fff;border-color:var(--green);" onclick="exportExcel('reports')">↓ Export Excel</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table><thead><tr id="rpt-thead"></tr></thead><tbody id="rpt-table"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- DEPARTMENTS TAB -->
+    <div id="admin-departments" class="atab">
+      <div class="two-col">
+        <div class="card" style="margin-bottom:0;">
+          <div class="sec-title">Manage Departments</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Add or remove departments. All dropdowns update immediately.</p>
+          <div class="dept-tag-list" id="dept-tag-list"></div>
+          <div class="dept-add-row">
+            <input type="text" id="new-dept-input" placeholder="New department name…" onkeydown="if(event.key==='Enter')addDept()">
+            <button class="btn btn-primary" onclick="addDept()">+ Add</button>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+          <div class="sec-title">Department Headcount</div>
+          <div id="dept-headcount-bars"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANNOUNCEMENTS TAB -->
+    <div id="admin-announcements" class="atab">
+      <div class="two-col">
+        <div class="ann-form-card">
+          <div class="ann-form-header">
+            <span class="ann-form-icon">📢</span>
+            <div>
+              <div class="ann-form-title">Send Announcement</div>
+              <div class="ann-form-subtitle">Broadcast a message to all employees or a specific department</div>
+            </div>
+          </div>
+          <div class="ann-form-body">
+            <div class="field">
+              <label>Subject Line</label>
+              <input type="text" id="ann-subject" placeholder="e.g. Republic Day Holiday — 26 Jan 2026" class="ann-input">
+            </div>
+            <div class="field">
+              <label>Recipients</label>
+              <div class="ann-recipient-selector">
+                <button class="ann-recip-btn active" data-val="all" onclick="selectAnnRecipient(this,'all')">
+                  <span class="ann-recip-icon">👥</span>
+                  <span>All Employees</span>
+                </button>
+                <button class="ann-recip-btn" data-val="dept" onclick="selectAnnRecipient(this,'dept')">
+                  <span class="ann-recip-icon">🏬</span>
+                  <span>By Department</span>
+                </button>
+                <button class="ann-recip-btn" data-val="individual" onclick="selectAnnRecipient(this,'individual')">
+                  <span class="ann-recip-icon">👤</span>
+                  <span>Individual</span>
+                </button>
+              </div>
+              <div id="ann-dept-select-wrap" style="display:none;margin-top:10px;">
+                <select id="ann-dept-select" class="ann-input">
+                  <option value="Engineering">Engineering</option>
+                  <option value="HR">HR</option>
+                  <option value="IT">IT</option>
+                  <option value="Marketing">Marketing</option>
+                  <option value="Finance">Finance</option>
+                  <option value="Operations">Operations</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>Priority</label>
+              <div class="ann-priority-selector">
+                <button class="ann-prior-btn" data-val="low" onclick="selectAnnPriority(this,'low')">
+                  <span class="ann-prior-dot pd-low"></span> Low
+                </button>
+                <button class="ann-prior-btn active" data-val="normal" onclick="selectAnnPriority(this,'normal')">
+                  <span class="ann-prior-dot pd-normal"></span> Normal
+                </button>
+                <button class="ann-prior-btn" data-val="high" onclick="selectAnnPriority(this,'high')">
+                  <span class="ann-prior-dot pd-high"></span> High
+                </button>
+                <button class="ann-prior-btn" data-val="urgent" onclick="selectAnnPriority(this,'urgent')">
+                  <span class="ann-prior-dot pd-urgent"></span> Urgent
+                </button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Message</label>
+              <div class="ann-textarea-wrap">
+                <textarea id="ann-body" class="ann-textarea" rows="5" placeholder="Write your announcement message here…"></textarea>
+                <div class="ann-charcount"><span id="ann-charcount">0</span> characters</div>
+              </div>
+            </div>
+            <div class="ann-form-actions">
+              <button class="btn btn-preview" onclick="previewAnnouncement()">
+                <span>👁</span> Preview
+              </button>
+              <button class="btn btn-primary ann-send-btn" onclick="sendAnnouncement()">
+                <span>📤</span> Send Announcement
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="ann-list-card">
+          <div class="ann-list-header">
+            <span class="ann-form-icon">📋</span>
+            <div>
+              <div class="ann-form-title">Recent Announcements</div>
+              <div class="ann-form-subtitle">Previously sent broadcasts</div>
+            </div>
+            <span class="ann-count-badge" id="ann-count-badge">0</span>
+          </div>
+          <div class="ann-list-body" id="announcements-list">
+            <div class="ann-empty-state">
+              <span class="ann-empty-icon">📭</span>
+              <div class="ann-empty-text">No announcements yet</div>
+              <div class="ann-empty-sub">Your first announcement will appear here</div>
+            </div>
+          </div>
+          <div class="ann-sms-section">
+            <div class="ann-sms-header" onclick="toggleSmsSection()">
+              <span>📱</span>
+              <span>SMS Alert via Twilio</span>
+              <span class="ann-sms-arrow" id="ann-sms-arrow">▸</span>
+            </div>
+            <div class="ann-sms-body" id="ann-sms-body" style="display:none;">
+              <div class="field">
+                <label>SMS Message <span class="ann-sms-charlimit">(max 160 chars)</span></label>
+                <div class="ann-textarea-wrap">
+                  <textarea id="sms-body" class="ann-textarea" rows="3" maxlength="160" placeholder="Alert: Office will remain closed tomorrow…" style="resize:none;"></textarea>
+                  <div class="ann-charcount"><span id="sms-charcount">0</span>/160</div>
+                </div>
+              </div>
+              <div class="field">
+                <label>Send To</label>
+                <select class="ann-input">
+                  <option>All Employees</option>
+                  <option>Managers Only</option>
+                  <option>Custom Number</option>
+                </select>
+              </div>
+              <button class="btn btn-primary ann-send-btn" style="width:100%;margin-bottom:8px;" onclick="sendSMSAlert()">
+                <span>📱</span> Send SMS Alert
+              </button>
+              <div class="ann-sms-note">ℹ️ SMS alerts are simulated for demo purposes. No gateway configuration required.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div id="admin-settings" class="atab">
+      <div class="two-col">
+        <div class="settings-section">
+          <div class="sec-title">Change Admin Password</div>
+          <div class="field"><label>Current Password</label><input type="password" id="a-cur-pwd" placeholder="Enter current password"></div>
+          <div class="field"><label>New Password</label><input type="password" id="a-new-pwd" placeholder="Min 6 characters" oninput="checkPwdStrength('a-new-pwd','a-strength')">
+            <div class="strength-bar"><div class="strength-fill" id="a-strength" style="width:0"></div></div>
+          </div>
+          <div class="field"><label>Confirm New Password</label><input type="password" id="a-conf-pwd" placeholder="Re-enter new password"></div>
+          <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="changeAdminPwd()">Update Password</button>
+        </div>
+        <div class="settings-section">
+          <div class="sec-title">SMTP Email Configuration</div>
+          <div class="field"><label>SMTP Host</label><input type="text" id="smtp-host" value="smtp.gmail.com" placeholder="smtp.gmail.com"></div>
+          <div class="field"><label>Port</label><input type="text" id="smtp-port" value="587" placeholder="587"></div>
+          <div class="field"><label>Email</label><input type="email" id="smtp-email" placeholder="admin@quemahtech.com"></div>
+          <div class="field"><label>App Password</label><input type="password" id="smtp-pwd" placeholder="App-specific password"></div>
+          <div class="smtp-test-row">
+            <span style="font-size:13px;color:var(--muted);flex:1;">Test SMTP connection before saving</span>
+            <button class="btn btn-sm" onclick="testSmtp()">🔌 Test</button>
+          </div>
+          <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="saveSmtp()">Save SMTP Settings</button>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="sec-title">Alert Thresholds & Notification Rules</div>
+        <div class="three-col" style="margin-bottom:0;">
+          <div class="field"><label>Late arrival after (mins)</label><input type="number" id="late-threshold" value="15" min="1" max="60"></div>
+          <div class="field"><label>Absent alert after (mins)</label><input type="number" id="absent-threshold" value="30" min="5"></div>
+          <div class="field"><label>Half-day threshold (hour)</label><input type="number" id="halfday-threshold" value="14" min="1" max="23"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="email-notif-on" checked> Send email notifications to employees for holidays & occasions
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="popup-notif-on" checked> Show in-app popups for upcoming events
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="late-sms-on" checked> Auto-SMS to admin when employee is late
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="absent-sms-on" checked> Auto-SMS to admin when employee marks absent
+          </label>
+        </div>
+        <button class="btn btn-primary" style="margin-top:16px;" onclick="showNotifBar('success','Alert settings saved successfully!','✓')">Save Alert Settings</button>
+      </div>
+      <div class="settings-section">
+        <div class="sec-title">Google Calendar Integration</div>
+        <div class="two-col" style="margin-bottom:0;">
+          <div class="field"><label>Service Account JSON Path</label><input type="text" placeholder="/path/to/service-account.json"></div>
+          <div class="field"><label>Calendar ID</label><input type="text" placeholder="primary or group@calendar.google.com"></div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" onclick="showNotifBar('info','Syncing birthdays to Google Calendar…','📅')">📅 Sync Birthdays</button>
+          <button class="btn" onclick="showNotifBar('info','Syncing holidays to Google Calendar…','📅')">📅 Sync Holidays</button>
+        </div>
+        <p style="font-size:11px;color:var(--subtle);margin-top:10px;">ℹ️ Requires Google Calendar API credentials. See backend `app.py` for full implementation.</p>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /page-admin -->
+
+<!-- EMPLOYEE PAGE -->
+<div id="page-employee" class="page">
+  <div class="topbar">
+    <div class="topbar-brand">
+      <div class="brand-icon">👤</div>
+      <div>
+        <h1 id="emp-topbar-name">My Attendance</h1>
+        <small>AttendTrack — Employee Portal</small>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="tb-clock" id="emp-clock"></span>
+      <button class="notif-bell-btn" onclick="toggleEmpNotifPanel()">
+        🔔<span class="notif-badge" id="emp-notif-count">2</span>
+      </button>
+      <span class="badge badge-emp" id="emp-badge">👤 Employee</span>
+      <button class="dark-toggle-btn no-print" onclick="toggleDarkMode()" id="dm-emp-btn" title="Toggle Dark Mode">🌙</button>
+      <button class="logout-btn no-print" onclick="logout()">← Logout</button>
+    </div>
+  </div>
+  <div class="nav">
+    <button class="nav-btn active" onclick="empTab('dashboard',this)">🏠 My Dashboard</button>
+    <button class="nav-btn" onclick="empTab('history',this)">📋 History</button>
+    <button class="nav-btn" onclick="empTab('leaves',this)">📅 My Leaves</button>
+    <button class="nav-btn" onclick="empTab('calendar',this)">🗓 Calendar</button>
+    <button class="nav-btn" onclick="empTab('settings',this)">⚙️ Settings</button>
+  </div>
+  <div class="content">
+
+    <!-- EMP DASHBOARD TAB -->
+    <div id="emp-dashboard" class="etab show">
+      <div class="emp-hero">
+        <div class="emp-hero-av av-blue" id="emp-av" style="font-size:22px;font-weight:700;width:58px;height:58px;border:3px solid #dbeafe;">?</div>
+        <div style="flex:1;">
+          <div style="font-size:18px;font-weight:700;color:var(--text);font-family:var(--font-display);" id="emp-fullname">—</div>
+          <div style="font-size:13px;color:var(--muted);margin-top:4px;" id="emp-details">—</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="big-clock" id="emp-bigclock">—</div>
+          <div style="font-size:12px;color:var(--subtle);margin-top:3px;" id="emp-datestr">—</div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="punch-area">
+          <div id="emp-pill" class="status-pill sp-out" style="margin-bottom:14px;">
+            <div class="status-dot sd-r"></div>Not signed in
+          </div>
+          <p>Tap a button to mark your attendance for today</p>
+          <div style="margin:14px 0;">
+            <button class="pbtn pbtn-in" onclick="empPunchIn()">✓ Sign In</button>
+            <button class="pbtn pbtn-out" onclick="empPunchOut()">✗ Sign Out</button>
+          </div>
+          <button class="pbtn pbtn-break" id="break-btn" onclick="toggleBreak()">☕ Start Break</button>
+          <div id="break-timer-wrap" style="display:none;margin-top:12px;text-align:center;">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Break duration</div>
+            <div class="break-timer-display" id="break-timer">00:00</div>
+          </div>
+          <div style="margin-top:14px;font-size:12px;color:var(--muted);">
+            Office hours: 9:00 AM – 6:00 PM &nbsp;|&nbsp; <span style="color:var(--red);">Late after 9:15 AM</span>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+          <div class="sec-title">This Month Summary</div>
+          <div class="mini-stats">
+            <div class="mini-stat"><div class="mini-stat-val green-v" id="ms-present">0</div><div class="mini-stat-lbl">Days Present</div></div>
+            <div class="mini-stat"><div class="mini-stat-val red-v" id="ms-absent">0</div><div class="mini-stat-lbl">Days Absent</div></div>
+            <div class="mini-stat"><div class="mini-stat-val blue-v" id="ms-hours">0h</div><div class="mini-stat-lbl">Total Hours</div></div>
+            <div class="mini-stat"><div class="mini-stat-val amber-v" id="ms-late">0</div><div class="mini-stat-lbl">Late Arrivals</div></div>
+          </div>
+          <div class="sec-title">This Week Hours</div>
+          <div id="emp-bars"></div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="card" style="margin-bottom:0;">
+          <div class="sec-title" style="margin-bottom:12px;">Today's Timeline</div>
+          <ul class="timeline" id="today-timeline">
+            <li class="timeline-item" style="color:var(--subtle);font-size:13px;">No events yet today.</li>
+          </ul>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+          <div class="sec-title">Leave Balance</div>
+          <div class="leave-balance-grid">
+            <div class="leave-bal-card">
+              <div class="leave-bal-val blue-v" id="emp-cl-bal">7.5</div>
+              <div class="leave-bal-lbl">Casual Leave</div>
+              <div class="leave-bal-sub">Accrues 1.0/month</div>
+            </div>
+            <div class="leave-bal-card">
+              <div class="leave-bal-val green-v" id="emp-sl-bal">3.0</div>
+              <div class="leave-bal-lbl">Sick Leave</div>
+              <div class="leave-bal-sub">Accrues 0.5/month</div>
+            </div>
+            <div class="leave-bal-card">
+              <div class="leave-bal-val red-v" id="emp-ul-used">1.0</div>
+              <div class="leave-bal-lbl">Unpaid Used</div>
+              <div class="leave-bal-sub">This year</div>
+            </div>
+          </div>
+          <button class="btn btn-primary" style="width:100%;" onclick="empTab('leaves',document.querySelectorAll('#page-employee .nav-btn')[2])">Apply for Leave →</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header" style="padding-bottom:12px;">
+          <div class="sec-title" style="margin:0;">📢 Recent Announcements</div>
+          <span class="ann-count-badge ann-count-badge-sm" id="emp-ann-count">0</span>
+        </div>
+        <div id="emp-announcements-list"></div>
+      </div>
+      <div class="card">
+        <div class="sec-title" style="margin-bottom:12px;">Recent Attendance</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Day</th><th>Sign In</th><th>Sign Out</th><th>Break</th><th>Net Hrs</th><th>Status</th></tr></thead>
+            <tbody id="emp-log"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMP HISTORY TAB -->
+    <div id="emp-history" class="etab">
+      <div class="card">
+        <div class="card-header">
+          <div class="sec-title" style="margin:0;">Full Attendance History</div>
+          <div style="display:flex;gap:8px;" class="no-print">
+            <input type="month" id="hist-month" oninput="renderEmpHistory()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:13px;outline:none;">
+            <button class="btn" onclick="window.print()">🖨 Print</button>
+            <button class="btn btn-primary" onclick="exportEmpCSV()">↓ Export</button>
+          </div>
+        </div>
+        <div class="sum-row" id="hist-summary"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Day</th><th>Sign In</th><th>Sign Out</th><th>Break</th><th>Net Hours</th><th>Status</th></tr></thead>
+            <tbody id="hist-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMP LEAVES TAB -->
+    <div id="emp-leaves" class="etab">
+      <div class="two-col">
+        <div class="card" style="margin-bottom:0;">
+          <div class="sec-title">Apply for Leave</div>
+          <div class="field"><label>Leave Type</label>
+            <div class="leave-type-selector">
+              <button class="leave-type-btn lt-cl active" onclick="selectLeaveType(this,'CL')">Casual Leave (CL)</button>
+              <button class="leave-type-btn lt-sl" onclick="selectLeaveType(this,'SL')">Sick Leave (SL)</button>
+              <button class="leave-type-btn lt-ul" onclick="selectLeaveType(this,'UL')">Unpaid Leave</button>
+            </div>
+          </div>
+          <div class="two-col" style="margin-bottom:0;gap:10px;">
+            <div class="field"><label>From Date</label><input type="date" id="leave-from"></div>
+            <div class="field"><label>To Date</label><input type="date" id="leave-to" oninput="calcLeaveDays()"></div>
+          </div>
+          <div class="field"><label>Duration</label>
+            <select id="leave-duration">
+              <option value="full">Full Day</option>
+              <option value="half-am">Half Day (AM)</option>
+              <option value="half-pm">Half Day (PM)</option>
+            </select>
+          </div>
+          <div class="field"><label>Reason / Details</label>
+            <textarea id="leave-reason" rows="3" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:var(--font);resize:none;" placeholder="Briefly describe the reason…"></textarea>
+          </div>
+          <div class="rule-note" id="leave-calc-note" style="margin-bottom:14px;">
+            <span class="rule-icon">ℹ️</span>
+            <span id="leave-calc-text">Select dates to calculate leave days and check balance.</span>
+          </div>
+          <button class="btn btn-primary" style="width:100%;" onclick="submitLeaveRequest()">Submit Leave Request</button>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+          <div class="sec-title">My Leave History</div>
+          <div id="my-leave-history"></div>
+          <div style="margin-top:18px;">
+            <div class="sec-title">Current Balance</div>
+            <div class="leave-balance-grid">
+              <div class="leave-bal-card">
+                <div class="leave-bal-val blue-v" id="emp-cl-bal2">7.5</div>
+                <div class="leave-bal-lbl">Casual Leave</div>
+              </div>
+              <div class="leave-bal-card">
+                <div class="leave-bal-val green-v" id="emp-sl-bal2">3.0</div>
+                <div class="leave-bal-lbl">Sick Leave</div>
+              </div>
+              <div class="leave-bal-card">
+                <div class="leave-bal-val red-v" id="emp-ul-used2">1.0</div>
+                <div class="leave-bal-lbl">Unpaid Used</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMP CALENDAR TAB -->
+    <div id="emp-calendar" class="etab">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="sec-title" style="margin:0;">📅 QUEMAHTECH EVENT CALENDAR</div>
+          </div>
+        </div>
+        <iframe src="https://calendar.google.com/calendar/embed?src=a1ac982d58095deeabca1136aa492d5cb38cfbe0d60c2619b3ad100e041fe281%40group.calendar.google.com&ctz=Asia%2FKolkata" style="border: 0" width="100%" height="600" frameborder="0" scrolling="no"></iframe>
+      </div>
+    </div>
+
+    <!-- EMP SETTINGS TAB -->
+    <div id="emp-settings" class="etab">
+      <div class="card" style="max-width:440px;">
+        <div class="sec-title">Change Password</div>
+        <div class="field"><label>Current Password</label><input type="password" id="e-cur-pwd" placeholder="Enter current password"></div>
+        <div class="field"><label>New Password</label><input type="password" id="e-new-pwd" placeholder="Min 6 characters" oninput="checkPwdStrength('e-new-pwd','e-strength')">
+          <div class="strength-bar"><div class="strength-fill" id="e-strength" style="width:0"></div></div>
+        </div>
+        <div class="field"><label>Confirm New Password</label><input type="password" id="e-conf-pwd" placeholder="Re-enter new password"></div>
+        <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="changeEmpPwd()">Update Password</button>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /page-employee -->
+
+<!-- MODALS -->
+
+<!-- ADD EMPLOYEE MODAL -->
+<div id="add-emp-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="width:560px;max-width:96vw;">
+    <div class="modal-header">
+      <h3 id="add-emp-title">👤 Add New Employee</h3>
+      <button class="close-modal-btn" onclick="closeAddEmpModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-section-title">Personal Information</div>
+        <div class="field"><label>Full Name *</label><input type="text" id="f-name" placeholder="e.g. Rahul Sharma"></div>
+        <div class="field"><label>Employee ID *</label><input type="text" id="f-id" placeholder="e.g. EMP004"></div>
+        <div class="field"><label>Email Address</label><input type="email" id="f-email" placeholder="rahul@quemahtech.com"></div>
+        <div class="field"><label>Phone</label><input type="tel" id="f-phone" placeholder="+91 98765 43210"></div>
+        <div class="field"><label>Birthday</label><input type="date" id="f-birthday"><small style="color:var(--subtle);font-size:11px;display:block;margin-top:3px;">🎂 Auto-added to company calendar</small></div>
+        <div class="field"><label>Joining Date</label><input type="date" id="f-joining"></div>
+        <div class="form-section-title">Work Details</div>
+        <div class="field"><label>Department *</label><select id="f-dept"></select></div>
+        <div class="field"><label>Designation</label><input type="text" id="f-designation" placeholder="e.g. Senior Developer"></div>
+        <div class="field" style="grid-column:1/-1;"><label>Employee Portal Password</label><input type="password" id="f-pwd" placeholder="Default: emp123"></div>
+        <div class="form-section-title">Leave Opening Balances</div>
+        <div class="field"><label>Casual Leave (CL)</label><input type="number" id="f-cl" value="7.5" step="0.5" min="0"></div>
+        <div class="field"><label>Sick Leave (SL)</label><input type="number" id="f-sl" value="3.0" step="0.5" min="0"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeAddEmpModal()">Cancel</button>
+      <button class="btn btn-primary" id="add-emp-save-btn" onclick="saveEmployee()">💾 Save Employee</button>
+    </div>
+  </div>
+</div>
+
+<!-- FORGOT PASSWORD MODAL -->
+<div id="forgot-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:400px;">
+    <div class="modal-header">
+      <h3>🔑 Reset Password</h3>
+      <button class="close-modal-btn" onclick="document.getElementById('forgot-modal').style.display='none'">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your Employee ID or username. We'll validate your registered phone number and send a reset code.</p>
+      <div class="field"><label>Employee ID / Username</label><input type="text" id="forgot-uid" placeholder="e.g. EMP001 or admin"></div>
+      <div class="field"><label>Registered Phone (last 4 digits)</label><input type="text" id="forgot-phone" maxlength="4" placeholder="e.g. 3210"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="sendOTP()">📱 Send Reset Code via SMS</button>
+      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">A reset code will be sent to your registered email.</p>
+    </div>
+  </div>
+</div>
+
+<!-- OTP MODAL -->
+<div id="otp-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:360px;">
+    <div class="modal-header">
+      <h3>🔢 Enter Reset Code</h3>
+      <button class="close-modal-btn" onclick="closeOtpModal()">×</button>
+    </div>
+    <div class="modal-body" style="text-align:center;">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:4px;">Enter the 4-digit code sent via SMS.</p>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">Enter the code sent to your registered email address.</p>
+      <p id="otp-help-text" style="display:none;font-size:13px;color:var(--amber);font-weight:600;margin-bottom:12px;padding:8px 12px;background:rgba(245,158,11,0.1);border-radius:8px;"></p>
+      <div class="otp-row">
+        <input type="text" maxlength="1" class="otp-inp" oninput="otpNext(this,0)" inputmode="numeric">
+        <input type="text" maxlength="1" class="otp-inp" oninput="otpNext(this,1)" inputmode="numeric">
+        <input type="text" maxlength="1" class="otp-inp" oninput="otpNext(this,2)" inputmode="numeric">
+        <input type="text" maxlength="1" class="otp-inp" oninput="otpNext(this,3)" inputmode="numeric">
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="verifyOTP()">Verify Code</button>
+    </div>
+  </div>
+</div>
+
+<!-- NEW PASSWORD MODAL -->
+<div id="newpwd-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:380px;">
+    <div class="modal-header">
+      <h3>🔒 Set New Password</h3>
+      <button class="close-modal-btn" onclick="document.getElementById('newpwd-modal').style.display='none'">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>New Password</label><input type="password" id="np-pwd" placeholder="Min 6 characters" oninput="checkPwdStrength('np-pwd','np-strength')">
+        <div class="strength-bar"><div class="strength-fill" id="np-strength" style="width:0"></div></div>
+      </div>
+      <div class="field"><label>Confirm Password</label><input type="password" id="np-conf" placeholder="Repeat password"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="doResetPwd()">Reset Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- DELETE EMPLOYEE CONFIRMATION MODAL -->
+<div id="delete-emp-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:400px;">
+    <div class="modal-header">
+      <h3>🗑 Remove Employee</h3>
+      <button class="close-modal-btn" onclick="closeDeleteEmpModal()">×</button>
+    </div>
+    <div class="modal-body" style="text-align:center;">
+      <p style="font-size:16px;margin-bottom:8px;">Are you sure you want to permanently remove <strong id="delete-emp-name">—</strong>?</p>
+      <p style="font-size:13px;color:var(--red);margin-bottom:16px;">⚠️ This action <strong>cannot</strong> be undone. The employee will be moved to the archived list.</p>
+      <div style="display:flex;gap:10px;justify-content:center;">
+        <button class="btn" onclick="closeDeleteEmpModal()" style="flex:1;">Cancel</button>
+        <button class="btn btn-danger" onclick="confirmDeleteEmployee()" style="flex:1;">🗑 Remove Permanently</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LEAVE MANAGEMENT MODAL (admin adjust balance) -->
+<div id="leave-manage-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <h3>📅 Adjust Leave Balance</h3>
+      <button class="close-modal-btn" onclick="document.getElementById('leave-manage-modal').style.display='none'">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Employee: <strong id="lm-emp-name">—</strong></p>
+      <div class="field"><label>Casual Leave (CL) Balance</label><input type="number" id="lm-cl" step="0.5" min="0"></div>
+      <div class="field"><label>Sick Leave (SL) Balance</label><input type="number" id="lm-sl" step="0.5" min="0"></div>
+      <div class="field"><label>Unpaid Leave Used</label><input type="number" id="lm-ul" step="0.5" min="0"></div>
+      <div class="rule-note">
+        <span class="rule-icon">ℹ️</span>
+        <span>Monthly accrual runs on the 1st of each month. CL: +1.0, SL: +0.5.</span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="document.getElementById('leave-manage-modal').style.display='none'">Cancel</button>
+      <button class="btn btn-primary" onclick="saveLeaveBalance()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- EMP NOTIFICATION PANEL -->
+<div id="emp-notif-panel" class="notif-panel">
+  <div class="notif-panel-header">
+    <h3>🔔 Notifications</h3>
+    <button class="close-modal-btn" onclick="toggleEmpNotifPanel()">×</button>
+  </div>
+  <div class="notif-panel-body" id="emp-notif-panel-body"></div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>

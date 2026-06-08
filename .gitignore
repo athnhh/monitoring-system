@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Production build output
+dist/
+
+# Runtime data (contains employee data, attendance records, etc.)
+data.json
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
+
+# IDE folders
+.vscode/
+.idea/
