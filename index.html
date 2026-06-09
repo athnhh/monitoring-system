@@ -6,7 +6,11 @@
 <title>TEST — Employee Management System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+<!-- CSS separated by page -->
+<link rel="stylesheet" href="shared.css">
+<link rel="stylesheet" href="login.css">
+<link rel="stylesheet" href="admin.css">
+<link rel="stylesheet" href="employee.css">
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -135,7 +139,7 @@
           <div id="a-present"><p style="color:var(--subtle);font-size:13px;">No data yet.</p></div>
         </div>
         <div class="card">
-          <div class="sec-title" id="title-absent-count">Absent (0)</div>
+          <div class="sec-title" id="title-absent-count">Absent / On Leave (0)</div>
           <div id="a-absent"><p style="color:var(--subtle);font-size:13px;">No data yet.</p></div>
           <div style="margin-top:18px;">
             <div class="sec-title">Department Attendance Rate</div>
@@ -247,7 +251,7 @@
           <div class="rule-note"><span class="rule-icon">🏥</span><span><strong>Sick Leave (SL):</strong> Accrues 0.5 days/month. Carry-forward allowed. Full SL day = 0.5 SL + 0.5 Unpaid.</span></div>
           <div class="rule-note"><span class="rule-icon">💸</span><span><strong>Unpaid Leave (UL):</strong> Applied when CL/SL balance insufficient or by request.</span></div>
           <div class="rule-note"><span class="rule-icon">🕑</span><span><strong>Half-Day:</strong> Auto-flagged if first login after 14:00. Admin override available.</span></div>
-          <div class="rule-note"><span class="rule-icon">✅</span><span><strong>Approved Leave:</strong> Overrides automated "Absent" flags in all reports.</span></div>
+          <div class="rule-note"><span class="rule-icon">✅</span><span><strong>Approved Leave:</strong> Overrides automated \"Absent\" flags in all reports.</span></div>
         </div>
       </div>
       <div class="card">
@@ -469,16 +473,12 @@
           <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="changeAdminPwd()">Update Password</button>
         </div>
         <div class="settings-section">
-          <div class="sec-title">SMTP Email Configuration</div>
-          <div class="field"><label>SMTP Host</label><input type="text" id="smtp-host" value="smtp.gmail.com" placeholder="smtp.gmail.com"></div>
-          <div class="field"><label>Port</label><input type="text" id="smtp-port" value="587" placeholder="587"></div>
-          <div class="field"><label>Email</label><input type="email" id="smtp-email" placeholder="admin@test.com"></div>
-          <div class="field"><label>App Password</label><input type="password" id="smtp-pwd" placeholder="App-specific password"></div>
-          <div class="smtp-test-row">
-            <span style="font-size:13px;color:var(--muted);flex:1;">Test SMTP connection before saving</span>
-            <button class="btn btn-sm" onclick="testSmtp()">🔌 Test</button>
+          <div class="sec-title">📧 Email (PHPMailer)</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Email sending is configured server-side via <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px;">email-config.json</code>. Edit that file with your SMTP credentials.</p>
+          <div class="compose-row">
+            <span style="font-size:13px;color:var(--muted);flex:1;">Test connection using config file</span>
+            <button class="btn btn-sm" onclick="testSmtp()">🔌 Test Connection</button>
           </div>
-          <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="saveSmtp()">Save SMTP Settings</button>
         </div>
       </div>
       <div class="settings-section">
@@ -504,6 +504,10 @@
         </div>
         <button class="btn btn-primary" style="margin-top:16px;" onclick="showNotifBar('success','Alert settings saved successfully!','✓')">Save Alert Settings</button>
       </div>
+      <!-- ── COMPOSE BUTTON ── -->
+      <div style="display:flex;gap:10px;margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="openComposeModal()" style="padding:14px 28px;font-size:15px;">✉️ Compose New Email</button>
+      </div>
       <div class="settings-section">
         <div class="sec-title">Google Calendar Integration</div>
         <div class="two-col" style="margin-bottom:0;">
@@ -514,7 +518,7 @@
           <button class="btn" onclick="showNotifBar('info','Syncing birthdays to Google Calendar…','📅')">📅 Sync Birthdays</button>
           <button class="btn" onclick="showNotifBar('info','Syncing holidays to Google Calendar…','📅')">📅 Sync Holidays</button>
         </div>
-        <p style="font-size:11px;color:var(--subtle);margin-top:10px;">ℹ️ Requires Google Calendar API credentials. See backend `app.py` for full implementation.</p>
+        <p style="font-size:11px;color:var(--subtle);margin-top:10px;">ℹ️ Requires Google Calendar API credentials. See backend for full implementation.</p>
       </div>
     </div>
 
@@ -785,7 +789,7 @@
   <div class="modal-box" style="max-width:400px;">
     <div class="modal-header">
       <h3>🔑 Reset Password</h3>
-      <button class="close-modal-btn" onclick="document.getElementById('forgot-modal').style.display='none'">×</button>
+      <button class="close-modal-btn" onclick="closeOtpModal();document.getElementById('forgot-modal').style.display='none'">×</button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your Employee ID or username. We'll validate your registered phone number and send a reset code.</p>
@@ -886,6 +890,95 @@
   </div>
   <div class="notif-panel-body" id="emp-notif-panel-body"></div>
 </div>
-<script src="script.js"></script>
+
+<!-- ── COMPOSE EMAIL MODAL ── -->
+<div id="compose-modal" class="modal-overlay" style="display:none;">
+  <div class="compose-modal-box">
+    <div class="compose-modal-header">
+      <div class="compose-modal-header-left">
+        <span class="compose-modal-icon">✉️</span>
+        <div>
+          <div class="compose-modal-title">New Message</div>
+          <div class="compose-modal-subtitle">Send a professional email via PHPMailer</div>
+        </div>
+      </div>
+      <div class="compose-modal-actions-top">
+        <span class="compose-status-badge" id="compose-status-badge">● Ready</span>
+        <button class="close-modal-btn" onclick="closeComposeModal()">×</button>
+      </div>
+    </div>
+    <div class="compose-modal-body">
+      <!-- From -->
+      <div class="compose-field-row">
+        <div class="compose-field-label">From</div>
+        <div class="compose-field-value" id="compose-from-display">—</div>
+      </div>
+      <!-- To -->
+      <div class="compose-field-row">
+        <div class="compose-field-label">To</div>
+        <input type="email" id="compose-to" class="compose-field-input" placeholder="recipient@example.com" autocomplete="off">
+      </div>
+      <!-- CC toggle -->
+      <div class="compose-field-row" style="border:none;min-height:32px;">
+        <div class="compose-field-label"></div>
+        <button class="compose-cc-toggle" onclick="toggleCcBccModal()">+ CC / BCC</button>
+      </div>
+      <div id="compose-cc-wrap-modal" style="display:none;">
+        <div class="compose-field-row">
+          <div class="compose-field-label">CC</div>
+          <input type="email" id="compose-cc" class="compose-field-input" placeholder="cc@example.com" autocomplete="off">
+        </div>
+        <div class="compose-field-row">
+          <div class="compose-field-label">BCC</div>
+          <input type="email" id="compose-bcc" class="compose-field-input" placeholder="bcc@example.com" autocomplete="off">
+        </div>
+      </div>
+      <!-- Subject -->
+      <div class="compose-field-row">
+        <div class="compose-field-label">Subject</div>
+        <input type="text" id="compose-subject" class="compose-field-input" placeholder="Email subject" autocomplete="off">
+      </div>
+      <!-- Toolbar -->
+      <div class="compose-toolbar">
+        <span class="compose-tb-label">Format</span>
+        <button class="compose-tb-btn" title="Bold" onclick="wrapTag('compose-body','b')"><strong>B</strong></button>
+        <button class="compose-tb-btn" title="Italic" onclick="wrapTag('compose-body','i')"><em>I</em></button>
+        <button class="compose-tb-btn" title="Underline" onclick="wrapTag('compose-body','u')"><u>U</u></button>
+        <span class="compose-tb-sep"></span>
+        <button class="compose-tb-btn" title="Insert link" onclick="wrapTag('compose-body','a','href=""')">🔗</button>
+        <button class="compose-tb-btn" title="Bullet list" onclick="wrapHtml('compose-body','<ul><li></li></ul>')">• List</button>
+      </div>
+      <!-- Body -->
+      <div class="compose-body-wrap">
+        <textarea id="compose-body" class="compose-body-textarea" rows="10" placeholder="Write your message here…"></textarea>
+        <div class="compose-charcount"><span id="compose-charcount-modal">0</span> characters</div>
+      </div>
+      <!-- Template Selector -->
+      <div class="compose-template-row">
+        <span class="compose-template-label">📋 Template</span>
+        <select class="compose-template-select" id="compose-template-select" onchange="applyEmailTemplate(this.value)">
+          <option value="">— Select a template to pre-fill —</option>
+        </select>
+      </div>
+    </div>
+    <div class="compose-modal-footer">
+      <div class="compose-modal-footer-left">
+        <button class="compose-send-btn" onclick="sendCustomEmail()" id="compose-send-btn">
+          <span>📤</span> Send
+        </button>
+        <button class="compose-clear-btn" onclick="clearCompose()">🗑 Clear</button>
+      </div>
+      <div class="compose-modal-footer-right">
+        <span style="font-size:12px;color:var(--subtle);">PHPMailer <span id="compose-smtp-status" style="color:var(--red);">Not configured</span></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- JS separated by page — shared must be first -->
+<script src="shared.js"></script>
+<script src="login.js"></script>
+<script src="admin.js"></script>
+<script src="employee.js"></script>
 </body>
 </html>
