@@ -7,6 +7,7 @@ function adminTab(tabName, btnElement) {
   switchTab('#page-admin', 'admin', tabName, btnElement, () => {
     if (tabName === 'records') renderRecords();
     if (tabName === 'reports') setReport('daily', document.querySelector('.rtab.active'));
+    if (tabName === 'settings') { loadEmailConfig(); loadCalendarConfig(); }
   });
 }
 

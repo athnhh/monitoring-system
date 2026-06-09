@@ -1131,46 +1131,6 @@ tbody tr{
   color:var(--subtle);
   margin-top:4px;
 }
-.ann-sms-section{
-  border-top:1px solid var(--border);
-}
-.ann-sms-header{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:14px 22px;
-  cursor:pointer;
-  font-size:14px;
-  font-weight:600;
-  color:var(--muted);
-  transition:all 0.15s;
-  user-select:none;
-}
-.ann-sms-header:hover{
-  background:var(--surface2);
-  color:var(--text);
-}
-.ann-sms-arrow{
-  margin-left:auto;
-  transition:transform 0.2s;
-  font-size:14px;
-}
-.ann-sms-arrow.open{
-  transform:rotate(90deg);
-}
-.ann-sms-body{
-  padding:0 22px 18px;
-}
-.ann-sms-note{
-  font-size:12px;
-  color:var(--subtle);
-  text-align:center;
-}
-.ann-sms-charlimit{
-  font-weight:400;
-  color:var(--subtle);
-}
-
 /* WELCOME HEADER */
 .welcome-header{
   margin-bottom:20px;
@@ -1319,10 +1279,6 @@ body.dark-mode .ann-recip-btn.active{background:rgba(59,130,246,0.1);border-colo
 body.dark-mode .ann-prior-btn{background:var(--surface2);border-color:var(--border);color:var(--muted);}
 body.dark-mode .ann-prior-btn.active{background:var(--surface);border-color:var(--border-mid);color:var(--text);}
 body.dark-mode .ann-textarea{background:var(--surface2);color:var(--text);border-color:var(--border);}
-body.dark-mode .ann-sms-section{border-top-color:var(--border);}
-body.dark-mode .ann-sms-header:hover{background:var(--surface2);color:var(--text);}
-body.dark-mode .ann-sms-note{color:var(--subtle);}
-body.dark-mode .ann-sms-charlimit{color:var(--subtle);}
 body.dark-mode .notif-panel{background:var(--surface);border-left-color:var(--border);box-shadow:-4px 0 20px rgba(0,0,0,0.3);}
 body.dark-mode .notif-panel-header{border-bottom-color:var(--border);}
 body.dark-mode .notif-item{border-color:var(--border);}
@@ -1413,8 +1369,6 @@ body.dark-mode .ann-empty-sub{color:var(--subtle);}
   .ann-recip-btn{width:100%;justify-content:center;}
   .ann-priority-selector{flex-wrap:wrap;gap:5px;}
   .ann-prior-btn{flex:1;justify-content:center;min-width:0;padding:6px 8px;font-size:12px;}
-  .ann-sms-body{padding:0 14px 14px;}
-  .ann-sms-header{padding:12px 14px;}
   .leave-req-card{flex-wrap:wrap;}
   .leave-type-selector{flex-direction:column;}
   .leave-type-btn{width:100%;text-align:center;}

@@ -7,6 +7,11 @@ dist/
 # Runtime data (contains employee data, attendance records, etc.)
 data.json
 
+# Google Calendar service account keys (sensitive credentials)
+*-key.json
+service-account*.json
+calendar-config.json
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -20,3 +25,6 @@ Thumbs.db
 # IDE folders
 .vscode/
 .idea/
+
+# Log files
+*.log

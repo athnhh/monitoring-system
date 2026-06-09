@@ -6,6 +6,7 @@ const url = require('url');
 const { spawn } = require('child_process');
 
 const { initFirebase, isFirebaseReady, readState, writeState, updateState } = require('./firebase');
+const calendarService = require('./google-calendar');
 
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data.json');
@@ -272,6 +273,16 @@ async function handleAPI(req, res) {
           emp.active = true; emp.ul = emp.ul || 0;
           state.employees.push(emp); await saveData();
           broadcast('employee_added', emp);
+          // Auto-create Google Calendar birthday event if configured
+          if (emp.bday) {
+            calendarService.createBirthdayEvent(emp).then(result => {
+              if (result.success) {
+                emp.calendarEventId = result.eventId;
+                saveData();
+                console.log(`Birthday event created for ${emp.name}`);
+              }
+            }).catch(err => console.error('Birthday event creation failed:', err.message));
+          }
           return sendJSON(res, 200, { success: true, employee: emp });
         }
         break;
@@ -285,6 +296,12 @@ async function handleAPI(req, res) {
             const idx = state.employees.findIndex(e => e.id === id);
             if (idx === -1) return sendJSON(res, 404, { error: 'Not found' });
             const emp = state.employees[idx];
+            // Remove Google Calendar event if exists
+            if (emp.calendarEventId) {
+              calendarService.deleteBirthdayEvent(emp.calendarEventId).catch(err =>
+                console.error('Failed to delete calendar event for', emp.name, ':', err.message)
+              );
+            }
             state.archivedEmployees.push({ id: emp.id, name: emp.name, dept: emp.dept, status: 'Deleted', joining: emp.joining, exit: new Date().toISOString().split('T')[0] });
             state.employees.splice(idx, 1); await saveData();
             broadcast('employee_deleted', { id });
@@ -293,7 +310,18 @@ async function handleAPI(req, res) {
           if (method === 'PUT') {
             const idx = state.employees.findIndex(e => e.id === id);
             if (idx === -1) return sendJSON(res, 404, { error: 'Not found' });
+            const oldBday = state.employees[idx].bday;
             state.employees[idx] = { ...state.employees[idx], ...body }; await saveData();
+            // If birthday changed/added, update calendar event
+            const newBday = state.employees[idx].bday;
+            if (newBday && newBday !== oldBday) {
+              calendarService.createBirthdayEvent(state.employees[idx]).then(result => {
+                if (result.success) {
+                  state.employees[idx].calendarEventId = result.eventId;
+                  saveData();
+                }
+              }).catch(err => console.error('Birthday event update failed:', err.message));
+            }
             return sendJSON(res, 200, { success: true, employee: state.employees[idx] });
           }
         }
@@ -445,6 +473,83 @@ async function handleAPI(req, res) {
         } catch (err) {
           return sendJSON(res, 500, { error: 'SMTP test failed: ' + err.message });
         }
+      }
+
+      // ── GET EMAIL CONFIG (exposes email address without password) ──
+      case '/api/email-config': {
+        if (method !== 'GET') break;
+        const cfg = getEmailConfig();
+        return sendJSON(res, 200, {
+          configured: !!(cfg.email && cfg.password),
+          host: cfg.host || '',
+          port: cfg.port || 587,
+          email: cfg.email || ''
+        });
+      }
+
+      // ── GOOGLE CALENDAR CONFIG ──
+      case '/api/calendar-config': {
+        if (method === 'GET') {
+          const cc = calendarService.getCalendarConfig();
+          return sendJSON(res, 200, {
+            enabled: cc.enabled || false,
+            serviceAccountPath: cc.serviceAccountPath || '',
+            calendarId: cc.calendarId || 'primary'
+          });
+        }
+        if (method === 'POST') {
+          const saved = calendarService.saveCalendarConfig({
+            serviceAccountPath: body.serviceAccountPath || '',
+            calendarId: body.calendarId || 'primary',
+            enabled: !!body.enabled
+          });
+          if (saved) return sendJSON(res, 200, { success: true, message: 'Calendar config saved' });
+          return sendJSON(res, 500, { error: 'Failed to save calendar config' });
+        }
+        break;
+      }
+
+      // ── CREATE/UPDATE BIRTHDAY EVENT FOR EMPLOYEE ──
+      case '/api/calendar/birthday': {
+        if (method !== 'POST') break;
+        const { employeeId } = body;
+        const emp = state.employees.find(e => e.id === employeeId);
+        if (!emp) return sendJSON(res, 404, { error: 'Employee not found' });
+        if (!emp.bday) return sendJSON(res, 400, { error: 'Employee has no birthday set' });
+        // Delete old event if exists
+        if (emp.calendarEventId) {
+          await calendarService.deleteBirthdayEvent(emp.calendarEventId).catch(() => {});
+        }
+        const result = await calendarService.createBirthdayEvent(emp);
+        if (result.success) {
+          emp.calendarEventId = result.eventId;
+          await saveData();
+        }
+        return sendJSON(res, result.success ? 200 : 500, result);
+      }
+
+      // ── SYNC ALL BIRTHDAYS TO CALENDAR ──
+      case '/api/calendar/sync-birthdays': {
+        if (method !== 'POST') break;
+        const cc = calendarService.getCalendarConfig();
+        if (!cc.enabled) return sendJSON(res, 400, { error: 'Calendar not configured. Set up in Settings first.' });
+        const results = [];
+        for (const emp of state.employees) {
+          if (!emp.active || !emp.bday) continue;
+          // Delete old event if re-syncing
+          if (emp.calendarEventId) {
+            await calendarService.deleteBirthdayEvent(emp.calendarEventId).catch(() => {});
+          }
+          const result = await calendarService.createBirthdayEvent(emp);
+          if (result.success) {
+            emp.calendarEventId = result.eventId;
+            results.push({ id: emp.id, name: emp.name, success: true });
+          } else {
+            results.push({ id: emp.id, name: emp.name, success: false, error: result.error });
+          }
+        }
+        await saveData();
+        return sendJSON(res, 200, { success: true, results });
       }
 
     }

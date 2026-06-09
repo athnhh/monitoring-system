@@ -75,6 +75,11 @@ function loadFromLocalStorage() {
 
 // ── API Helper ──
 async function api(path, options = {}) {
+  // Detect file:// protocol — fetch won't work from a local file
+  if (window.location.protocol === 'file:') {
+    console.error('API error:', path, '— accessed via file:// protocol');
+    return { success: false, error: 'Cannot reach the server. Open http://localhost:3000 in your browser instead of opening the HTML file directly.' };
+  }
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       headers: { 'Content-Type': 'application/json' },
@@ -545,13 +550,53 @@ function testSmtp() {
     });
 }
 
-function updateSmtpStatus() {
+// ── Load Email Config and Display in Settings ──
+async function loadEmailConfig() {
+  const res = await api('/api/email-config');
+  const emailEl = document.getElementById('email-config-email');
+  const hostEl = document.getElementById('email-config-host');
+  const portEl = document.getElementById('email-config-port');
+  const statusEl = document.getElementById('email-config-status');
+  if (!emailEl) return;
+  if (res.configured) {
+    emailEl.innerText = res.email || '—';
+    hostEl.innerText = res.host || '—';
+    portEl.innerText = res.port || '—';
+    statusEl.innerText = '✅ Configured';
+    statusEl.style.color = 'var(--green)';
+  } else {
+    emailEl.innerText = 'Not configured';
+    hostEl.innerText = '—';
+    portEl.innerText = '—';
+    statusEl.innerText = '❌ Not configured';
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+function updateSmtpStatus(res) {
   const from = document.getElementById('compose-from-display');
-  if (from) from.innerText = 'Server-configured (email-config.json)';
+  if (from) {
+    if (res && res.email) {
+      from.innerText = res.email;
+    } else {
+      from.innerText = 'Server-configured (email-config.json)';
+    }
+  }
   const badge = document.getElementById('compose-status-badge');
-  if (badge) { badge.innerText = '● Server Config'; badge.className = 'compose-status-badge'; }
+  if (badge) { 
+    badge.innerText = res && res.configured ? '● Connected' : '● Not configured';
+    badge.className = 'compose-status-badge' + (res && res.configured ? ' connected' : '');
+  }
   const status = document.getElementById('compose-smtp-status');
-  if (status) { status.innerText = 'Server config'; status.style.color = 'var(--muted)'; }
+  if (status) { 
+    if (res && res.configured) {
+      status.innerText = res.email;
+      status.style.color = 'var(--green)';
+    } else {
+      status.innerText = 'Not configured';
+      status.style.color = 'var(--red)';
+    }
+  }
 }
 
 function sendCustomEmail() {
@@ -564,9 +609,16 @@ function sendCustomEmail() {
   if (!to || !subject || !body) { showNotifBar('warning', 'Please fill in To, Subject, and Message.', '⚠️'); return; }
   if (btn) { btn.disabled = true; btn.innerHTML = '<span>⏳</span> Sending…'; }
   showNotifBar('info', 'Sending email to ' + to + '…', '📧');
+  // Detect if body is already HTML (starts with <), send as-is; else convert newlines to <br>
+  const isHtml = /^\s*</.test(body);
+  const htmlContent = isHtml
+    ? body
+    : '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#1e293b;line-height:1.7;">' +
+      body.replace(/\n/g, '<br>') +
+      '</div>';
   api('/api/send-email', {
     method: 'POST',
-    body: { to, cc, bcc, subject, html: body.replace(/\n/g, '<br>') }
+    body: { to, cc, bcc, subject, html: htmlContent }
   }).then(res => {
     if (res.success) {
       showNotifBar('success', 'Email sent successfully to ' + to + '!', '✓');
@@ -599,7 +651,12 @@ function toggleCcBccModal() {
 
 function openComposeModal() {
   document.getElementById('compose-modal').style.display = 'flex';
-  updateSmtpStatus();
+  // Fetch email config and update status/from display
+  api('/api/email-config').then(res => {
+    updateSmtpStatus(res);
+  }).catch(() => {
+    updateSmtpStatus(null);
+  });
   populateTemplateSelect();
   document.getElementById('compose-to').focus();
 }
@@ -633,24 +690,87 @@ function wrapHtml(textareaId, html) {
   if (count) count.innerText = ta.value.length;
 }
 
-function sendSMSAlert() {
-  const smsBody = document.getElementById('sms-body').value.trim();
-  if (!smsBody) { showNotifBar('warning', 'Please enter SMS content.', '⚠️'); return; }
-  showNotifBar('info', 'Sending SMS alerts via Twilio...', '📱');
-  setTimeout(() => {
-    showNotifBar('success', 'SMS alerts broadcasted to team!', '✓');
-    document.getElementById('sms-body').value = '';
-  }, 1000);
+// ── Google Calendar Integration ──
+async function loadCalendarConfig() {
+  const res = await api('/api/calendar-config');
+  const statusEl = document.getElementById('calendar-config-status');
+  const saEl = document.getElementById('calendar-config-sa');
+  const idEl = document.getElementById('calendar-config-id');
+  const saPathEl = document.getElementById('cal-sa-path');
+  const calIdEl = document.getElementById('cal-id');
+  if (!statusEl) return;
+  if (res.enabled) {
+    statusEl.innerText = '✅ Configured';
+    statusEl.style.color = 'var(--green)';
+    if (saEl) saEl.innerText = res.serviceAccountPath || '—';
+    if (idEl) idEl.innerText = res.calendarId || 'primary';
+    if (saPathEl) saPathEl.value = res.serviceAccountPath || '';
+    if (calIdEl) calIdEl.value = res.calendarId || 'primary';
+  } else {
+    statusEl.innerText = '❌ Not configured';
+    statusEl.style.color = 'var(--red)';
+    if (saEl) saEl.innerText = 'Not set';
+    if (idEl) idEl.innerText = '—';
+  }
+}
+
+async function saveCalendarConfig() {
+  const serviceAccountPath = document.getElementById('cal-sa-path')?.value.trim() || '';
+  const calendarId = document.getElementById('cal-id')?.value.trim() || 'primary';
+  if (!serviceAccountPath) {
+    showNotifBar('warning', 'Please enter the service account JSON file path.', '⚠️');
+    return;
+  }
+  const res = await api('/api/calendar-config', {
+    method: 'POST',
+    body: {
+      serviceAccountPath,
+      calendarId,
+      enabled: true
+    }
+  });
+  if (res.success) {
+    showNotifBar('success', 'Calendar config saved! Sync birthdays to create events.', '✓');
+    loadCalendarConfig();
+  } else {
+    showNotifBar('error', 'Failed to save: ' + (res.error || 'Unknown error'), '❌');
+  }
+}
+
+async function syncBirthdaysToCalendar() {
+  showNotifBar('info', 'Syncing all employee birthdays to Google Calendar…', '📅');
+  const res = await api('/api/calendar/sync-birthdays', { method: 'POST' });
+  if (res.success) {
+    const succeeded = res.results.filter(r => r.success).length;
+    const failed = res.results.filter(r => !r.success).length;
+    if (succeeded > 0) {
+      showNotifBar('success', succeeded + ' birthday event(s) created!', '✓');
+    }
+    if (failed > 0) {
+      showNotifBar('warning', failed + ' birthday(s) failed. Check server logs.', '⚠️');
+    }
+    if (succeeded === 0 && failed === 0) {
+      showNotifBar('info', 'No employees with birthdays to sync.', 'ℹ️');
+    }
+  } else {
+    showNotifBar('error', 'Sync failed: ' + (res.error || 'Calendar not configured'), '❌');
+  }
+}
+
+async function testCalendarConnection() {
+  showNotifBar('info', 'Testing Google Calendar connection…', '🔌');
+  const res = await api('/api/calendar-config', { method: 'GET' });
+  if (res.enabled) {
+    showNotifBar('success', '✅ Calendar configured! Service account path: ' + (res.serviceAccountPath || 'N/A') + ' | Calendar ID: ' + (res.calendarId || 'primary'), '✓');
+  } else {
+    showNotifBar('error', 'Calendar not configured. Please save config first.', '❌');
+  }
 }
 
 // ── Character Counter (event delegation) ──
 document.addEventListener('input', function(e) {
   if (e.target.id === 'ann-body') {
     const count = document.getElementById('ann-charcount');
-    if (count) count.innerText = e.target.value.length;
-  }
-  if (e.target.id === 'sms-body') {
-    const count = document.getElementById('sms-charcount');
     if (count) count.innerText = e.target.value.length;
   }
   if (e.target.id === 'compose-body') {
@@ -705,15 +825,6 @@ function selectAnnPriority(btn, val) {
   document.querySelectorAll('.ann-prior-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   annSelectedPriority = val;
-}
-
-function toggleSmsSection() {
-  const body = document.getElementById('ann-sms-body');
-  const arrow = document.getElementById('ann-sms-arrow');
-  if (!body || !arrow) return;
-  const open = body.style.display !== 'none';
-  body.style.display = open ? 'none' : 'block';
-  arrow.classList.toggle('open', !open);
 }
 
 async function postAnnouncement() {
