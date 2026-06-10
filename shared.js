@@ -68,6 +68,16 @@ async function api(path, options = {}) {
       ...options,
       body: options.body ? JSON.stringify(options.body) : undefined
     });
+    // Check if response is JSON; if not, the server likely isn't running properly
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('json')) {
+      const text = await res.text();
+      console.error('API error: non-JSON response from', path, '- status', res.status, '- body:', text.substring(0, 200));
+      return {
+        success: false,
+        error: 'Server returned HTML instead of JSON (status ' + res.status + '). Make sure the Node.js server is running via "node server.js" and access the app at http://localhost:3000.'
+      };
+    }
     return await res.json();
   } catch (e) {
     console.error('API error:', path, e);
