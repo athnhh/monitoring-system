@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TEST — Employee Management System</title>
+<title>Quemahtech — Employee Management System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
 <!-- CSS separated by page -->
@@ -36,7 +36,7 @@
       <div class="login-logo">
         <div class="login-logo-icon"><img src="logo.webp" width="60" height="60" style="border-radius: 45%;"></div>
         <div class="login-logo-text">
-          <h2>TEST</h2>
+          <h2>Quemahtech</h2>
           <p>EMPLOYEE MANAGEMENT SYSTEM</p>
         </div>
       </div>
@@ -53,7 +53,7 @@
         <input type="password" id="pwd" placeholder="Enter password" onkeydown="if(event.key==='Enter')doLogin()">
       </div>
       <label class="remember-row">
-        <input type="checkbox" id="remember-me" checked>
+        <input type="checkbox" id="remember-me">
         <span class="remember-check"></span>
         <span class="remember-text">Remember me</span>
       </label>
@@ -74,7 +74,7 @@
     <div class="topbar-brand">
       <div class="brand-icon"><img src="logo.webp" width="50" height="50" style="border-radius: 45%;"></div>
       <div>
-        <h1>TEST</h1>
+        <h1>Quemahtech</h1>
         <small>ADMIN PANEL</small>
       </div>
     </div>
@@ -279,7 +279,7 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="sec-title" style="margin:0;color:var(--primary);padding:12px 0;font-size:14px;">📅 TEST EVENT CALENDAR</div>
+            <div class="sec-title" style="margin:0;color:var(--primary);padding:12px 0;font-size:14px;">📅 Quemahtech Event Calendar</div>
           </div>
         </div>
         <iframe src="https://calendar.google.com/calendar/embed?src=en-gb.indian%23holiday%40group.v.calendar.google.com&ctz=Asia%2FKolkata" style="border: 0" width="800" height="600" frameborder="0" scrolling="no"></iframe>
@@ -746,7 +746,7 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="sec-title" style="margin:0;">📅 TEST EVENT CALENDAR</div>
+            <div class="sec-title" style="margin:0;">📅 Quemahtech Event Calendar</div>
           </div>
         </div>
         <iframe src="https://calendar.google.com/calendar/embed?src=a1ac982d58095deeabca1136aa492d5cb38cfbe0d60c2619b3ad100e041fe281%40group.calendar.google.com&ctz=Asia%2FKolkata" style="border: 0" width="100%" height="600" frameborder="0" scrolling="no"></iframe>
@@ -917,7 +917,7 @@
         <span class="compose-modal-icon">✉️</span>
         <div>
           <div class="compose-modal-title">New Message</div>
-          <div class="compose-modal-subtitle">Send a professional email via Nodemailer</div>
+          <div class="compose-modal-subtitle">Send a professional email</div>
         </div>
       </div>
       <div class="compose-modal-actions-top">
@@ -929,7 +929,7 @@
       <!-- From -->
       <div class="compose-field-row">
         <div class="compose-field-label">From</div>
-        <div class="compose-field-value" id="compose-from-display">—</div>
+        <input type="text" id="compose-from-display" class="compose-field-input" value="" readonly placeholder="Sender email (configured in settings)">
       </div>
       <!-- To -->
       <div class="compose-field-row">
@@ -937,7 +937,7 @@
         <input type="email" id="compose-to" class="compose-field-input" placeholder="recipient@example.com" autocomplete="off">
       </div>
       <!-- CC toggle -->
-      <div class="compose-field-row" style="border:none;min-height:32px;">
+      <div class="compose-field-row compose-cc-row">
         <div class="compose-field-label"></div>
         <button class="compose-cc-toggle" onclick="toggleCcBccModal()">+ CC / BCC</button>
       </div>
@@ -952,9 +952,9 @@
         </div>
       </div>
       <!-- Subject -->
-      <div class="compose-field-row">
+      <div class="compose-field-row compose-subject-row">
         <div class="compose-field-label">Subject</div>
-        <input type="text" id="compose-subject" class="compose-field-input" placeholder="Email subject" autocomplete="off">
+        <input type="text" id="compose-subject" class="compose-field-input compose-subject-input" placeholder="Email subject" autocomplete="off">
       </div>
       <!-- Toolbar -->
       <div class="compose-toolbar">
@@ -963,19 +963,33 @@
         <button class="compose-tb-btn" title="Italic" onclick="wrapTag('compose-body','i')"><em>I</em></button>
         <button class="compose-tb-btn" title="Underline" onclick="wrapTag('compose-body','u')"><u>U</u></button>
         <span class="compose-tb-sep"></span>
-        <button class="compose-tb-btn" title="Insert link" onclick="wrapTag('compose-body','a','href=&quot;&quot;')">🔗</button>
-        <button class="compose-tb-btn" title="Bullet list" onclick="wrapHtml('compose-body','<ul><li></li></ul>')">• List</button>
+        <button class="compose-tb-btn" title="Insert link" onclick="wrapHtml('compose-body','<a href=&quot;&quot;>link text</a>')">🔗</button>
+        <button class="compose-tb-btn" title="Bullet list" onclick="wrapHtml('compose-body','\n<ul>\n<li>item</li>\n</ul>\n')">• List</button>
       </div>
-      <!-- Body -->
-      <div class="compose-body-wrap">
+      <!-- Edit/Preview Toggle -->
+      <div class="compose-view-toggle">
+        <button class="compose-view-btn active" id="compose-edit-btn" onclick="toggleComposeView('edit')">✏️ Edit</button>
+        <button class="compose-view-btn" id="compose-preview-btn" onclick="toggleComposeView('preview')">👁 Preview</button>
+      </div>
+      <!-- Body - Edit mode -->
+      <div class="compose-body-wrap" id="compose-body-wrap">
         <textarea id="compose-body" class="compose-body-textarea" rows="10" placeholder="Write your message here…"></textarea>
         <div class="compose-charcount"><span id="compose-charcount-modal">0</span> characters</div>
+      </div>
+      <!-- Body - Preview mode (hidden by default) -->
+      <div class="compose-preview-wrap" id="compose-preview-wrap" style="display:none;">
+        <div class="compose-preview-frame" id="compose-preview-frame">
+          <div class="compose-preview-placeholder">
+            <span class="compose-preview-icon">👁</span>
+            <p>Select a template or write your message and switch to Preview</p>
+          </div>
+        </div>
       </div>
       <!-- Template Selector -->
       <div class="compose-template-row">
         <span class="compose-template-label">📋 Template</span>
         <select class="compose-template-select" id="compose-template-select" onchange="applyEmailTemplate(this.value)">
-          <option value="">— Select a template to pre-fill —</option>
+          <option value="">— Select a template —</option>
         </select>
       </div>
     </div>
@@ -984,10 +998,10 @@
         <button class="compose-send-btn" onclick="sendCustomEmail()" id="compose-send-btn">
           <span>📤</span> Send
         </button>
-        <button class="compose-clear-btn" onclick="clearCompose()">🗑 Clear</button>
+        <button class="compose-clear-btn" onclick="clearCompose()">Clear</button>
       </div>
       <div class="compose-modal-footer-right">
-        <span style="font-size:12px;color:var(--subtle);">Nodemailer <span id="compose-smtp-status" style="color:var(--red);">Not configured</span></span>
+        <span id="compose-smtp-status" style="color:var(--red);">Not configured</span>
       </div>
     </div>
   </div>

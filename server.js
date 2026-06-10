@@ -1,3 +1,4 @@
+require('dotenv').config();
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const path = require('path');
@@ -146,7 +147,7 @@ async function notifyAdminLeaveRequest(lr) {
     </div>
     <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Please log in to the admin panel to review and respond to this request.</p>
     <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Regards,</p>
-    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Employee Management System</p>
+    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Quemahtech Employee Management System</p>
   </div>
 </div>`;
   await sendEmail({
@@ -179,7 +180,7 @@ async function sendEmail({ to, cc, bcc, subject, html }) {
   }
   const transporter = createTransporter(cfg);
   const info = await transporter.sendMail({
-    from: `"TEST EMS" <${cfg.email}>`,
+    from: `"Quemahtech EMS" <${cfg.email}>`,
     to,
     cc: cc || undefined,
     bcc: bcc || undefined,
@@ -663,7 +664,7 @@ async function start() {
 
   if (!process.env.VERCEL) {
     server.listen(PORT, '0.0.0.0', () => {
-      console.log(`\n  TEST Employee Management System`);
+      console.log(`\n  Quemahtech Employee Management System`);
       console.log(`  http://localhost:${PORT}`);
       console.log(`  Admin: quemahtech / quemah123`);
       console.log(`  Emp:   EMP001 / emp123\n`);

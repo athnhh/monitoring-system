@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════
-   SHARED JS — TEST Employee Management System
+   SHARED JS — Quemahtech Employee Management System
    Global state, utilities, API, notifications, exports
 ═══════════════════════════════════ */
 
@@ -39,16 +39,9 @@ let ws = null;
 
 const API_BASE = '';
 
-// ── Data Persistence ──
+// ── Data Persistence (server-backed via Firebase/file) ──
 function saveToLocalStorage() {
-  localStorage.setItem('departments', JSON.stringify(departments));
-  localStorage.setItem('employees', JSON.stringify(employees));
-  localStorage.setItem('archivedEmployees', JSON.stringify(archivedEmployees));
-  localStorage.setItem('attendanceRecords', JSON.stringify(attendanceRecords));
-  localStorage.setItem('leaveRequests', JSON.stringify(leaveRequests));
-  localStorage.setItem('announcements', JSON.stringify(announcements));
-  localStorage.setItem('adminNotifications', JSON.stringify(adminNotifications));
-  localStorage.setItem('empNotifications', JSON.stringify(empNotifications));
+  // Save to server only — localStorage no longer used for app data
   syncToServer();
 }
 
@@ -60,17 +53,6 @@ function syncToServer() {
       announcements, adminNotifications, empNotifications, departments
     }
   }).catch(() => {});
-}
-
-function loadFromLocalStorage() {
-  if (localStorage.getItem('departments')) departments = JSON.parse(localStorage.getItem('departments'));
-  if (localStorage.getItem('employees')) employees = JSON.parse(localStorage.getItem('employees'));
-  if (localStorage.getItem('archivedEmployees')) archivedEmployees = JSON.parse(localStorage.getItem('archivedEmployees'));
-  if (localStorage.getItem('attendanceRecords')) attendanceRecords = JSON.parse(localStorage.getItem('attendanceRecords'));
-  if (localStorage.getItem('leaveRequests')) leaveRequests = JSON.parse(localStorage.getItem('leaveRequests'));
-  if (localStorage.getItem('announcements')) announcements = JSON.parse(localStorage.getItem('announcements'));
-  if (localStorage.getItem('adminNotifications')) adminNotifications = JSON.parse(localStorage.getItem('adminNotifications'));
-  if (localStorage.getItem('empNotifications')) empNotifications = JSON.parse(localStorage.getItem('empNotifications'));
 }
 
 // ── API Helper ──
@@ -150,23 +132,6 @@ async function refreshState() {
     renderAnnouncements();
     renderDeptHeadcount();
     renderDepartments();
-  }
-}
-
-// ── Seed Default Data ──
-function seedDefaultData() {
-  if (!employees.length) {
-    employees = [
-      { id: 'EMP001', name: 'Rahul Sharma', dept: 'Engineering', email: 'rahul@test.com', phone: '+91 98765 43210', bday: '1990-05-15', joining: '2023-01-10', designation: 'Senior Developer', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' },
-      { id: 'EMP002', name: 'Priya Patel', dept: 'HR', email: 'priya@test.com', phone: '+91 87654 32109', bday: '1992-08-22', joining: '2023-03-15', designation: 'HR Manager', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' }
-    ];
-  }
-  if (!attendanceRecords.length) {
-    const today = new Date().toISOString().split('T')[0];
-    attendanceRecords = [
-      { id: 'EMP001', name: 'Rahul Sharma', dept: 'Engineering', date: today, in: '09:05', out: '', hours: 0, status: 'Present' },
-      { id: 'EMP002', name: 'Priya Patel', dept: 'HR', date: today, in: '09:12', out: '', hours: 0, status: 'Present' }
-    ];
   }
 }
 
@@ -488,6 +453,58 @@ function applyEmailTemplate(templateKey) {
     const count = document.getElementById('compose-charcount-modal');
     if (count) count.innerText = tpl.body.length;
   }
+  // Auto-switch to preview mode when a template is selected
+  toggleComposeView('preview');
+}
+
+// ── Toggle Compose Edit/Preview ──
+function toggleComposeView(mode) {
+  const editBtn = document.getElementById('compose-edit-btn');
+  const previewBtn = document.getElementById('compose-preview-btn');
+  const editWrap = document.getElementById('compose-body-wrap');
+  const previewWrap = document.getElementById('compose-preview-wrap');
+  const previewFrame = document.getElementById('compose-preview-frame');
+  if (!editBtn || !previewBtn || !editWrap || !previewWrap) return;
+
+  if (mode === 'preview') {
+    editBtn.classList.remove('active');
+    previewBtn.classList.add('active');
+    editWrap.style.display = 'none';
+    previewWrap.style.display = 'block';
+    renderComposePreview(previewFrame);
+  } else {
+    previewBtn.classList.remove('active');
+    editBtn.classList.add('active');
+    previewWrap.style.display = 'none';
+    editWrap.style.display = 'flex';
+  }
+}
+
+function renderComposePreview(container) {
+  if (!container) return;
+  const bodyEl = document.getElementById('compose-body');
+  const subjectEl = document.getElementById('compose-subject');
+  const body = bodyEl ? bodyEl.value.trim() : '';
+  const subject = subjectEl ? subjectEl.value.trim() : '';
+
+  if (!body && !subject) {
+    container.innerHTML = '<div class="compose-preview-placeholder"><span class="compose-preview-icon">👁</span><p>Select a template or write your message and switch to Preview</p></div>';
+    return;
+  }
+
+  // Detect if body is HTML (starts with <) or plain text
+  const isHtml = /^\s*</.test(body);
+  const plainText = isHtml
+    ? body.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+    : body;
+  const subjectLine = subject || '(No subject)';
+
+  container.innerHTML = '<div class="compose-preview-inner">' +
+    '<div class="compose-preview-header"><span class="compose-preview-subj">' + escHtml(subjectLine) + '</span></div>' +
+    '<div class="compose-preview-body">' +
+    (isHtml ? body : '<div style="font-family:Arial,sans-serif;padding:16px;color:#1e293b;line-height:1.7;">' + escHtml(plainText).replace(/\n/g, '<br>') + '</div>') +
+    '</div>' +
+    '</div>';
 }
 
 function populateTemplateSelect() {
@@ -504,37 +521,37 @@ const EMAIL_TEMPLATES = {
   'holiday': {
     name: '🎉 Holiday Greeting',
     subject: 'Wishing You a Wonderful [Festival]!',
-    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#0f2744,#1a3355);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <h1 style="color:#f59e0b;margin:0;font-size:22px;">✨ Happy [Festival]!</h1>\n    <p style="color:#94a3b8;margin:8px 0 0;font-size:13px;">From the entire team at TEST</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear Team,</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">On behalf of the entire management, we extend our warmest wishes to you and your family on the occasion of <strong>[Festival]</strong>. May this festive season bring joy, prosperity, and happiness to your home.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">As per the company calendar, the office will remain closed on <strong>[Date]</strong>. Please plan accordingly.</p>\n    <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin-bottom:16px;">\n      <p style="color:#92400e;font-size:13px;margin:0;">📅 <strong>Holiday Details:</strong><br>Festival: [Festival]<br>Date: [Date]<br>Status: Paid Holiday</p>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Warm regards,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Administrator<br><span style="color:#64748b;font-weight:400;font-size:12px;">TEST Employee Management System</span></p>\n  </div>\n  <div style="text-align:center;padding:16px;color:#94a3b8;font-size:11px;">\n    <p style="margin:0;">TEST EMS — Employee Management System</p>\n  </div>\n</div>'
+    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#0f2744,#1a3355);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <h1 style="color:#f59e0b;margin:0;font-size:22px;">✨ Happy [Festival]!</h1>\n    <p style="color:#94a3b8;margin:8px 0 0;font-size:13px;">From the entire team at Quemahtech</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear Team,</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">On behalf of the entire management, we extend our warmest wishes to you and your family on the occasion of <strong>[Festival]</strong>. May this festive season bring joy, prosperity, and happiness to your home.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">As per the company calendar, the office will remain closed on <strong>[Date]</strong>. Please plan accordingly.</p>\n    <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin-bottom:16px;">\n      <p style="color:#92400e;font-size:13px;margin:0;">📅 <strong>Holiday Details:</strong><br>Festival: [Festival]<br>Date: [Date]<br>Status: Paid Holiday</p>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Warm regards,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Administrator<br><span style="color:#64748b;font-weight:400;font-size:12px;">Quemahtech Employee Management System</span></p>\n  </div>\n  <div style="text-align:center;padding:16px;color:#94a3b8;font-size:11px;">\n    <p style="margin:0;">Quemahtech EMS — Employee Management System</p>\n  </div>\n</div>'
   },
   'leave-approved': {
     name: '✅ Leave Approved',
     subject: 'Your Leave Request Has Been Approved',
-    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#065f46,#047857);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <h1 style="color:#fff;margin:0;font-size:20px;">✅ Leave Approved</h1>\n    <p style="color:#a7f3d0;margin:6px 0 0;font-size:13px;">TEST Employee Management System</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear [Employee Name],</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">We are pleased to inform you that your leave request has been <strong style="color:#16a34a;">approved</strong>.</p>\n    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px;">\n      <table style="width:100%;border-collapse:collapse;font-size:13px;">\n        <tr><td style="color:#64748b;padding:4px 8px;">Leave Type</td><td style="color:#1e293b;font-weight:600;padding:4px 8px;">[Leave Type]</td></tr>\n        <tr><td style="color:#64748b;padding:4px 8px;">From</td><td style="color:#1e293b;font-weight:600;padding:4px 8px;">[From Date]</td></tr>\n        <tr><td style="color:#64748b;padding:4px 8px;">To</td><td style="color:#1e293b;font-weight:600;padding:4px 8px;">[To Date]</td></tr>\n        <tr><td style="color:#64748b;padding:4px 8px;">Duration</td><td style="color:#1e293b;font-weight:600;padding:4px 8px;">[Days] day(s)</td></tr>\n      </table>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Please ensure a smooth handover of your pending tasks before proceeding on leave. If you have any questions, please reach out to your department head.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Enjoy your time off!</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Best regards,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Administrator</p>\n  </div>\n</div>'
+    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#065f46,#047857);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <h1 style="color:#fff;margin:0;font-size:20px;">✅ Leave Approved</h1>\n    <p style="color:#a7f3d0;margin:6px 0 0;font-size:13px;">Quemahtech Employee Management System</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear [Employee Name],</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">We are pleased to inform you that your leave request has been <strong style="color:#16a34a;">approved</strong>.</p>\n    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px;">\n      <table style="width:100%;border-collapse:collapse;font-size:13px;">\n        <tr><td style="color:#64748b;padding:4px 8px;">Leave Type</td><td style="color:#1e293b;font-weight:600;padding:4px 8px;">[Leave Type]</td></tr>\n        <tr><td style="color:#64748b;padding:4px 8px;">From</td><td style="color:#1e293b;font-weight:600;padding:4px 8px;">[From Date]</td></tr>\n        <tr><td style="color:#64748b;padding:4px 8px;">To</td><td style="color:#1e293b;font-weight:600;padding:4px 8px;">[To Date]</td></tr>\n        <tr><td style="color:#64748b;padding:4px 8px;">Duration</td><td style="color:#1e293b;font-weight:600;padding:4px 8px;">[Days] day(s)</td></tr>\n      </table>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Please ensure a smooth handover of your pending tasks before proceeding on leave. If you have any questions, please reach out to your department head.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Enjoy your time off!</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Best regards,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Administrator</p>\n  </div>\n</div>'
   },
   'leave-rejected': {
     name: '❌ Leave Rejected',
     subject: 'Update on Your Leave Request',
-    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#7f1d1d,#991b1b);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <h1 style="color:#fff;margin:0;font-size:20px;">Leave Request Update</h1>\n    <p style="color:#fca5a5;margin:6px 0 0;font-size:13px;">TEST Employee Management System</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear [Employee Name],</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">After careful review, we regret to inform you that your leave request could not be approved at this time.</p>\n    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px;">\n      <p style="color:#991b1b;font-size:13px;margin:0;"><strong>Reason:</strong> [Reason for rejection — e.g. staffing constraints, insufficient balance, scheduling conflict]</p>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">We encourage you to discuss alternative dates with your manager or explore other leave options. You may also reach out to HR for further assistance.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">We appreciate your understanding.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Sincerely,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Administrator</p>\n  </div>\n</div>'
+    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#7f1d1d,#991b1b);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <h1 style="color:#fff;margin:0;font-size:20px;">Leave Request Update</h1>\n    <p style="color:#fca5a5;margin:6px 0 0;font-size:13px;">Quemahtech Employee Management System</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear [Employee Name],</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">After careful review, we regret to inform you that your leave request could not be approved at this time.</p>\n    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px;">\n      <p style="color:#991b1b;font-size:13px;margin:0;"><strong>Reason:</strong> [Reason for rejection — e.g. staffing constraints, insufficient balance, scheduling conflict]</p>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">We encourage you to discuss alternative dates with your manager or explore other leave options. You may also reach out to HR for further assistance.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">We appreciate your understanding.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Sincerely,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Administrator</p>\n  </div>\n</div>'
   },
   'birthday': {
     name: '🎂 Birthday Greeting',
     subject: 'Happy Birthday, [Name]! 🎂',
-    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#7c3aed,#a78bfa);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <div style="font-size:48px;margin-bottom:8px;">🎂</div>\n    <h1 style="color:#fff;margin:0;font-size:22px;">Happy Birthday, [Name]!</h1>\n    <p style="color:#ddd6fe;margin:8px 0 0;font-size:13px;">From everyone at TEST</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear [Name],</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">On behalf of the entire team at <strong>TEST</strong>, we wish you the happiest of birthdays! 🎉 Your hard work, dedication, and positive energy make a real difference every day.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">May your year ahead be filled with success, joy, and wonderful moments. Enjoy your special day to the fullest!</p>\n    <div style="text-align:center;padding:20px 0 16px;">\n      <div style="font-size:36px;">🎈🎉🎊</div>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">With warm wishes,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">The TEST Team<br><span style="color:#64748b;font-weight:400;font-size:12px;">Employee Management System</span></p>\n  </div>\n</div>'
+    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#7c3aed,#a78bfa);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <div style="font-size:48px;margin-bottom:8px;">🎂</div>\n    <h1 style="color:#fff;margin:0;font-size:22px;">Happy Birthday, [Name]!</h1>\n    <p style="color:#ddd6fe;margin:8px 0 0;font-size:13px;">From everyone at Quemahtech</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear [Name],</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">On behalf of the entire team at <strong>Quemahtech</strong>, we wish you the happiest of birthdays! 🎉 Your hard work, dedication, and positive energy make a real difference every day.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">May your year ahead be filled with success, joy, and wonderful moments. Enjoy your special day to the fullest!</p>\n    <div style="text-align:center;padding:20px 0 16px;">\n      <div style="font-size:36px;">🎈🎉🎊</div>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">With warm wishes,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">The Quemahtech Team<br><span style="color:#64748b;font-weight:400;font-size:12px;">Employee Management System</span></p>\n  </div>\n</div>'
   },
   'welcome': {
     name: '👋 Welcome New Employee',
     subject: 'Welcome to the Team, [Name]! 🎉',
-    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#0f2744,#1a3355);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <div style="font-size:40px;margin-bottom:8px;">👋</div>\n    <h1 style="color:#f59e0b;margin:0;font-size:22px;">Welcome Aboard, [Name]!</h1>\n    <p style="color:#94a3b8;margin:8px 0 0;font-size:13px;">TEST Employee Management System</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear [Name],</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">A warm welcome to the <strong>TEST</strong> family! We are thrilled to have you join us as a <strong>[Designation]</strong> in the <strong>[Department]</strong> department.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">Your journey with us begins on <strong>[Joining Date]</strong>. Here\'s what you need to know to get started:</p>\n    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;">\n      <ul style="color:#475569;font-size:13px;line-height:1.8;margin:0;padding-left:20px;">\n        <li>Your Employee ID is: <strong>[Employee ID]</strong></li>\n        <li>Department: <strong>[Department]</strong></li>\n        <li>Reporting to: <strong>[Manager Name]</strong></li>\n        <li>Office Hours: 9:00 AM — 6:00 PM (Mon–Fri)</li>\n      </ul>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Please complete your onboarding checklist and reach out to HR if you need any assistance settling in.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">We look forward to achieving great things together!</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Warm regards,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Administrator &amp; The TEST Team</p>\n  </div>\n</div>'
+    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#0f2744,#1a3355);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <div style="font-size:40px;margin-bottom:8px;">👋</div>\n    <h1 style="color:#f59e0b;margin:0;font-size:22px;">Welcome Aboard, [Name]!</h1>\n    <p style="color:#94a3b8;margin:8px 0 0;font-size:13px;">Quemahtech Employee Management System</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear [Name],</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">A warm welcome to the <strong>Quemahtech</strong> family! We are thrilled to have you join us as a <strong>[Designation]</strong> in the <strong>[Department]</strong> department.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">Your journey with us begins on <strong>[Joining Date]</strong>. Here\'s what you need to know to get started:</p>\n    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;">\n      <ul style="color:#475569;font-size:13px;line-height:1.8;margin:0;padding-left:20px;">\n        <li>Your Employee ID is: <strong>[Employee ID]</strong></li>\n        <li>Department: <strong>[Department]</strong></li>\n        <li>Reporting to: <strong>[Manager Name]</strong></li>\n        <li>Office Hours: 9:00 AM — 6:00 PM (Mon–Fri)</li>\n      </ul>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Please complete your onboarding checklist and reach out to HR if you need any assistance settling in.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">We look forward to achieving great things together!</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Warm regards,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Administrator &amp; The Quemahtech Team</p>\n  </div>\n</div>'
   },
   'anniversary': {
     name: '🏆 Work Anniversary',
     subject: 'Congratulations on Your Work Anniversary, [Name]!',
-    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#d97706,#f59e0b);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <div style="font-size:40px;margin-bottom:8px;">🏆</div>\n    <h1 style="color:#1a1a1a;margin:0;font-size:22px;">Congratulations, [Name]!</h1>\n    <p style="color:#78350f;margin:8px 0 0;font-size:13px;">[Years] Year(s) of Excellence at TEST</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear [Name],</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">Today marks a wonderful milestone — <strong>[Years] incredible year(s)</strong> with <strong>TEST</strong>! We want to take this moment to express our deepest gratitude for your dedication, hard work, and the invaluable contributions you have made to our team.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">Your commitment to excellence inspires those around you, and we are proud to have you as part of our growing family. Here\'s to many more years of shared success! 🥂</p>\n    <div style="text-align:center;padding:16px 0;">\n      <div style="display:inline-block;background:#fef3c7;padding:12px 24px;border-radius:8px;">\n        <span style="font-size:28px;">🎉</span>\n        <p style="color:#92400e;font-size:14px;font-weight:600;margin:4px 0 0;">[Years] Year Service Award</p>\n      </div>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:12px 0 12px;">Thank you for being an essential part of our journey!</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">With appreciation,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">The TEST Management</p>\n  </div>\n</div>'
+    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#d97706,#f59e0b);padding:24px;text-align:center;border-radius:12px 12px 0 0;">\n    <div style="font-size:40px;margin-bottom:8px;">🏆</div>\n    <h1 style="color:#1a1a1a;margin:0;font-size:22px;">Congratulations, [Name]!</h1>\n    <p style="color:#78350f;margin:8px 0 0;font-size:13px;">[Years] Year(s) of Excellence at Quemahtech</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">Dear [Name],</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">Today marks a wonderful milestone — <strong>[Years] incredible year(s)</strong> with <strong>Quemahtech</strong>! We want to take this moment to express our deepest gratitude for your dedication, hard work, and the invaluable contributions you have made to our team.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">Your commitment to excellence inspires those around you, and we are proud to have you as part of our growing family. Here\'s to many more years of shared success! 🥂</p>\n    <div style="text-align:center;padding:16px 0;">\n      <div style="display:inline-block;background:#fef3c7;padding:12px 24px;border-radius:8px;">\n        <span style="font-size:28px;">🎉</span>\n        <p style="color:#92400e;font-size:14px;font-weight:600;margin:4px 0 0;">[Years] Year Service Award</p>\n      </div>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:12px 0 12px;">Thank you for being an essential part of our journey!</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">With appreciation,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">The Quemahtech Management</p>\n  </div>\n</div>'
   },
   'notice': {
     name: '📋 Office Memo / Notice',
     subject: 'Important Office Notice: [Subject]',
-    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#0f2744,#1a3355);padding:20px 24px;text-align:center;border-radius:12px 12px 0 0;">\n    <h1 style="color:#f59e0b;margin:0;font-size:18px;">📋 OFFICE MEMORANDUM</h1>\n    <p style="color:#94a3b8;margin:6px 0 0;font-size:12px;">TEST Employee Management System</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <div style="display:flex;justify-content:space-between;font-size:12px;color:#64748b;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e2e8f0;">\n      <span><strong>Date:</strong> [Date]</span>\n      <span><strong>Ref:</strong> TEST/MEMO/[Reference No.]</span>\n    </div>\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">To All Employees,</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">[Message body — describe the announcement, policy change, event, or important information that needs to be communicated to all staff members.]</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">Key details are summarized below:</p>\n    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;">\n      <ul style="color:#475569;font-size:13px;line-height:1.8;margin:0;padding-left:20px;">\n        <li><strong>Effective Date:</strong> [Effective Date]</li>\n        <li><strong>Applies to:</strong> All Departments</li>\n        <li><strong>Action Required:</strong> [Yes/No — specify if any response needed]</li>\n      </ul>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Please direct any questions to HR or your department head.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Thank you for your cooperation.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Sincerely,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Administration<br><span style="color:#64748b;font-weight:400;font-size:12px;">TEST Employee Management System</span></p>\n  </div>\n</div>'
+    body: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">\n  <div style="background:linear-gradient(135deg,#0f2744,#1a3355);padding:20px 24px;text-align:center;border-radius:12px 12px 0 0;">\n    <h1 style="color:#f59e0b;margin:0;font-size:18px;">📋 OFFICE MEMORANDUM</h1>\n    <p style="color:#94a3b8;margin:6px 0 0;font-size:12px;">Quemahtech Employee Management System</p>\n  </div>\n  <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;">\n    <div style="display:flex;justify-content:space-between;font-size:12px;color:#64748b;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e2e8f0;">\n      <span><strong>Date:</strong> [Date]</span>\n      <span><strong>Ref:</strong> QMT/MEMO/[Reference No.]</span>\n    </div>\n    <p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 16px;">To All Employees,</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">[Message body — describe the announcement, policy change, event, or important information that needs to be communicated to all staff members.]</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">Key details are summarized below:</p>\n    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;">\n      <ul style="color:#475569;font-size:13px;line-height:1.8;margin:0;padding-left:20px;">\n        <li><strong>Effective Date:</strong> [Effective Date]</li>\n        <li><strong>Applies to:</strong> All Departments</li>\n        <li><strong>Action Required:</strong> [Yes/No — specify if any response needed]</li>\n      </ul>\n    </div>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Please direct any questions to HR or your department head.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Thank you for your cooperation.</p>\n    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;">Sincerely,</p>\n    <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Administration<br><span style="color:#64748b;font-weight:400;font-size:12px;">Quemahtech Employee Management System</span></p>\n  </div>\n</div>'
   }
 };
 
@@ -577,9 +594,9 @@ function updateSmtpStatus(res) {
   const from = document.getElementById('compose-from-display');
   if (from) {
     if (res && res.email) {
-      from.innerText = res.email;
+      from.value = res.email;
     } else {
-      from.innerText = 'Server-configured (email-config.json)';
+      from.value = 'Server-configured (email-config.json)';
     }
   }
   const badge = document.getElementById('compose-status-badge');
@@ -651,6 +668,8 @@ function toggleCcBccModal() {
 
 function openComposeModal() {
   document.getElementById('compose-modal').style.display = 'flex';
+  // Reset to edit mode
+  toggleComposeView('edit');
   // Fetch email config and update status/from display
   api('/api/email-config').then(res => {
     updateSmtpStatus(res);
@@ -966,7 +985,7 @@ function handlePageBeforeUnload() {
     rec.out = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
     const [inH, inM] = rec.in.split(':').map(Number);
     rec.hours = Math.max(0, parseFloat(((h - inH) + (m - inM) / 60).toFixed(2)));
-    localStorage.setItem('attendanceRecords', JSON.stringify(attendanceRecords));
+    // Send to server via sendBeacon (Firebase/file-backed)
     try { const blob = new Blob([JSON.stringify(rec)], { type: 'application/json' }); navigator.sendBeacon('/api/attendance', blob); } catch (e) { /* silent */ }
   }
 }
@@ -983,29 +1002,16 @@ window.addEventListener('click', (e) => {
 });
 
 // ── INIT ──
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // Restore dark mode preference first
   restoreDarkMode();
-  // Load persisted data
-  loadFromLocalStorage();
-  seedDefaultData();
   connectWebSocket();
+
+  // Load persisted data from server (Firebase or file-backed) before rendering
+  await refreshState();
 
   updateClock();
   setInterval(updateClock, 1000);
-  renderDepartments();
-  renderEmpTable();
-  updateDashboardStats();
-  renderDashboardCards();
-  renderLeaveRequests();
-  renderLeaveBalances();
-  renderLeaveHistory();
-  renderArchivedTable();
-  renderAnnouncements();
-  renderDeptHeadcount();
-  renderAdminNotifPanel();
-  renderEmpNotifPanel();
-  setReport('daily', document.querySelector('.rtab'));
   setAdminGreeting();
 
   // Set today's date on inputs
@@ -1024,6 +1030,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Schedule 6pm auto sign-out for employees
   scheduleAutoSignOut();
-
-
 });

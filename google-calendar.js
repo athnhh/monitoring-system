@@ -126,7 +126,7 @@ async function createBirthdayEvent(employee) {
 
   const event = {
     summary: `🎂 ${employee.name}'s Birthday`,
-    description: `Birthday of ${employee.name}\nDepartment: ${employee.dept || '—'}\nDesignation: ${employee.designation || '—'}\nEmployee ID: ${employee.id || '—'}\n\nAuto-created by TEST Employee Management System`,
+    description: `Birthday of ${employee.name}\nDepartment: ${employee.dept || '—'}\nDesignation: ${employee.designation || '—'}\nEmployee ID: ${employee.id || '—'}\n\nAuto-created by Quemahtech Employee Management System`,
     start: {
       date: startDate,
       timeZone: 'Asia/Kolkata'

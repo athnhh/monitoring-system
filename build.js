@@ -45,7 +45,7 @@ function getDirSize(dir) {
 }
 
 function build() {
-  console.log('\n  TEST Build\n');
+  console.log('\n  Quemahtech Build\n');
 
   ensureDir(DIST);
 
