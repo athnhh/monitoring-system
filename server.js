@@ -106,8 +106,19 @@ function sendJSON(res, code, obj) {
 }
 
 // ── Email Config (server-side) ──
+// Priority: environment variables > email-config.json file
 const EMAIL_CONFIG_PATH = path.join(__dirname, 'email-config.json');
 function getEmailConfig() {
+  // 1) Check environment variables first (for Vercel / CI deployments)
+  if (process.env.SMTP_EMAIL && process.env.SMTP_PASSWORD) {
+    return {
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.SMTP_PORT || '587', 10),
+      email: process.env.SMTP_EMAIL,
+      password: process.env.SMTP_PASSWORD
+    };
+  }
+  // 2) Fall back to local email-config.json file
   try {
     if (fs.existsSync(EMAIL_CONFIG_PATH)) {
       return JSON.parse(fs.readFileSync(EMAIL_CONFIG_PATH, 'utf8'));
