@@ -126,31 +126,6 @@ function logout() {
   switchPage('page-login');
 }
 
-// ── Session Restore ──
-async function restoreSession() {
-  const loggedIn = localStorage.getItem('loggedIn');
-  const userId = localStorage.getItem('userId');
-  if (loggedIn !== 'true') return;
-
-  try { await refreshState(); } catch (e) { /* use cached data */ }
-
-  if (userId === 'quemahtech') {
-    switchPage('page-admin');
-    renderRecords();
-    return;
-  }
-
-  if (userId) {
-    const emp = employees.find(e => e.id.toLowerCase() === userId.toLowerCase());
-    if (emp) {
-      currentUser = emp;
-      loadEmployeeData(emp);
-      switchPage('page-employee');
-      autoAttendancePunchIn(emp);
-    }
-  }
-}
-
 // ── Forgot Password Flow ──
 function openForgotModal() {
   document.getElementById('forgot-modal').style.display = 'flex';

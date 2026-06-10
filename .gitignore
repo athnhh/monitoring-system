@@ -7,6 +7,9 @@ dist/
 # Runtime data (contains employee data, attendance records, etc.)
 data.json
 
+# Email SMTP credentials (sensitive — contains real email/password)
+email-config.json
+
 # Google Calendar service account keys (sensitive credentials)
 *-key.json
 service-account*.json

@@ -1023,10 +1023,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (lf) lf.value = today;
   if (lt) lt.value = today;
 
-  // Restore previous session ONLY if Remember Me was checked
-  if (localStorage.getItem('rememberMe') === 'true') {
-    restoreSession();
-  }
+  // Clear any stale session data — login page always shows first on fresh load.
+  // Session only persists for the current page view after explicit login.
+  localStorage.removeItem('loggedIn');
+  localStorage.removeItem('userRole');
+  localStorage.removeItem('userId');
+  localStorage.removeItem('rememberMe');
 
   // Schedule 6pm auto sign-out for employees
   scheduleAutoSignOut();
