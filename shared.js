@@ -39,10 +39,42 @@ let ws = null;
 
 const API_BASE = '';
 
-// ── Data Persistence (server-backed via Firebase/file) ──
+// ── Data Persistence (localStorage + server backup) ──
+const DATA_KEY = 'ems_data';
+
 function saveToLocalStorage() {
-  // Save to server only — localStorage no longer used for app data
+  // Always save to localStorage first (survives refreshes even without server)
+  try {
+    localStorage.setItem(DATA_KEY, JSON.stringify({
+      employees, archivedEmployees, attendanceRecords, leaveRequests,
+      announcements, adminNotifications, empNotifications, departments
+    }));
+  } catch (e) {
+    console.error('localStorage save error:', e.message);
+  }
+  // Also try to sync to server (silently fails if server is not running)
   syncToServer();
+}
+
+function loadFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(DATA_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (data.employees) employees = data.employees;
+      if (data.archivedEmployees) archivedEmployees = data.archivedEmployees;
+      if (data.attendanceRecords) attendanceRecords = data.attendanceRecords;
+      if (data.leaveRequests) leaveRequests = data.leaveRequests;
+      if (data.announcements) announcements = data.announcements;
+      if (data.adminNotifications) adminNotifications = data.adminNotifications;
+      if (data.empNotifications) empNotifications = data.empNotifications;
+      if (data.departments) departments = data.departments;
+      return true;
+    }
+  } catch (e) {
+    console.error('localStorage load error:', e.message);
+  }
+  return false;
 }
 
 function syncToServer() {
@@ -124,25 +156,29 @@ function handleRealtimeEvent(event, data) {
 }
 
 async function refreshState() {
+  // Try server first
   const res = await api('/api/state');
-  if (res.employees) {
+  if (res.employees && res.employees.length > 0) {
     employees = res.employees;
     archivedEmployees = res.archivedEmployees || [];
     attendanceRecords = res.attendanceRecords || [];
     leaveRequests = res.leaveRequests || [];
     announcements = res.announcements || [];
     departments = res.departments || ['Engineering', 'HR', 'IT', 'Marketing', 'Finance', 'Operations'];
-    renderEmpTable();
-    updateDashboardStats();
-    renderDashboardCards();
-    renderLeaveRequests();
-    renderLeaveBalances();
-    renderLeaveHistory();
-    renderArchivedTable();
-    renderAnnouncements();
-    renderDeptHeadcount();
-    renderDepartments();
+  } else if (loadFromLocalStorage()) {
+    // Fall back to localStorage if server returned no data
+    console.log('Loaded data from localStorage (server unavailable)');
   }
+  renderEmpTable();
+  updateDashboardStats();
+  renderDashboardCards();
+  renderLeaveRequests();
+  renderLeaveBalances();
+  renderLeaveHistory();
+  renderArchivedTable();
+  renderAnnouncements();
+  renderDeptHeadcount();
+  renderDepartments();
 }
 
 // ── Clock & Greetings ──
