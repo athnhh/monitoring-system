@@ -3,7 +3,7 @@ const { WebSocketServer } = require('ws');
 const path = require('path');
 const fs = require('fs');
 const url = require('url');
-const { spawn } = require('child_process');
+const nodemailer = require('nodemailer');
 
 const { initFirebase, isFirebaseReady, readState, writeState, updateState } = require('./firebase');
 const calendarService = require('./google-calendar');
@@ -149,46 +149,55 @@ async function notifyAdminLeaveRequest(lr) {
     <p style="color:#0f2744;font-size:14px;font-weight:700;margin:0;">Employee Management System</p>
   </div>
 </div>`;
-  await runPhpMailer({
-    action: 'send',
+  await sendEmail({
     to: cfg.email,
     subject,
-    html,
-    smtp: { host: cfg.host, port: cfg.port, user: cfg.email, pass: cfg.password }
+    html
   });
 }
 
-// ── PHP/PHPMailer Helper ──
-const PHP_PATH = (() => {
-  const candidates = [
-    'C:\\Users\\Atharv\\AppData\\Local\\Microsoft\\WinGet\\Packages\\PHP.PHP.8.3_Microsoft.Winget.Source_8wekyb3d8bbwe\\php.exe',
-    'php',
-    'php.exe'
-  ];
-  for (const c of candidates) {
-    try { require('child_process').execSync(`"${c}" -v`, { stdio: 'ignore' }); return c; }
-    catch (e) { continue; }
-  }
-  return 'php';
-})();
-
-function runPhpMailer(data) {
-  return new Promise((resolve, reject) => {
-    const iniPath = path.join(__dirname, 'php.ini');
-    const scriptPath = path.join(__dirname, 'mailer.php');
-    const proc = spawn(PHP_PATH, ['-c', iniPath, scriptPath]);
-    let stdout = '', stderr = '';
-    proc.stdout.on('data', chunk => stdout += chunk);
-    proc.stderr.on('data', chunk => stderr += chunk);
-    proc.on('error', reject);
-    proc.on('close', (code) => {
-      if (code !== 0) return reject(new Error(stderr || 'PHP mailer exited with code ' + code));
-      try { resolve(JSON.parse(stdout)); }
-      catch (e) { reject(new Error('Invalid PHP response: ' + stdout)); }
-    });
-    proc.stdin.write(JSON.stringify(data));
-    proc.stdin.end();
+// ── Nodemailer Helper ──
+function createTransporter(cfg) {
+  return nodemailer.createTransport({
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.port === 465,
+    auth: {
+      user: cfg.email,
+      pass: cfg.password
+    },
+    tls: {
+      rejectUnauthorized: false
+    }
   });
+}
+
+async function sendEmail({ to, cc, bcc, subject, html }) {
+  const cfg = getEmailConfig();
+  if (!cfg.email || !cfg.password) {
+    throw new Error('Email not configured. Edit email-config.json with your SMTP credentials.');
+  }
+  const transporter = createTransporter(cfg);
+  const info = await transporter.sendMail({
+    from: `"TEST EMS" <${cfg.email}>`,
+    to,
+    cc: cc || undefined,
+    bcc: bcc || undefined,
+    subject,
+    html,
+    text: html ? html.replace(/<[^>]*>/g, '') : subject
+  });
+  return { success: true, messageId: info.messageId };
+}
+
+async function testSmtpConnection() {
+  const cfg = getEmailConfig();
+  if (!cfg.email || !cfg.password) {
+    throw new Error('Email not configured. Edit email-config.json with your SMTP credentials.');
+  }
+  const transporter = createTransporter(cfg);
+  await transporter.verify();
+  return { success: true, message: 'SMTP connection verified' };
 }
 
 function parseBody(req) {
@@ -436,22 +445,18 @@ async function handleAPI(req, res) {
         }
         break;
 
-      // ── SEND EMAIL (PHP/PHPMailer — reads SMTP config from email-config.json) ──
+      // ── SEND EMAIL (Nodemailer — reads SMTP config from email-config.json) ──
       case '/api/send-email': {
         if (method !== 'POST') break;
         const { to, subject, html } = body;
         if (!to || !subject) return sendJSON(res, 400, { error: 'Missing required fields' });
-        const cfg = getEmailConfig();
-        if (!cfg.email || !cfg.password) return sendJSON(res, 400, { error: 'Email not configured. Edit email-config.json with your SMTP credentials.' });
         try {
-          const result = await runPhpMailer({
-            action: 'send',
+          const result = await sendEmail({
             to,
             cc: body.cc || '',
             bcc: body.bcc || '',
             subject,
-            html: html || subject,
-            smtp: { host: cfg.host, port: cfg.port, user: cfg.email, pass: cfg.password }
+            html: html || subject
           });
           return sendJSON(res, 200, result);
         } catch (err) {
@@ -462,13 +467,8 @@ async function handleAPI(req, res) {
       // ── TEST SMTP CONFIG (reads from email-config.json) ──
       case '/api/test-smtp': {
         if (method !== 'POST') break;
-        const cfg = getEmailConfig();
-        if (!cfg.email || !cfg.password) return sendJSON(res, 400, { error: 'Email not configured. Edit email-config.json with your SMTP credentials.' });
         try {
-          const result = await runPhpMailer({
-            action: 'test',
-            smtp: { host: cfg.host, port: cfg.port, user: cfg.email, pass: cfg.password }
-          });
+          const result = await testSmtpConnection();
           return sendJSON(res, 200, result);
         } catch (err) {
           return sendJSON(res, 500, { error: 'SMTP test failed: ' + err.message });

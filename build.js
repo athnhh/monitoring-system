@@ -4,8 +4,7 @@ const path = require('path');
 const ROOT = __dirname;
 const DIST = path.join(ROOT, 'dist');
 
-const STATIC_FILES = ['index.html', 'logo.webp', 'photo.jpeg', 'start.bat', 'package.json', 'php.ini', 'mailer.php', 'email-config.json'];
-const PHP_DIRS = ['phpmailer'];
+const STATIC_FILES = ['index.html', 'logo.webp', 'photo.jpeg', 'start.bat', 'package.json', 'email-config.json'];
 const CSS_FILES = ['shared.css', 'login.css', 'admin.css', 'employee.css'];
 const JS_FILES = ['shared.js', 'login.js', 'admin.js', 'employee.js'];
 
@@ -70,18 +69,6 @@ function build() {
   console.log('\n  Copying files...');
   for (const file of STATIC_FILES) {
     copyFile(path.join(ROOT, file), path.join(DIST, file));
-  }
-
-  // Copy PHP files
-  for (const dir of PHP_DIRS) {
-    const srcDir = path.join(ROOT, dir);
-    const dstDir = path.join(DIST, dir);
-    if (fs.existsSync(srcDir)) {
-      ensureDir(dstDir);
-      for (const f of fs.readdirSync(srcDir)) {
-        copyFile(path.join(srcDir, f), path.join(dstDir, f));
-      }
-    }
   }
 
   const xlsxFiles = fs.readdirSync(ROOT).filter(f => f.startsWith('employee_directory_') && f.endsWith('.xlsx'));

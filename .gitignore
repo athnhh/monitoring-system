@@ -28,3 +28,7 @@ Thumbs.db
 
 # Log files
 *.log
+
+# Junk / temp files
+nul
+*athnhh*

@@ -446,7 +446,7 @@
           <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="changeAdminPwd()">Update Password</button>
         </div>
         <div class="settings-section">
-          <div class="sec-title">📧 Email (PHPMailer)</div>
+          <div class="sec-title">📧 Email (Nodemailer)</div>
           <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Email sending is configured server-side via <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px;">email-config.json</code>. Edit that file with your SMTP credentials.</p>
           <!-- Email config status card -->
           <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;">
@@ -917,7 +917,7 @@
         <span class="compose-modal-icon">✉️</span>
         <div>
           <div class="compose-modal-title">New Message</div>
-          <div class="compose-modal-subtitle">Send a professional email via PHPMailer</div>
+          <div class="compose-modal-subtitle">Send a professional email via Nodemailer</div>
         </div>
       </div>
       <div class="compose-modal-actions-top">
@@ -963,7 +963,7 @@
         <button class="compose-tb-btn" title="Italic" onclick="wrapTag('compose-body','i')"><em>I</em></button>
         <button class="compose-tb-btn" title="Underline" onclick="wrapTag('compose-body','u')"><u>U</u></button>
         <span class="compose-tb-sep"></span>
-        <button class="compose-tb-btn" title="Insert link" onclick="wrapTag('compose-body','a','href=""')">🔗</button>
+        <button class="compose-tb-btn" title="Insert link" onclick="wrapTag('compose-body','a','href=&quot;&quot;')">🔗</button>
         <button class="compose-tb-btn" title="Bullet list" onclick="wrapHtml('compose-body','<ul><li></li></ul>')">• List</button>
       </div>
       <!-- Body -->
@@ -987,7 +987,7 @@
         <button class="compose-clear-btn" onclick="clearCompose()">🗑 Clear</button>
       </div>
       <div class="compose-modal-footer-right">
-        <span style="font-size:12px;color:var(--subtle);">PHPMailer <span id="compose-smtp-status" style="color:var(--red);">Not configured</span></span>
+        <span style="font-size:12px;color:var(--subtle);">Nodemailer <span id="compose-smtp-status" style="color:var(--red);">Not configured</span></span>
       </div>
     </div>
   </div>
