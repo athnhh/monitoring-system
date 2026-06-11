@@ -1151,13 +1151,21 @@ function wrapHtml(textareaId, html) {
 
 // ── Google Calendar Integration ──
 async function loadCalendarConfig() {
-  const res = await api('/api/calendar-config');
   const statusEl = document.getElementById('calendar-config-status');
   const saEl = document.getElementById('calendar-config-sa');
   const idEl = document.getElementById('calendar-config-id');
   const saPathEl = document.getElementById('cal-sa-path');
   const calIdEl = document.getElementById('cal-id');
   if (!statusEl) return;
+  // If server isn't available, show as not configured without making an API call
+  if (!serverAvailable) {
+    statusEl.innerText = '❌ Not configured (server required)';
+    statusEl.style.color = 'var(--red)';
+    if (saEl) saEl.innerText = 'Not set';
+    if (idEl) idEl.innerText = '—';
+    return;
+  }
+  const res = await api('/api/calendar-config');
   if (res.enabled) {
     statusEl.innerText = '✅ Configured';
     statusEl.style.color = 'var(--green)';
