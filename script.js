@@ -1613,8 +1613,6 @@ function logout() {
 function openForgotModal() {
   document.getElementById('forgot-modal').style.display = 'flex';
   document.getElementById('forgot-uid').value = '';
-  document.getElementById('forgot-phone').value = '';
-  document.getElementById('forgot-email').value = '';
   const otpHelp = document.getElementById('otp-help-text');
   if (otpHelp) { otpHelp.style.display = 'none'; otpHelp.innerText = ''; }
 }
@@ -1627,37 +1625,12 @@ function closeOtpModal() {
 
 function sendOTP() {
   const uid = document.getElementById('forgot-uid').value.trim();
-  const email = document.getElementById('forgot-email').value.trim();
-  const phone = document.getElementById('forgot-phone').value.trim();
-  if (!uid || (!email && !phone)) { showNotifBar('warning', 'Please enter your Username/ID and your registered email OR phone.', '⚠️'); return; }
 
-  let userFound = false;
-  let userEmail = '';
-  let userName = '';
-  let userPhone = '';
-
-  if (uid === 'quemahtech') {
-    userFound = true;
-    userEmail = 'admin@test.com';
-    userName = 'Administrator';
-  } else {
-    const emp = employees.find(e => e.id.toLowerCase() === uid.toLowerCase() && e.active);
-    if (emp) {
-      const cleanPhone = emp.phone ? emp.phone.replace(/\s+/g, '') : '';
-      const last4 = cleanPhone.substring(cleanPhone.length - 4);
-      // Verify by email OR phone
-      const emailMatch = email && emp.email && emp.email.toLowerCase() === email.toLowerCase();
-      const phoneMatch = phone && last4 === phone;
-      if (emailMatch || phoneMatch) {
-        userFound = true;
-        userEmail = emp.email || '';
-        userName = emp.name;
-        userPhone = cleanPhone;
-      }
-    }
+  // Admin-only forgot password
+  if (uid !== 'quemahtech') {
+    showNotifBar('error', 'Invalid admin username. Only the system administrator can reset their password here.', '❌');
+    return;
   }
-
-  if (!userFound) { showNotifBar('error', 'User details not matched. Check your ID and email or phone.', '❌'); return; }
 
   resetUserId = uid;
   const otp = String(Math.floor(1000 + Math.random() * 9000));
@@ -1665,24 +1638,32 @@ function sendOTP() {
   localStorage.setItem('resetOtpExpiry', Date.now() + 300000);
   document.getElementById('otp-modal').dataset.fallbackOtp = otp;
 
-  // Always show OTP on screen first — works regardless of email config
+  // Show OTP on screen as backup
   showOtpFallback(otp);
 
-  if (userEmail) {
-    const otpMessage = 'Hi ' + userName + ',\n\nYour password reset OTP is: ' + otp + '\n\nThis code expires in 5 minutes.\n\nIf you didn\'t request this, please ignore this message.\n\n— Quemahtech EMS';
-    // Try sending email silently in background — not required for flow to work
-    if (isEmailJSConfigured()) {
-      const cfg = getEmailJSConfig();
-      emailjs.send(cfg.serviceId, cfg.templateId, {
-        to_email: userEmail,
-        subject: 'Quemahtech — Password Reset OTP',
-        message: otpMessage
-      }).then(() => {
-        showNotifBar('success', 'OTP sent to ' + userEmail + '!', '📧');
-      }).catch(() => {
-        // Email failed — OTP is already visible on screen, no error needed
-      });
-    }
+  // Send OTP to admin's configured email via EmailJS
+  const adminEmail = window.EMAILJS_CONFIG && window.EMAILJS_CONFIG.fromEmail ? window.EMAILJS_CONFIG.fromEmail : 'atharvashishn@gmail.com';
+  const otpMessage = 'Hi Administrator,
+
+Your Quemahtech admin password reset OTP is: ' + otp + '
+
+This code expires in 5 minutes.
+
+If you didn't request this, please ignore this message.
+
+— Quemahtech EMS';
+
+  if (isEmailJSConfigured()) {
+    const cfg = getEmailJSConfig();
+    emailjs.send(cfg.serviceId, cfg.templateId, {
+      to_email: adminEmail,
+      subject: 'Quemahtech — Admin Password Reset OTP',
+      message: otpMessage
+    }).then(() => {
+      showNotifBar('success', 'OTP sent to ' + adminEmail + '! Check your inbox.', '📧');
+    }).catch(() => {
+      // Email failed — OTP is visible on screen
+    });
   }
 
   document.getElementById('forgot-modal').style.display = 'none';
@@ -1720,14 +1701,9 @@ function doResetPwd() {
   const conf = document.getElementById('np-conf').value.trim();
   if (pwd.length < 6) { showNotifBar('warning', 'Password must be at least 6 characters.', '⚠️'); return; }
   if (pwd !== conf) { showNotifBar('warning', 'Passwords do not match.', '⚠️'); return; }
-  if (resetUserId === 'quemahtech') {
-    adminPassword = pwd;
-    saveToLocalStorage();
-    showNotifBar('success', 'Admin password reset successful!', '🔑');
-  } else {
-    const emp = employees.find(e => e.id === resetUserId && e.active);
-    if (emp) { emp.password = pwd; saveToLocalStorage(); showNotifBar('success', 'Employee password reset successful!', '🔑'); }
-  }
+  adminPassword = pwd;
+  saveToLocalStorage();
+  showNotifBar('success', 'Admin password reset successful!', '🔑');
   document.getElementById('newpwd-modal').style.display = 'none';
   resetUserId = null;
 }
