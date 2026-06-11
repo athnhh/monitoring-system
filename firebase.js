@@ -14,6 +14,7 @@
   let localWriteInProgress = false;
 
   function getConfig() {
+    if (typeof window === 'undefined') return null;
     return window.FIREBASE_CONFIG || null;
   }
 
@@ -132,7 +133,7 @@
     return ready;
   }
 
-  window.FirebaseDB = {
+  const api = {
     init,
     loadState,
     saveState,
@@ -141,4 +142,20 @@
     isReady,
     isConfigured
   };
+
+  // Browser: expose on window
+  if (typeof window !== 'undefined') {
+    window.FirebaseDB = api;
+  }
+
+  // Node.js: export for require() in server.js
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      initFirebase: init,
+      isFirebaseReady: isReady,
+      readState: loadState,
+      writeState: saveState,
+      updateState: () => {} // placeholder (not used in server.js)
+    };
+  }
 })();

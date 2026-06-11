@@ -12,7 +12,7 @@ window.EMAILJS_CONFIG = {
   publicKey: 'XyyVON1T594-zsJU',
   serviceId: 'service_dt6xgoo',
   templateId: 'template_wbnkjco',
-  fromEmail: 'admin@quemahtech.com'
+  fromEmail: 'atharvashishn@gmail.com'
 };
 
 // Initialize EmailJS with the public key (required before send)
