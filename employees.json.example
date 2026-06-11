@@ -1,0 +1,27 @@
+{
+  "adminPassword": "quemah123",
+  "departments": ["Engineering", "HR", "IT", "Marketing", "Finance", "Operations"],
+  "employees": [
+    {
+      "id": "EMP001",
+      "name": "Rahul Sharma",
+      "dept": "Engineering",
+      "email": "rahul@example.com",
+      "phone": "+91 9876543210",
+      "bday": "1990-05-15",
+      "joining": "2023-01-10",
+      "designation": "Senior Developer",
+      "cl": 7.5,
+      "sl": 3.0,
+      "ul": 0,
+      "active": true,
+      "password": "emp123"
+    }
+  ],
+  "archivedEmployees": [],
+  "attendanceRecords": [],
+  "leaveRequests": [],
+  "announcements": [],
+  "adminNotifications": [],
+  "empNotifications": []
+}

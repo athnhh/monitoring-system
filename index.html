@@ -6,11 +6,8 @@
 <title>Quemahtech — Employee Management System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
-<!-- CSS separated by page -->
-<link rel="stylesheet" href="shared.css">
-<link rel="stylesheet" href="login.css">
-<link rel="stylesheet" href="admin.css">
-<link rel="stylesheet" href="employee.css">
+<!-- Single consolidated stylesheet -->
+<link rel="stylesheet" href="style.css">
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -448,6 +445,10 @@
         <div class="settings-section">
           <div class="sec-title">📧 Email (Nodemailer)</div>
           <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Email sending is configured server-side via <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px;">email-config.json</code>. Edit that file with your SMTP credentials.</p>
+          <div id="email-server-warning" style="display:none;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.35);border-radius:8px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--text);line-height:1.5;">
+            <strong style="color:var(--gold);">⚠️ Backend not connected.</strong>
+            Email features require the Node.js server. Run <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">node server.js</code> (or <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">start.bat</code>) and open <a href="http://localhost:3000" style="color:var(--gold);font-weight:600;">http://localhost:3000</a> — not Live Server or the HTML file directly.
+          </div>
           <!-- Email config status card -->
           <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;">
             <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -811,8 +812,9 @@
       <button class="close-modal-btn" onclick="closeOtpModal();document.getElementById('forgot-modal').style.display='none'">×</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your Employee ID or username.</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your Employee ID or username and the last 4 digits of your registered phone number.</p>
       <div class="field"><label>Employee ID / Username</label><input type="text" id="forgot-uid" placeholder="e.g. EMP001 or admin"></div>
+      <div class="field"><label>Last 4 digits of Phone</label><input type="text" id="forgot-phone" placeholder="e.g. 3210" maxlength="4" inputmode="numeric"></div>
 
       <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="sendOTP()">📧 Send Reset Code</button>
       <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">A reset code will be sent to your registered email.</p>
@@ -929,7 +931,7 @@
       <!-- From -->
       <div class="compose-field-row">
         <div class="compose-field-label">From</div>
-        <input type="text" id="compose-from-display" class="compose-field-input" value="" readonly placeholder="Sender email (configured in settings)">
+        <input type="text" id="compose-from-display" class="compose-field-input" value="" readonly placeholder="Configured sender address">
       </div>
       <!-- To -->
       <div class="compose-field-row">
@@ -954,7 +956,7 @@
       <!-- Subject -->
       <div class="compose-field-row compose-subject-row">
         <div class="compose-field-label">Subject</div>
-        <input type="text" id="compose-subject" class="compose-field-input compose-subject-input" placeholder="Email subject" autocomplete="off">
+        <input type="text" id="compose-subject" class="compose-field-input compose-subject-input" placeholder="Enter subject line…" autocomplete="off">
       </div>
       <!-- Toolbar -->
       <div class="compose-toolbar">
@@ -1007,10 +1009,12 @@
   </div>
 </div>
 
-<!-- JS separated by page — shared must be first -->
-<script src="shared.js"></script>
-<script src="login.js"></script>
-<script src="admin.js"></script>
-<script src="employee.js"></script>
+<!-- Firebase (client Firestore — works on GitHub Pages) -->
+<script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="firebase.js"></script>
+<!-- Single consolidated script (shared.js + login.js + admin.js + employee.js) -->
+<script src="script.js"></script>
 </body>
 </html>
