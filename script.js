@@ -223,10 +223,14 @@ async function restoreSession() {
     return true;
   }
 
-  if (session.userRole === 'employee') {
+    if (session.userRole === 'employee') {
+    // Ensure employee data is loaded from cache before looking up
+    if (employees.length === 0) {
+      loadFromLocalCache();
+    }
     const emp = employees.find(e => e.id === session.userId && e.active);
     if (!emp) {
-      clearSession();
+      // Employee not found — session exists but data hasn't loaded yet
       return false;
     }
     currentUser = emp;
@@ -845,11 +849,8 @@ function testEmailJS() {
 function testSmtp() {
 
   if (!isEmailJSConfigured()) {
-
-    showNotifBar('error', 'EmailJS not configured. Add credentials to emailjs-config.js', '❌');
-
+    showNotifBar('warning', 'EmailJS keys not set — configure in emailjs-config.js', '⚙️');
     return;
-
   }
 
   showNotifBar('info', 'Sending test email via EmailJS…', '🔌');
@@ -889,12 +890,12 @@ function loadEmailConfig() {
     if (serviceEl) serviceEl.innerText = 'EmailJS';
     statusEl.innerText = '✅ EmailJS Ready';
     statusEl.style.color = 'var(--green)';
-    statusEl.title = 'Email is sent via EmailJS — no server required.';
+    statusEl.title = 'EmailJS configured — sending is available.';
   } else {
-    if (serviceEl) serviceEl.innerText = 'Not configured';
-    statusEl.innerText = '❌ Not configured';
-    statusEl.style.color = 'var(--red)';
-    statusEl.title = 'Add EmailJS credentials to emailjs-config.js (public key, service ID, template ID).';
+    if (serviceEl) serviceEl.innerText = 'Not set';
+    statusEl.innerText = '⚙️ Optional — set keys in emailjs-config.js';
+    statusEl.style.color = 'var(--amber)';
+    statusEl.title = 'EmailJS is optional. Password reset works via on-screen OTP even without email.';
   }
 }
 
@@ -964,7 +965,7 @@ function sendCustomEmail() {
 
   if (!to || !subject || !body) { showNotifBar('warning', 'Please fill in To, Subject, and Message.', '⚠️'); return; }
 
-  if (!isEmailJSConfigured()) { showNotifBar('error', 'EmailJS not configured. Add credentials to emailjs-config.js', '❌'); return; }
+  if (!isEmailJSConfigured()) { showNotifBar('warning', 'Configure EmailJS in emailjs-config.js first', '⚙️'); return; }
 
   if (btn) { btn.disabled = true; btn.innerHTML = '<span>⏳</span> Sending…'; }
 
@@ -1551,6 +1552,7 @@ async function doLogin() {
   const expectedAdminPwd = adminPassword || 'quemah123';
   if (currentRole === 'admin' && uid === 'quemahtech' && pwd === expectedAdminPwd) {
     saveSession('admin', uid, rememberMe);
+    saveToLocalCache();
     switchPage('page-admin');
     renderRecords();
     renderEmpHistory();
@@ -1565,6 +1567,7 @@ async function doLogin() {
       if (pwd === expectedEmpPwd) {
         currentUser = emp;
         saveSession('employee', emp.id, rememberMe);
+        saveToLocalCache();
         loadEmployeeData(emp);
         switchPage('page-employee');
         autoAttendancePunchIn(emp);
@@ -1611,6 +1614,7 @@ function openForgotModal() {
   document.getElementById('forgot-modal').style.display = 'flex';
   document.getElementById('forgot-uid').value = '';
   document.getElementById('forgot-phone').value = '';
+  document.getElementById('forgot-email').value = '';
   const otpHelp = document.getElementById('otp-help-text');
   if (otpHelp) { otpHelp.style.display = 'none'; otpHelp.innerText = ''; }
 }
@@ -1623,12 +1627,14 @@ function closeOtpModal() {
 
 function sendOTP() {
   const uid = document.getElementById('forgot-uid').value.trim();
+  const email = document.getElementById('forgot-email').value.trim();
   const phone = document.getElementById('forgot-phone').value.trim();
-  if (!uid || !phone) { showNotifBar('warning', 'Please enter both Username/ID and phone details.', '⚠️'); return; }
+  if (!uid || (!email && !phone)) { showNotifBar('warning', 'Please enter your Username/ID and your registered email OR phone.', '⚠️'); return; }
 
   let userFound = false;
   let userEmail = '';
   let userName = '';
+  let userPhone = '';
 
   if (uid === 'quemahtech') {
     userFound = true;
@@ -1639,11 +1645,19 @@ function sendOTP() {
     if (emp) {
       const cleanPhone = emp.phone ? emp.phone.replace(/\s+/g, '') : '';
       const last4 = cleanPhone.substring(cleanPhone.length - 4);
-      if (last4 === phone) { userFound = true; userEmail = emp.email || ''; userName = emp.name; }
+      // Verify by email OR phone
+      const emailMatch = email && emp.email && emp.email.toLowerCase() === email.toLowerCase();
+      const phoneMatch = phone && last4 === phone;
+      if (emailMatch || phoneMatch) {
+        userFound = true;
+        userEmail = emp.email || '';
+        userName = emp.name;
+        userPhone = cleanPhone;
+      }
     }
   }
 
-  if (!userFound) { showNotifBar('error', 'User details or phone number not matched.', '❌'); return; }
+  if (!userFound) { showNotifBar('error', 'User details not matched. Check your ID and email or phone.', '❌'); return; }
 
   resetUserId = uid;
   const otp = String(Math.floor(1000 + Math.random() * 9000));
@@ -1651,45 +1665,24 @@ function sendOTP() {
   localStorage.setItem('resetOtpExpiry', Date.now() + 300000);
   document.getElementById('otp-modal').dataset.fallbackOtp = otp;
 
-    if (userEmail) {
+  // Always show OTP on screen first — works regardless of email config
+  showOtpFallback(otp);
 
+  if (userEmail) {
     const otpMessage = 'Hi ' + userName + ',\n\nYour password reset OTP is: ' + otp + '\n\nThis code expires in 5 minutes.\n\nIf you didn\'t request this, please ignore this message.\n\n— Quemahtech EMS';
-
+    // Try sending email silently in background — not required for flow to work
     if (isEmailJSConfigured()) {
-
       const cfg = getEmailJSConfig();
-
       emailjs.send(cfg.serviceId, cfg.templateId, {
-
         to_email: userEmail,
-
         subject: 'Quemahtech — Password Reset OTP',
-
         message: otpMessage
-
       }).then(() => {
-
         showNotifBar('success', 'OTP sent to ' + userEmail + '!', '📧');
-
       }).catch(() => {
-
-        showNotifBar('warning', 'Email failed. OTP shown below.', '📱');
-
-        showOtpFallback(otp);
-
+        // Email failed — OTP is already visible on screen, no error needed
       });
-
-    } else {
-
-      showNotifBar('warning', 'EmailJS not configured. OTP shown below.', '📱');
-
-      showOtpFallback(otp);
-
     }
-
-  }else {
-    showNotifBar('warning', 'No email on record. OTP shown below.', '📱');
-    showOtpFallback(otp);
   }
 
   document.getElementById('forgot-modal').style.display = 'none';
@@ -1701,7 +1694,7 @@ function sendOTP() {
 
 function showOtpFallback(otp) {
   const otpHelp = document.getElementById('otp-help-text');
-  if (otpHelp) { otpHelp.innerText = '⚠️ Email unavailable — use this code:  ' + otp; otpHelp.style.display = 'block'; }
+  if (otpHelp) { otpHelp.innerText = '🔑 Your OTP code:  ' + otp; otpHelp.style.display = 'block'; }
 }
 
 function verifyOTP() {

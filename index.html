@@ -800,12 +800,13 @@
       <button class="close-modal-btn" onclick="closeOtpModal();document.getElementById('forgot-modal').style.display='none'">×</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your Employee ID or username and the last 4 digits of your registered phone number.</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your Employee ID or username. Verify using your registered <strong>email</strong> or the last 4 digits of your phone.</p>
       <div class="field"><label>Employee ID / Username</label><input type="text" id="forgot-uid" placeholder="e.g. EMP001 or admin"></div>
-      <div class="field"><label>Last 4 digits of Phone</label><input type="text" id="forgot-phone" placeholder="e.g. 3210" maxlength="4" inputmode="numeric"></div>
+      <div class="field"><label>Registered Email</label><input type="email" id="forgot-email" placeholder="e.g. you@company.com"></div>
+      <div class="field"><label>OR — Last 4 digits of Phone</label><input type="text" id="forgot-phone" placeholder="e.g. 3210" maxlength="4" inputmode="numeric"></div>
 
       <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="sendOTP()">📧 Send Reset Code</button>
-      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">A reset code will be sent to your registered email.</p>
+      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">A reset code will be shown on screen and sent to your email if available.</p>
     </div>
   </div>
 </div>
