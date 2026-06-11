@@ -4,7 +4,7 @@ const path = require('path');
 const ROOT = __dirname;
 const DIST = path.join(ROOT, 'dist');
 
-const STATIC_FILES = ['index.html', 'logo.webp', 'photo.jpeg', 'start.bat', 'package.json', 'email-config.json'];
+const STATIC_FILES = ['index.html', 'logo.webp', 'photo.jpeg'];
 const CSS_FILES = ['style.css'];
 const JS_FILES = ['firebase-config.js', 'firebase.js', 'emailjs-config.js', 'script.js'];
 
@@ -70,6 +70,10 @@ function build() {
   for (const file of STATIC_FILES) {
     copyFile(path.join(ROOT, file), path.join(DIST, file));
   }
+
+  // Add .nojekyll for GitHub Pages compatibility
+  fs.writeFileSync(path.join(DIST, '.nojekyll'), '');
+  console.log('  \u2713 .nojekyll (added for GitHub Pages)');
 
   const xlsxFiles = fs.readdirSync(ROOT).filter(f => f.startsWith('employee_directory_') && f.endsWith('.xlsx'));
   for (const f of xlsxFiles) {

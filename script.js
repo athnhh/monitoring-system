@@ -21,6 +21,7 @@ let deleteTargetId = null;
 let resetUserId = null;
 let annSelectedRecipient = 'all';
 let annSelectedPriority = 'normal';
+let serverAvailable = false;
 
 const DEPT_COLORS = {
   Engineering: 'c-eng', HR: 'c-hr', Marketing: 'c-mkt',
@@ -346,6 +347,7 @@ async function refreshState() {
     const res = await api('/api/state');
     if (res.employees) {
       applyStateData(res);
+      serverAvailable = true;
       saveToLocalCache();
       loaded = true;
       console.log('Loaded data from server API');
@@ -835,6 +837,11 @@ function setEmailServerWarning(visible) {
 
 
 
+// Alias so the HTML settings button "Test EmailJS" works without server
+function testEmailJS() {
+  testSmtp();
+}
+
 function testSmtp() {
 
   if (!isEmailJSConfigured()) {
@@ -872,53 +879,23 @@ function testSmtp() {
 
 
 // ── Load Email Config and Display in Settings ──
-
 function loadEmailConfig() {
-
   const cfg = getEmailJSConfig();
-
-  const emailEl = document.getElementById('email-config-email');
-
-  const hostEl = document.getElementById('email-config-host');
-
-  const portEl = document.getElementById('email-config-port');
-
+  const serviceEl = document.getElementById('email-config-service');
   const statusEl = document.getElementById('email-config-status');
-
-  if (!emailEl) return;
-
-
+  if (!statusEl) return;
 
   if (isEmailJSConfigured()) {
-
-    emailEl.innerText = cfg.fromEmail || 'Via EmailJS';
-
-    hostEl.innerText = 'EmailJS';
-
-    portEl.innerText = '—';
-
+    if (serviceEl) serviceEl.innerText = 'EmailJS';
     statusEl.innerText = '✅ EmailJS Ready';
-
     statusEl.style.color = 'var(--green)';
-
     statusEl.title = 'Email is sent via EmailJS — no server required.';
-
   } else {
-
-    emailEl.innerText = 'Not configured';
-
-    hostEl.innerText = '—';
-
-    portEl.innerText = '—';
-
+    if (serviceEl) serviceEl.innerText = 'Not configured';
     statusEl.innerText = '❌ Not configured';
-
     statusEl.style.color = 'var(--red)';
-
     statusEl.title = 'Add EmailJS credentials to emailjs-config.js (public key, service ID, template ID).';
-
   }
-
 }
 
 
@@ -1197,6 +1174,10 @@ async function loadCalendarConfig() {
 }
 
 async function saveCalendarConfig() {
+  if (!serverAvailable) {
+    showNotifBar('warning', 'Calendar sync requires the Node.js server to be running (node server.js) or a Vercel deployment. On static hosting this feature is unavailable.', '⚠️');
+    return;
+  }
   const serviceAccountPath = document.getElementById('cal-sa-path')?.value.trim() || '';
   const calendarId = document.getElementById('cal-id')?.value.trim() || 'primary';
   if (!serviceAccountPath) {
@@ -1220,6 +1201,10 @@ async function saveCalendarConfig() {
 }
 
 async function syncBirthdaysToCalendar() {
+  if (!serverAvailable) {
+    showNotifBar('warning', 'Calendar sync requires the Node.js server (node server.js) or Vercel deployment. Unavailable on static hosting.', '⚠️');
+    return;
+  }
   showNotifBar('info', 'Syncing all employee birthdays to Google Calendar…', '📅');
   const res = await api('/api/calendar/sync-birthdays', { method: 'POST' });
   if (res.success) {
@@ -1240,6 +1225,10 @@ async function syncBirthdaysToCalendar() {
 }
 
 async function testCalendarConnection() {
+  if (!serverAvailable) {
+    showNotifBar('warning', 'Calendar requires the Node.js server (node server.js) or Vercel deployment. Unavailable on static hosting.', '⚠️');
+    return;
+  }
   showNotifBar('info', 'Testing Google Calendar connection…', '🔌');
   const res = await api('/api/calendar-config', { method: 'GET' });
   if (res.enabled) {
@@ -1324,14 +1313,14 @@ async function postAnnouncement() {
   } else if (annSelectedRecipient === 'individual') { recipientText = 'Individual'; }
   const ann = { date: today, subject, body, by: 'Admin', priority: annSelectedPriority, recipient: recipientText };
   announcements.unshift(ann);
-  await api('/api/announcements', { method: 'POST', body: ann });
+  api('/api/announcements', { method: 'POST', body: ann }).catch(() => {});
   subEl.value = '';
   bodyEl.value = '';
   const charCount = document.getElementById('ann-charcount');
   if (charCount) charCount.innerText = '0';
   renderAnnouncements();
   showNotifBar('success', 'Announcement sent successfully!', '📣');
-  await api('/api/notifications', { method: 'POST', body: { text: 'New Announcement: ' + subject, target: 'emp' } });
+  api('/api/notifications', { method: 'POST', body: { text: 'New Announcement: ' + subject, target: 'emp' } }).catch(() => {});
   empNotifications.unshift({ text: 'New Announcement: ' + subject, time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }), unread: true });
   renderEmpNotifPanel();
 }
@@ -1905,20 +1894,22 @@ function closeDeleteEmpModal() {
 
 async function confirmDeleteEmployee() {
   if (!deleteTargetId) return;
-  const res = await api('/api/employees/' + deleteTargetId, { method: 'DELETE' });
-  if (res.success) {
-    const emp = employees.find(e => e.id === deleteTargetId);
-    archivedEmployees.push({ id: emp.id, name: emp.name, dept: emp.dept, status: 'Deleted', joining: emp.joining, exit: new Date().toISOString().split('T')[0] });
-    employees = employees.filter(e => e.id !== deleteTargetId);
-    saveToLocalStorage();
-    closeDeleteEmpModal();
-    renderEmpTable();
-    renderArchivedTable();
-    updateDashboardStats();
-    renderLeaveBalances();
-    renderDeptHeadcount();
-    showNotifBar('info', emp.name + ' has been removed.', '🗑');
-  } else { showNotifBar('error', 'Failed to remove employee.', '❌'); }
+  const emp = employees.find(e => e.id === deleteTargetId);
+  if (!emp) { showNotifBar('error', 'Employee not found.', '❌'); closeDeleteEmpModal(); return; }
+  archivedEmployees.push({ id: emp.id, name: emp.name, dept: emp.dept, status: 'Deleted', joining: emp.joining, exit: new Date().toISOString().split('T')[0] });
+  employees = employees.filter(e => e.id !== deleteTargetId);
+  saveToLocalStorage();
+  closeDeleteEmpModal();
+  renderEmpTable();
+  renderArchivedTable();
+  updateDashboardStats();
+  renderLeaveBalances();
+  renderDeptHeadcount();
+  showNotifBar('info', emp.name + ' has been removed.', '🗑');
+  // Sync to server if available (fire-and-forget)
+  api('/api/employees/' + deleteTargetId, { method: 'DELETE' }).then(r => {
+    if (!r || !r.success) console.warn('Server sync failed for employee delete (expected on static hosting)');
+  });
 }
 
 function openAddEmpModal() {
