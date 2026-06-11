@@ -1643,15 +1643,7 @@ function sendOTP() {
 
   // Send OTP to admin's configured email via EmailJS
   const adminEmail = window.EMAILJS_CONFIG && window.EMAILJS_CONFIG.fromEmail ? window.EMAILJS_CONFIG.fromEmail : 'atharvashishn@gmail.com';
-  const otpMessage = 'Hi Administrator,
-
-Your Quemahtech admin password reset OTP is: ' + otp + '
-
-This code expires in 5 minutes.
-
-If you didn't request this, please ignore this message.
-
-— Quemahtech EMS';
+  const otpMessage = 'Hi Administrator,\n\nYour Quemahtech admin password reset OTP is: ' + otp + '\n\nThis code expires in 5 minutes.\n\nIf you didn\'t request this, please ignore this message.\n\n— Quemahtech EMS';
 
   if (isEmailJSConfigured()) {
     const cfg = getEmailJSConfig();
