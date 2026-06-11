@@ -807,132 +807,306 @@ const EMAIL_TEMPLATES = {
   }
 };
 
-// ── Email Sending (server-side config via email-config.json) ──
-function isApiError(res) {
-  return res && res.success === false && res.error;
+// ── Email Sending (EmailJS — works on static hosting / GitHub Pages) ──
+
+function isEmailJSConfigured() {
+
+  return window.EMAILJS_CONFIG && window.EMAILJS_CONFIG.publicKey && window.EMAILJS_CONFIG.serviceId && window.EMAILJS_CONFIG.templateId;
+
 }
+
+
+
+function getEmailJSConfig() {
+
+  return window.EMAILJS_CONFIG || {};
+
+}
+
+
 
 function setEmailServerWarning(visible) {
+
   const el = document.getElementById('email-server-warning');
+
   if (el) el.style.display = visible ? 'block' : 'none';
+
 }
+
+
 
 function testSmtp() {
-  showNotifBar('info', 'Testing SMTP connection from server config…', '🔌');
-  api('/api/test-smtp', { method: 'POST', body: {} })
-    .then(res => {
-      if (isApiError(res)) {
-        setEmailServerWarning(true);
-        showNotifBar('error', res.error, '❌');
-        return;
-      }
-      if (res.success) {
-        setEmailServerWarning(false);
-        showNotifBar('success', 'SMTP connection verified! ✓', '✓');
-      } else {
-        showNotifBar('error', 'SMTP failed: ' + (res.error || 'Unknown error'), '❌');
-      }
-    }).catch(err => {
-      showNotifBar('error', 'SMTP test failed: ' + err.message, '❌');
-    });
+
+  if (!isEmailJSConfigured()) {
+
+    showNotifBar('error', 'EmailJS not configured. Add credentials to emailjs-config.js', '❌');
+
+    return;
+
+  }
+
+  showNotifBar('info', 'Sending test email via EmailJS…', '🔌');
+
+  const cfg = getEmailJSConfig();
+
+  emailjs.send(cfg.serviceId, cfg.templateId, {
+
+    to_email: cfg.fromEmail || 'test@example.com',
+
+    subject: 'Quemahtech — EmailJS Test',
+
+    message: 'EmailJS is configured and working!\n\nThis is a test message from your Employee Management System.'
+
+  }).then(() => {
+
+    showNotifBar('success', 'EmailJS test sent! Check your inbox.', '✓');
+
+  }).catch(err => {
+
+    showNotifBar('error', 'EmailJS test failed: ' + (err.text || err.message || 'Unknown error'), '❌');
+
+  });
+
 }
+
+
 
 // ── Load Email Config and Display in Settings ──
-async function loadEmailConfig() {
-  const res = await api('/api/email-config');
+
+function loadEmailConfig() {
+
+  const cfg = getEmailJSConfig();
+
   const emailEl = document.getElementById('email-config-email');
+
   const hostEl = document.getElementById('email-config-host');
+
   const portEl = document.getElementById('email-config-port');
+
   const statusEl = document.getElementById('email-config-status');
+
   if (!emailEl) return;
 
-  if (isApiError(res)) {
-    setEmailServerWarning(true);
-    emailEl.innerText = '—';
-    hostEl.innerText = '—';
+
+
+  if (isEmailJSConfigured()) {
+
+    emailEl.innerText = cfg.fromEmail || 'Via EmailJS';
+
+    hostEl.innerText = 'EmailJS';
+
     portEl.innerText = '—';
-    statusEl.innerText = '⚠️ Server not reachable';
-    statusEl.style.color = 'var(--gold)';
-    statusEl.title = res.error;
-    return;
+
+    statusEl.innerText = '✅ EmailJS Ready';
+
+    statusEl.style.color = 'var(--green)';
+
+    statusEl.title = 'Email is sent via EmailJS — no server required.';
+
+  } else {
+
+    emailEl.innerText = 'Not configured';
+
+    hostEl.innerText = '—';
+
+    portEl.innerText = '—';
+
+    statusEl.innerText = '❌ Not configured';
+
+    statusEl.style.color = 'var(--red)';
+
+    statusEl.title = 'Add EmailJS credentials to emailjs-config.js (public key, service ID, template ID).';
+
   }
 
-  setEmailServerWarning(false);
-  if (res.configured) {
-    emailEl.innerText = res.email || '—';
-    hostEl.innerText = res.host || '—';
-    portEl.innerText = res.port || '—';
-    statusEl.innerText = '✅ Configured';
-    statusEl.style.color = 'var(--green)';
-    statusEl.title = '';
-  } else {
-    emailEl.innerText = 'Not configured';
-    hostEl.innerText = '—';
-    portEl.innerText = '—';
-    statusEl.innerText = '❌ Not configured';
-    statusEl.style.color = 'var(--red)';
-    statusEl.title = 'Edit email-config.json with your SMTP host, port, email, and password.';
-  }
 }
+
+
 
 function updateSmtpStatus(res) {
+
+  const cfg = getEmailJSConfig();
+
   const from = document.getElementById('compose-from-display');
+
   if (from) {
-    if (res && res.email) {
-      from.value = res.email;
-    } else {
-      from.value = 'Server-configured (email-config.json)';
-    }
+
+    from.value = (cfg && cfg.fromEmail) ? cfg.fromEmail : 'Configured via EmailJS';
+
   }
+
   const badge = document.getElementById('compose-status-badge');
+
+  const configured = isEmailJSConfigured();
+
   if (badge) { 
-    badge.innerText = res && res.configured ? '● Connected' : '● Not configured';
-    badge.className = 'compose-status-badge' + (res && res.configured ? ' connected' : '');
+
+    badge.innerText = configured ? '● EmailJS Ready' : '● Not configured';
+
+    badge.className = 'compose-status-badge' + (configured ? ' connected' : '');
+
   }
+
   const status = document.getElementById('compose-smtp-status');
+
   if (status) { 
-    if (res && res.configured) {
-      status.innerText = res.email;
+
+    if (configured) {
+
+      status.innerText = cfg.fromEmail || 'EmailJS';
+
       status.style.color = 'var(--green)';
+
     } else {
+
       status.innerText = 'Not configured';
+
       status.style.color = 'var(--red)';
+
     }
+
   }
+
 }
 
+
+
 function sendCustomEmail() {
+
   const to = document.getElementById('compose-to').value.trim();
+
   const cc = document.getElementById('compose-cc')?.value.trim() || '';
+
   const bcc = document.getElementById('compose-bcc')?.value.trim() || '';
+
   const subject = document.getElementById('compose-subject').value.trim();
+
   const body = document.getElementById('compose-body').value.trim();
+
   const btn = document.getElementById('compose-send-btn');
+
   if (!to || !subject || !body) { showNotifBar('warning', 'Please fill in To, Subject, and Message.', '⚠️'); return; }
+
+  if (!isEmailJSConfigured()) { showNotifBar('error', 'EmailJS not configured. Add credentials to emailjs-config.js', '❌'); return; }
+
   if (btn) { btn.disabled = true; btn.innerHTML = '<span>⏳</span> Sending…'; }
-  showNotifBar('info', 'Sending email to ' + to + '…', '📧');
-  // Detect if body is already HTML (starts with <), send as-is; else convert newlines to <br>
+
+  showNotifBar('info', 'Sending email to ' + to + ' via EmailJS…', '📧');
+
   const isHtml = /^\s*</.test(body);
+
   const htmlContent = isHtml
+
     ? body
+
     : '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#1e293b;line-height:1.7;">' +
+
       body.replace(/\n/g, '<br>') +
+
       '</div>';
-  api('/api/send-email', {
-    method: 'POST',
-    body: { to, cc, bcc, subject, html: htmlContent }
-  }).then(res => {
-    if (res.success) {
-      showNotifBar('success', 'Email sent successfully to ' + to + '!', '✓');
-      clearCompose();
-    } else {
-      showNotifBar('error', 'Email failed: ' + (res.error || 'Unknown error'), '❌');
-    }
-  }).catch(err => {
-    showNotifBar('error', 'Email failed: ' + err.message, '❌');
-  }).finally(() => {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<span>📤</span> Send Email'; }
+
+  
+
+  const recipients = to.split(',').map(r => r.trim()).filter(Boolean);
+
+  let sentCount = 0;
+
+  let failCount = 0;
+
+  const cfg = getEmailJSConfig();
+
+  
+
+  const sendPromises = recipients.map(recipient => {
+
+    return emailjs.send(cfg.serviceId, cfg.templateId, {
+
+      to_email: recipient,
+
+      subject: subject,
+
+      message: isHtml ? htmlContent : body
+
+    }).then(() => { sentCount++; }).catch(err => { failCount++; console.error('EmailJS send error:', err); });
+
   });
+
+  
+
+  if (cc) {
+
+    const ccRecipients = cc.split(',').map(r => r.trim()).filter(Boolean);
+
+    ccRecipients.forEach(recipient => {
+
+      sendPromises.push(
+
+        emailjs.send(cfg.serviceId, cfg.templateId, {
+
+          to_email: recipient,
+
+          subject: 'CC: ' + subject,
+
+          message: isHtml ? htmlContent : body
+
+        }).then(() => { sentCount++; }).catch(err => { failCount++; console.error('EmailJS CC error:', err); })
+
+      );
+
+    });
+
+  }
+
+  
+
+  if (bcc) {
+
+    const bccRecipients = bcc.split(',').map(r => r.trim()).filter(Boolean);
+
+    bccRecipients.forEach(recipient => {
+
+      sendPromises.push(
+
+        emailjs.send(cfg.serviceId, cfg.templateId, {
+
+          to_email: recipient,
+
+          subject: 'BCC: ' + subject,
+
+          message: isHtml ? htmlContent : body
+
+        }).then(() => { sentCount++; }).catch(err => { failCount++; console.error('EmailJS BCC error:', err); })
+
+      );
+
+    });
+
+  }
+
+  
+
+  Promise.all(sendPromises).finally(() => {
+
+    if (sentCount > 0 && failCount === 0) {
+
+      showNotifBar('success', 'Email sent to ' + sentCount + ' recipient(s)!', '✓');
+
+      clearCompose();
+
+    } else if (failCount > 0 && sentCount === 0) {
+
+      showNotifBar('error', 'Email sending failed for all recipients.', '❌');
+
+    } else {
+
+      showNotifBar('warning', 'Sent to ' + sentCount + ', failed: ' + failCount, '⚠️');
+
+    }
+
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span>📤</span> Send Email'; }
+
+  });
+
 }
 
 function clearCompose() {
@@ -952,24 +1126,21 @@ function toggleCcBccModal() {
 }
 
 function openComposeModal() {
+
   document.getElementById('compose-modal').style.display = 'flex';
+
   // Reset to edit mode
+
   toggleComposeView('edit');
-  // Fetch email config and update status/from display
-  api('/api/email-config').then(res => {
-    if (isApiError(res)) {
-      setEmailServerWarning(true);
-      updateSmtpStatus(null);
-      return;
-    }
-    setEmailServerWarning(false);
-    updateSmtpStatus(res);
-  }).catch(() => {
-    setEmailServerWarning(true);
-    updateSmtpStatus(null);
-  });
+
+  // Update status/from display from EmailJS config (no server call needed)
+
+  updateSmtpStatus(null);
+
   populateTemplateSelect();
+
   document.getElementById('compose-to').focus();
+
 }
 
 function closeComposeModal() {
@@ -1483,19 +1654,43 @@ function sendOTP() {
   localStorage.setItem('resetOtpExpiry', Date.now() + 300000);
   document.getElementById('otp-modal').dataset.fallbackOtp = otp;
 
-  if (userEmail) {
-    const otpHtml = '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;"><div style="background:#0f2744;padding:20px;text-align:center;border-radius:10px 10px 0 0;"><h1 style="color:#f59e0b;margin:0;font-size:20px;">🛡️ Quemahtech</h1><p style="color:#94a3b8;margin:4px 0 0;font-size:12px;">Employee Management System</p></div><div style="padding:24px;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 10px 10px;"><h2 style="color:#0f2744;margin:0 0 8px;">Password Reset</h2><p style="color:#475569;font-size:14px;margin:0 0 16px;">Hi <strong>' + userName + '</strong>, use the OTP below to reset your password.</p><div style="background:#f8fafc;border:2px dashed #f59e0b;border-radius:8px;padding:16px;text-align:center;margin-bottom:16px;"><span style="font-size:32px;font-weight:700;letter-spacing:8px;color:#0f2744;font-family:monospace;">' + otp + '</span></div><p style="color:#94a3b8;font-size:12px;margin:0;">If you didn\'t request this, please ignore this email.</p></div></div>';
-    api('/api/send-email', {
-      method: 'POST',
-      body: { to: userEmail, subject: 'Quemahtech — Password Reset OTP', html: otpHtml }
-    }).then(res => {
-      if (res.success) { showNotifBar('success', 'OTP sent to ' + userEmail + '!', '📧'); }
-      else { showNotifBar('warning', 'Email failed. OTP shown below.', '📱'); showOtpFallback(otp); }
-    }).catch(() => {
-      showNotifBar('warning', 'Email failed. OTP shown below.', '📱');
+    if (userEmail) {
+
+    const otpMessage = 'Hi ' + userName + ',\n\nYour password reset OTP is: ' + otp + '\n\nThis code expires in 5 minutes.\n\nIf you didn\'t request this, please ignore this message.\n\n— Quemahtech EMS';
+
+    if (isEmailJSConfigured()) {
+
+      const cfg = getEmailJSConfig();
+
+      emailjs.send(cfg.serviceId, cfg.templateId, {
+
+        to_email: userEmail,
+
+        subject: 'Quemahtech — Password Reset OTP',
+
+        message: otpMessage
+
+      }).then(() => {
+
+        showNotifBar('success', 'OTP sent to ' + userEmail + '!', '📧');
+
+      }).catch(() => {
+
+        showNotifBar('warning', 'Email failed. OTP shown below.', '📱');
+
+        showOtpFallback(otp);
+
+      });
+
+    } else {
+
+      showNotifBar('warning', 'EmailJS not configured. OTP shown below.', '📱');
+
       showOtpFallback(otp);
-    });
-  } else {
+
+    }
+
+  }else {
     showNotifBar('warning', 'No email on record. OTP shown below.', '📱');
     showOtpFallback(otp);
   }

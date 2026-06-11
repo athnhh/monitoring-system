@@ -6,7 +6,7 @@ const DIST = path.join(ROOT, 'dist');
 
 const STATIC_FILES = ['index.html', 'logo.webp', 'photo.jpeg', 'start.bat', 'package.json', 'email-config.json'];
 const CSS_FILES = ['style.css'];
-const JS_FILES = ['firebase-config.js', 'firebase.js', 'script.js'];
+const JS_FILES = ['firebase-config.js', 'firebase.js', 'emailjs-config.js', 'script.js'];
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

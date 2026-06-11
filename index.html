@@ -443,25 +443,13 @@
           <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="changeAdminPwd()">Update Password</button>
         </div>
         <div class="settings-section">
-          <div class="sec-title">📧 Email (Nodemailer)</div>
-          <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Email sending is configured server-side via <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px;">email-config.json</code>. Edit that file with your SMTP credentials.</p>
-          <div id="email-server-warning" style="display:none;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.35);border-radius:8px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--text);line-height:1.5;">
-            <strong style="color:var(--gold);">⚠️ Backend not connected.</strong>
-            Email features require the Node.js server. Run <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">node server.js</code> (or <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">start.bat</code>) and open <a href="http://localhost:3000" style="color:var(--gold);font-weight:600;">http://localhost:3000</a> — not Live Server or the HTML file directly.
-          </div>
+          <div class="sec-title">📧 Email (EmailJS)</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Email is sent directly from the browser via <strong>EmailJS</strong> — no backend server required. Configure your credentials in <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px;">emailjs-config.js</code>.</p>
           <!-- Email config status card -->
           <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;">
             <div style="display:flex;justify-content:space-between;align-items:center;">
-              <span style="font-size:13px;color:var(--muted);">📧 From Email</span>
-              <span id="email-config-email" style="font-size:13px;font-weight:600;color:var(--text);font-family:var(--font-mono);">—</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <span style="font-size:13px;color:var(--muted);">🔌 SMTP Host</span>
-              <span id="email-config-host" style="font-size:13px;color:var(--text);font-family:var(--font-mono);">—</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <span style="font-size:13px;color:var(--muted);">🔢 Port</span>
-              <span id="email-config-port" style="font-size:13px;color:var(--text);font-family:var(--font-mono);">—</span>
+              <span style="font-size:13px;color:var(--muted);">📧 Service</span>
+              <span id="email-config-service" style="font-size:13px;font-weight:600;color:var(--text);font-family:var(--font-mono);">EmailJS</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:13px;color:var(--muted);">📊 Status</span>
@@ -469,8 +457,8 @@
             </div>
           </div>
           <div class="compose-row">
-            <span style="font-size:13px;color:var(--muted);flex:1;">Test connection using config file</span>
-            <button class="btn btn-sm" onclick="testSmtp()">🔌 Test Connection</button>
+            <span style="font-size:13px;color:var(--muted);flex:1;">Test the EmailJS integration</span>
+            <button class="btn btn-sm" onclick="testEmailJS()">🔌 Test EmailJS</button>
           </div>
         </div>
       </div>
@@ -1014,6 +1002,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase.js"></script>
+<!-- EmailJS SDK (client-side email sending, no backend required) -->
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="emailjs-config.js"></script>
 <!-- Single consolidated script (shared.js + login.js + admin.js + employee.js) -->
 <script src="script.js"></script>
 </body>
