@@ -800,13 +800,16 @@
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">🔒 <strong>Admin only</strong> — enter your admin username to receive a temporary password via email at <strong style="color:var(--text);">atharvashishn@gmail.com</strong>.</p>
-      <div class="field"><label>Admin Username</label><input type="text" id="forgot-uid" placeholder="Enter admin username"></div>
+      <div class="field"><label>Admin Username</label>
+        <input type="text" id="forgot-uid" value="quemahtech" placeholder="Enter admin username" readonly style="background:var(--surface2);color:var(--muted);cursor:not-allowed;">
+        <small style="color:var(--subtle);font-size:11px;display:block;margin-top:3px;">🔒 The system admin account is pre-configured. No other users can reset passwords.</small>
+      </div>
 
-      <!-- PRIVACY: Status message — only shows 'check your email', never the password -->
+      <!-- 🔒 PRIVACY: Status message — only shows 'check your email', NEVER the password -->
       <div id="fp-status-message" style="display:none;font-size:13px;font-weight:600;margin-bottom:12px;padding:14px 16px;border-radius:8px;"></div>
 
       <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="sendOTP()">📧 Send Reset Email to Admin</button>
-      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">A temporary password will be sent via SMTP to atharvashishn@gmail.com. The temporary password expires in 5 minutes.</p>
+      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">🔒 A temporary password will be sent via SMTP to <strong>atharvashishn@gmail.com</strong>. The temporary password expires in <strong>10 minutes</strong>. <u>No password is displayed on screen.</u></p>
     </div>
   </div>
 </div>
@@ -969,7 +972,11 @@
 -->
 <script>
   window.APP_CONFIG = {
-  ADMIN_EMAIL: 'atharvashishn@gmail.com'
+    // 🔧 For production: set API_BASE to your backend server URL (e.g. Render, Railway, etc.)
+    // Example: API_BASE: 'https://quemahtech-ems.onrender.com'
+    // For local dev: leave unset — it auto-detects http://localhost:3000
+    API_BASE: '',
+    ADMIN_EMAIL: 'atharvashishn@gmail.com'
   };
 </script>
 <!-- Socket.io client for real-time notifications -->

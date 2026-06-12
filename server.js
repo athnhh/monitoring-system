@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
-const mongoose = require('mongoose');
+const admin = require('firebase-admin');
 const { Server } = require('socket.io');
 
 const calendarService = require('./google-calendar');
@@ -13,12 +13,12 @@ const calendarService = require('./google-calendar');
 const {
   Admin, Employee, Attendance, LeaveRequest,
   Announcement, Notification, PasswordReset,
-  Department, ArchivedEmployee
+  Department, ArchivedEmployee, initFirestore
 } = require('./models');
 
 const PORT = process.env.PORT || 3000;
-const ADMIN_EMAIL = 'atharvashishn@gmail.com';
-const DATABASE_URL = process.env.DATABASE_URL || '';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'atharvashishn@gmail.com';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'quemahtech';
 
 // ── Express App ──
 const app = express();
@@ -27,28 +27,54 @@ const server = http.createServer(app);
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json({ limit: '5mb' }));
 
-// ── MongoDB Connection ──
+// ── Firebase Admin Initialization ──
 let dbConnected = false;
 
 async function connectDB() {
-  if (!DATABASE_URL) {
-    console.warn('DATABASE_URL not set. Please set it in .env (e.g. mongodb+srv://...).');
+  // Look for the service account JSON file
+  const possiblePaths = [
+    process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+    './quemahtech-e9148-firebase-adminsdk-fbsvc-72d38afb10.json',
+    './firebase-service-account.json'
+  ];
+
+  let serviceAccount = null;
+  for (const p of possiblePaths) {
+    if (p) {
+      try {
+        serviceAccount = require(path.resolve(__dirname, p));
+        if (serviceAccount && serviceAccount.client_email) break;
+      } catch (e) {
+        // try next path
+      }
+    }
+  }
+
+  if (!serviceAccount || !serviceAccount.client_email) {
+    console.warn('Firebase service account not found. Check FIREBASE_SERVICE_ACCOUNT_PATH in .env');
+    console.warn('Looked in:', possiblePaths.filter(Boolean));
     return;
   }
-  try {
-    await mongoose.connect(DATABASE_URL, {
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000
-    });
-    dbConnected = true;
-    console.log('MongoDB connected');
 
-    const adminCount = await Admin.countDocuments({ username: 'quemahtech' });
-    if (adminCount === 0) {
-      await Admin.create({ username: 'quemahtech', password: 'quemah123', email: ADMIN_EMAIL });
-      console.log('Default admin created: quemahtech / quemah123');
+  try {
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL: process.env.FIREBASE_DATABASE_URL || undefined
+      });
+    }
+    initFirestore();
+    dbConnected = true;
+    console.log('Firebase Firestore connected');
+
+      // Seed default admin
+    const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
+    if (!adminUser) {
+      await Admin.create({ username: ADMIN_USERNAME, password: 'quemah123', email: ADMIN_EMAIL });
+      console.log(`Default admin created: ${ADMIN_USERNAME} / quemah123`);
     }
 
+    // Seed default departments
     const deptCount = await Department.countDocuments();
     if (deptCount === 0) {
       await Department.insertMany(
@@ -57,7 +83,7 @@ async function connectDB() {
       console.log('Default departments created');
     }
   } catch (e) {
-    console.error('MongoDB connection error:', e.message);
+    console.error('Firebase initialization error:', e.message);
   }
 }
 
@@ -135,22 +161,17 @@ function broadcast(event, data) {
 }
 
 // ── Sanitizers ──
-function sanitizeDoc(doc) {
-  const obj = doc.toObject ? doc.toObject() : { ...doc };
-  const { _id, __v, createdAt, updatedAt, password, ...rest } = obj;
-  return rest;
-}
-
+// Only strip Firestore doc _id and password — keep business id (e.g. 'EMP001')
 function sanitizeEmp(e) {
   const obj = e.toObject ? e.toObject() : { ...e };
-  const { _id, __v, createdAt, updatedAt, ...rest } = obj;
+  const { _id, password, ...rest } = obj;
   return rest;
 }
 
 // ── Middleware: require DB ──
 function requireDB(req, res, next) {
   if (!dbConnected) {
-    return res.status(503).json({ error: 'Database not connected. Check DATABASE_URL in .env.' });
+    return res.status(503).json({ error: 'Database not connected. Check Firebase service account in .env.' });
   }
   next();
 }
@@ -190,42 +211,49 @@ authRouter.post('/login', async (req, res) => {
   }
 });
 
-// POST /api/auth/forgot-password — PRIVACY-SAFE: emails temp password, never shows on screen
+// ── ADMIN-ONLY Forgot Password — PRIVACY-SAFE ──
+// This endpoint is strictly for the system administrator only.
+// It generates a temp password, emails it via SMTP, and NEVER returns it in the response.
 authRouter.post('/forgot-password', async (req, res) => {
   try {
     const { uid } = req.body;
-    if (uid !== 'quemahtech') {
-      return res.status(400).json({ error: 'Invalid admin username.' });
-    }
-    const admin = await Admin.findOne({ username: 'quemahtech' });
-    if (!admin) return res.status(404).json({ error: 'Admin not found' });
 
-    // FIRST validate SMTP is configured BEFORE modifying anything
-    if (!ADMIN_EMAIL || !process.env.SMTP_HOST) {
+    // Strict admin-only check
+    if (!uid || uid !== ADMIN_USERNAME) {
+      return res.status(400).json({ error: 'Invalid admin username. Only the system administrator can reset their password.' });
+    }
+
+    // Validate SMTP is configured before doing anything
+    if (!ADMIN_EMAIL || !process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
       return res.status(400).json({ error: 'SMTP not configured. Cannot send reset email.' });
     }
 
-    // Generate a random temporary password (12 alphanumeric chars)
-    const tempPassword = Array.from({ length: 12 }, () =>
-      'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'[Math.floor(Math.random() * 57)]
+    const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
+    if (!adminUser) return res.status(404).json({ error: 'Admin not found' });
+
+    // Generate a random temporary password (16 alphanumeric chars, high entropy)
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%&*';
+    const tempPassword = Array.from({ length: 16 }, () =>
+      chars[Math.floor(Math.random() * chars.length)]
     ).join('');
 
-    // Send temp password via SMTP email FIRST — only modify DB after successful send
+    // ═══ SEND EMAIL FIRST — only modify DB on success ═══
     try {
       await sendEmail({
         to: ADMIN_EMAIL,
-        subject: 'Quemahtech — Admin Password Reset',
+        subject: `${process.env.APP_NAME || 'Quemahtech EMS'} — Admin Password Reset`,
         html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">
           <div style="background:linear-gradient(135deg,#0f2744,#1a3355);padding:24px;text-align:center;border-radius:12px 12px 0 0;">
-            <h1 style="color:#f59e0b;margin:0;">🔑 Password Reset</h1>
+            <h1 style="color:#f59e0b;margin:0;">🔑 Admin Password Reset</h1>
           </div>
           <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;">
-            <p style="color:#1e293b;">Your admin password has been reset. Use the temporary password below to log in:</p>
+            <p style="color:#1e293b;">A password reset was requested for the Quemahtech EMS admin panel.</p>
+            <p style="color:#1e293b;">Use the temporary password below to log in:</p>
             <div style="font-size:24px;font-weight:700;color:#0f2744;text-align:center;padding:20px;background:#f0f4f8;border-radius:8px;letter-spacing:4px;font-family:monospace;margin:16px 0;">${tempPassword}</div>
-            <p style="color:#64748b;font-size:13px;">This temporary password expires in <strong>5 minutes</strong>.</p>
-            <p style="color:#64748b;font-size:13px;">After logging in, go to Settings to change your password.</p>
+            <p style="color:#64748b;font-size:13px;">This temporary password expires in <strong>10 minutes</strong>.</p>
+            <p style="color:#64748b;font-size:13px;">After logging in, navigate to <strong>Settings</strong> to change your password immediately.</p>
             <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
-            <p style="color:#94a3b8;font-size:12px;">Quemahtech Employee Management System</p>
+            <p style="color:#94a3b8;font-size:12px;">${process.env.APP_NAME || 'Quemahtech'} Employee Management System</p>
           </div>
         </div>`
       });
@@ -233,58 +261,59 @@ authRouter.post('/forgot-password', async (req, res) => {
       return res.status(500).json({ error: 'Failed to send email: ' + emailErr.message + '. Password was NOT changed.' });
     }
 
-    // Only now save the temp password (email was sent successfully)
-    admin.password = tempPassword;
-    await admin.save();
+    // ═══ Email sent successfully — now update the database ═══
+    adminUser.password = tempPassword;
+    await adminUser.save();
 
-    // Store reset record with expiry
+    // Store reset record with expiry (10 minutes)
     await PasswordReset.create({
-      userId: 'quemahtech',
+      userId: ADMIN_USERNAME,
       tempPassword,
       email: ADMIN_EMAIL,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString()
     });
 
-    // RESPONSE: Only success message — NO password displayed on screen
+    // 🔒 PRIVACY: Only success message — NO password, token, or code displayed on screen
     res.json({ success: true, message: 'Check your email inbox for the temporary password.' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// POST /api/auth/reset-password (used after login with temp password)
+// ── Admin-Only: Reset password after login with temp password ──
 authRouter.post('/reset-password', async (req, res) => {
   try {
     const { userId, currentPwd, newPassword } = req.body;
     if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters.' });
     }
-    const adminUser = await Admin.findOne({ username: userId || 'quemahtech' });
-    if (!adminUser) return res.status(404).json({ error: 'Admin not found' });
-    // Verify current password matches
-    if (currentPwd && adminUser.password !== currentPwd) {
+    const targetUser = userId === ADMIN_USERNAME
+      ? await Admin.findOne({ username: ADMIN_USERNAME })
+      : await Employee.findOne({ id: userId });
+    if (!targetUser) return res.status(404).json({ error: 'User not found' });
+    if (currentPwd && targetUser.password !== currentPwd) {
       return res.status(400).json({ error: 'Current password is incorrect.' });
     }
-    adminUser.password = newPassword;
-    await adminUser.save();
-    broadcast('password_changed', { userId: userId || 'quemahtech' });
+    targetUser.password = newPassword;
+    await targetUser.save();
+    broadcast('password_changed', { userId: userId || ADMIN_USERNAME });
     res.json({ success: true, message: 'Password reset successful' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// PUT /api/auth/password
+// PUT /api/auth/password — Change password (admin or employee)
 authRouter.put('/password', async (req, res) => {
   try {
     const { userId, currentPwd, newPwd } = req.body;
-    if (userId === 'quemahtech') {
-      const admin = await Admin.findOne({ username: 'quemahtech' });
+    if (userId === ADMIN_USERNAME) {
+      const admin = await Admin.findOne({ username: ADMIN_USERNAME });
       if (!admin) return res.status(404).json({ error: 'Admin not found' });
       if (admin.password !== currentPwd) return res.status(400).json({ error: 'Wrong password' });
       admin.password = newPwd;
       await admin.save();
-      broadcast('password_changed', { userId: 'quemahtech' });
+      broadcast('password_changed', { userId: ADMIN_USERNAME });
       return res.json({ success: true });
     }
     const emp = await Employee.findOne({ id: userId });
@@ -317,7 +346,7 @@ apiRouter.get('/state', async (req, res) => {
         Employee.find({}).lean(),
         ArchivedEmployee.find({}).lean(),
         Attendance.find({}).lean(),
-        LeaveRequest.find({}).sort({ idx: -1 }).lean(),
+        LeaveRequest.find({ $sort: { idx: -1 } }).lean(),
         Announcement.find({}).lean(),
         Department.find({}).lean()
       ]);
@@ -460,7 +489,7 @@ apiRouter.route('/attendance')
 apiRouter.route('/leave-requests')
   .get(async (req, res) => {
     try {
-      const reqs = await LeaveRequest.find({}).sort({ idx: -1 }).lean();
+      const reqs = await LeaveRequest.find({ $sort: { idx: -1 } }).lean();
       res.json(reqs);
     } catch (e) { res.status(500).json({ error: e.message }); }
   })
@@ -547,18 +576,18 @@ apiRouter.route('/notifications')
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-// GET /api/notifications/:userId — returns the actual .length from DB
+// GET /api/notifications/:userId — returns notifications array AND actual .length from DB for badge sync
 apiRouter.get('/notifications/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
     let notifs;
-    if (userId === 'quemahtech') {
-      notifs = await Notification.find({ target: 'admin' }).sort({ createdAt: -1 }).lean();
+    if (userId === ADMIN_USERNAME) {
+      notifs = await Notification.find({ target: 'admin', $sort: { createdAt: -1 } }).lean();
     } else {
-      const all = await Notification.find({}).sort({ createdAt: -1 }).lean();
+      const all = await Notification.find({ $sort: { createdAt: -1 } }).lean();
       notifs = all.filter(r => r.target === 'emp' || r.userId === userId);
     }
-    // Return both the array and the actual count
+    // Return both the array and the actual count for badge sync
     res.json({ notifications: notifs, count: notifs.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -737,11 +766,11 @@ async function start() {
 
   if (!process.env.VERCEL) {
     server.listen(PORT, '0.0.0.0', () => {
-      console.log(`\n  Quemahtech Employee Management System`);
+      console.log(`\n  ${process.env.APP_NAME || 'Quemahtech'} Employee Management System`);
       console.log(`  http://localhost:${PORT}`);
-      console.log(`  DB: ${dbConnected ? 'MongoDB connected' : 'DB offline'}`);
+      console.log(`  DB: ${dbConnected ? 'Firestore connected' : 'DB offline'}`);
       console.log(`  Socket.io: ${io ? 'enabled' : 'disabled (Vercel)'}`);
-      console.log(`  Admin: quemahtech / quemah123`);
+      console.log(`  Admin: ${ADMIN_USERNAME} / quemah123`);
       console.log(`  Emp:   EMP001 / emp123\n`);
     });
   }

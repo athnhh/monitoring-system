@@ -799,14 +799,14 @@ function changeEmpPwd() {
 }
 
 /* ═══════════════════════════════════
-   FORGOT PASSWORD — PRIVACY-SAFE FLOW
-   - Admin-only (no employee forgot password)
+   FORGOT PASSWORD — ADMIN ONLY, PRIVACY-SAFE
+   - Only the admin (quemahtech) can reset their password
    - Sends temp password via SMTP to atharvashishn@gmail.com
    - NEVER displays the password on screen
 ═══════════════════════════════════ */
 
 function openForgotModal() {
-  document.getElementById('forgot-uid').value = '';
+  document.getElementById('forgot-uid').value = 'quemahtech';
   document.getElementById('forgot-modal').style.display = 'flex';
   // Hide any previous status message
   const statusEl = document.getElementById('fp-status-message');
@@ -814,14 +814,8 @@ function openForgotModal() {
 }
 
 async function sendOTP() {
-  const uid = document.getElementById('forgot-uid').value.trim();
-  if (!uid) { showNotifBar('warning', 'Please enter admin username.', '⚠️'); return; }
-
-  // Only admin can reset password
-  if (uid !== 'quemahtech') {
-    showNotifBar('error', 'Invalid admin username. Only the system administrator can reset their password.', '🔒');
-    return;
-  }
+  // 🔒 The username is hardcoded to 'quemahtech' — no input needed
+  const uid = 'quemahtech';
 
   // Show sending state
   const sendBtn = document.querySelector('#forgot-modal .btn-primary');
@@ -840,7 +834,7 @@ async function sendOTP() {
       // 🔒 PRIVACY: Show only inbox check message — NO code/password displayed
       const statusEl = document.getElementById('fp-status-message');
       if (statusEl) {
-        statusEl.innerHTML = '✅ <strong>Temporary password sent!</strong> Check your email inbox (<strong>atharvashishn@gmail.com</strong>) for the reset instructions. This code expires in 5 minutes.';
+        statusEl.innerHTML = '✅ <strong>Temporary password sent!</strong> Check your email inbox (<strong>atharvashishn@gmail.com</strong>) for the reset instructions. This code expires in 10 minutes.';
         statusEl.style.display = 'block';
         statusEl.style.color = 'var(--green-text)';
         statusEl.style.background = 'var(--green-bg)';
@@ -850,7 +844,7 @@ async function sendOTP() {
       showNotifBar('error', (res && res.error) || 'Failed to send reset email.', '❌');
     }
   } catch (e) {
-    showNotifBar('error', 'Server unreachable. Please try again later.', '❌');
+    showNotifBar('error', 'Server unreachable: ' + e.message, '❌');
   } finally {
     if (sendBtn) {
       sendBtn.disabled = false;
@@ -873,9 +867,9 @@ async function api(url, opts = {}) {
     if (opts.body) fetchOpts.body = JSON.stringify(opts.body);
     const res = await fetch(API_BASE + url, fetchOpts);
     if (!res.ok) {
-      const errBody = await res.json().catch(() => ({ error: 'Request failed' }));
+      const errBody = await res.json().catch(() => ({ error: 'Request failed with status ' + res.status }));
       console.warn('API error:', url, errBody);
-      return null;
+      return errBody;
     }
     return await res.json();
   } catch (e) {
@@ -884,7 +878,7 @@ async function api(url, opts = {}) {
   }
 }
 
-// ── Load State from Server ──
+// ── Load State from Server (persistent Firebase backend) ──
 async function loadStateFromServer() {
   const data = await api('/api/state');
   if (data) {
@@ -901,23 +895,56 @@ async function loadStateFromServer() {
   return false;
 }
 
-// ── Notification Badge — dynamically from DB count ──
+// ── Notification Badge — dynamically updated from DB count across devices ──
 function updateAdminNotifBadge() {
   const badge = document.getElementById('admin-notif-count');
-  if (badge) {
+  if (!badge) return;
+  // Sync count from server for accuracy across devices
+  api('/api/notifications/quemahtech').then(data => {
+    if (data && typeof data.count === 'number') {
+      const count = data.count;
+      badge.textContent = count;
+      badge.style.display = count > 0 ? 'flex' : 'none';
+      // Also update the local array if notifications came back
+      if (data.notifications) {
+        adminNotifications = data.notifications;
+      }
+    } else {
+      // Fallback: count from local array
+      const unread = adminNotifications.filter(n => n.unread !== false).length;
+      badge.textContent = unread;
+      badge.style.display = unread > 0 ? 'flex' : 'none';
+    }
+  }).catch(() => {
+    // Fallback: count from local array
     const unread = adminNotifications.filter(n => n.unread !== false).length;
     badge.textContent = unread;
     badge.style.display = unread > 0 ? 'flex' : 'none';
-  }
+  });
 }
 
 function updateEmpNotifBadge() {
   const badge = document.getElementById('emp-notif-count');
-  if (badge) {
+  if (!badge) return;
+  const uid = localStorage.getItem('userId');
+  api('/api/notifications/' + uid).then(data => {
+    if (data && typeof data.count === 'number') {
+      const count = data.count;
+      badge.textContent = count;
+      badge.style.display = count > 0 ? 'flex' : 'none';
+      if (data.notifications) {
+        empNotifications = data.notifications;
+      }
+    } else {
+      const unread = empNotifications.filter(n => n.unread !== false).length;
+      badge.textContent = unread;
+      badge.style.display = unread > 0 ? 'flex' : 'none';
+    }
+  }).catch(() => {
     const unread = empNotifications.filter(n => n.unread !== false).length;
     badge.textContent = unread;
     badge.style.display = unread > 0 ? 'flex' : 'none';
-  }
+  });
 }
 
 function addAdminNotif(text) {
