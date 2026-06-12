@@ -1560,6 +1560,29 @@ function downloadFile(content, filename, mimeType) {
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
 }
 
+async function checkServerHealth() {
+  // Remove any existing banner first (handles re-init edge cases)
+  const existing = document.getElementById('server-warning-banner');
+  if (existing) existing.remove();
+
+  // Test if the backend server is reachable
+  const res = await api('/api/health');
+  if (!res || res.status !== 'ok') {
+    // Server is down — show a persistent warning
+    const loginCard = document.querySelector('.login-card');
+    if (loginCard) {
+      const banner = document.createElement('div');
+      banner.id = 'server-warning-banner';
+      banner.style.cssText = 'background:rgba(220,38,38,0.15);border:1px solid rgba(220,38,38,0.3);border-radius:8px;padding:12px 14px;margin-bottom:20px;font-size:13px;color:#fca5a5;display:flex;align-items:center;gap:8px;';
+      banner.innerHTML = '⚠️ <strong>Server offline</strong> — The backend server is not reachable. Please start the server with <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">npm start</code>.';
+      loginCard.prepend(banner);
+    }
+    serverAvailable = false;
+  } else {
+    serverAvailable = true;
+  }
+}
+
 function init() {
   if (localStorage.getItem('darkMode') === 'true') {
     document.body.classList.add('dark-mode');
@@ -1571,6 +1594,9 @@ function init() {
     document.getElementById('uid').value = remembered;
     document.getElementById('remember-me').checked = true;
   }
+
+  // Check server health on load — show a banner if the backend is unreachable
+  checkServerHealth();
 
   const annBody = document.getElementById('ann-body');
   if (annBody) {
