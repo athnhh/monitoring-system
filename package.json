@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "build": "node build.js",
-    "prestart": "npx kill-port 3000 2>/dev/null || echo port 3000 was free",
+    "prestart": "npx kill-port 3000 2>nul || echo port 3000 was free",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
