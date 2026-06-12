@@ -503,14 +503,48 @@ apiRouter.route('/leave-requests')
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-// PUT /api/leave-requests/:idx
+// PUT /api/leave-requests/:idx — Update leave status AND deduct balance on approval
 apiRouter.put('/leave-requests/:idx', async (req, res) => {
   try {
     const idx = parseInt(req.params.idx);
     const lr = await LeaveRequest.findOne({ idx });
     if (!lr) return res.status(404).json({ error: 'Not found' });
+
+    const oldStatus = lr.status;
+    const newStatus = req.body.status;
     Object.assign(lr, req.body);
     await lr.save();
+
+    // If leave is being approved NOW (was Pending, now Approved), deduct balance
+    if (newStatus === 'Approved' && oldStatus !== 'Approved' && lr.empId && lr.days) {
+      const emp = await Employee.findOne({ id: lr.empId });
+      if (emp) {
+        if (lr.type === 'CL') {
+          if (emp.cl >= lr.days) {
+            emp.cl -= lr.days;
+          } else {
+            const deficit = lr.days - emp.cl;
+            emp.cl = 0;
+            emp.ul = (emp.ul || 0) + deficit;
+          }
+        } else if (lr.type === 'SL') {
+          const slNeeded = lr.days * 0.5;
+          const ulNeeded = lr.days * 0.5;
+          if (emp.sl >= slNeeded) {
+            emp.sl -= slNeeded;
+            emp.ul = (emp.ul || 0) + ulNeeded;
+          } else {
+            emp.ul = (emp.ul || 0) + lr.days;
+            emp.sl = Math.max(0, emp.sl - slNeeded);
+          }
+        } else if (lr.type === 'UL') {
+          emp.ul = (emp.ul || 0) + lr.days;
+        }
+        await emp.save();
+        broadcast('leave_balance_updated', { id: emp.id, cl: emp.cl, sl: emp.sl, ul: emp.ul });
+      }
+    }
+
     broadcast('leave_update', lr.toObject());
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }

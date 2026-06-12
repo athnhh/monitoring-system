@@ -126,6 +126,11 @@ function connectSocketIO() {
     socket.on('password_changed', () => {
       showNotifBar('info', 'Password was changed in another session.', '🔑');
     });
+    socket.on('leave_balance_updated', (data) => {
+      const emp = employees.find(e => e.id === data.id);
+      if (emp) { emp.cl = data.cl; emp.sl = data.sl; emp.ul = data.ul; }
+      renderLeaveBalances();
+    });
   } catch (e) {
     console.warn('Socket.io init failed:', e.message);
   }

@@ -28,8 +28,15 @@ function wrapDoc(collectionName, docId, data) {
     ...data,
     id: docId,
     _id: docId,
-    save: async () => { await ref.set(data, { merge: true }); },
-    toObject: () => ({ ...data })
+    save: async function() {
+      // Serialize current state (exclude internal meta fields)
+      const { id, _id, save, toObject, ...currentData } = this;
+      await ref.set(currentData, { merge: true });
+    },
+    toObject: function() {
+      const { id, _id, save, toObject, ...rest } = this;
+      return { ...rest };
+    }
   };
 }
 
@@ -152,7 +159,14 @@ exports.Attendance = {
     const docs = await getDocs('attendance', query);
     if (!docs.length) return null;
     const d = docs[0];
-    return { ...d, save: async () => { await db().collection('attendance').doc(d.id).set(d, { merge: true }); } };
+    const ref = db().collection('attendance').doc(d.id);
+    return {
+      ...d,
+      save: async function() {
+        const { id, _id, save, toObject, ...currentData } = this;
+        await ref.set(currentData, { merge: true });
+      }
+    };
   },
   find: async (query = {}) => {
     const docs = await getDocs('attendance', query);
