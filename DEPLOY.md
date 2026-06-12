@@ -10,7 +10,7 @@ This guide walks you through deploying the **Node.js backend** to Render.com so 
 |------|-----------------|
 | **GitHub account** | [github.com](https://github.com) |
 | **Render account** | [render.com](https://render.com) (free tier) |
-| **MongoDB Atlas cluster** | [mongodb.com/cloud/atlas](https://mongodb.com/cloud/atlas) (free 512 MB) |
+| **Firebase Project** | [console.firebase.google.com](https://console.firebase.google.com) (free tier) |
 | **Gmail App Password** | [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) |
 
 ---
@@ -29,15 +29,12 @@ git push -u origin main
 
 ---
 
-## ✅ Step 2 — Set up MongoDB Atlas
+## ✅ Step 2 — Set up Firebase
 
-1. Go to [mongodb.com/cloud/atlas](https://mongodb.com/cloud/atlas) → Sign up / Log in
-2. Click **"Create"** → Choose **"M0 Free Cluster"** → Your preferred region
-3. Wait ~2 minutes for the cluster to provision
-4. Click **"Connect"** → **"Drivers"** → Copy the connection string
-   - Format: `mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/quemahtech?retryWrites=true&w=majority`
-5. Under **Network Access** → **"Add IP Address"** → **"Allow Access from Anywhere"** (`0.0.0.0/0`)
-6. Under **Database Access** → Create a database user (save username + password)
+1. Go to [console.firebase.google.com](https://console.firebase.google.com) → Create a project (or use existing)
+2. Go to **Project Settings** → **Service Accounts** → **Generate New Private Key**
+3. Download the JSON file and save it as `firebase-service-account.json` in the project root
+4. Enable **Firestore Database** in the Firebase Console (choose a region)
 
 ---
 

@@ -1,51 +1,20 @@
-# ═══════════════════════════════════════════════════════════════
-# Quemahtech EMS — Render Blueprint Deployment
-# ═══════════════════════════════════════════════════════════════
-# Render Blueprint automatically detects this file when you
-# connect your GitHub repo. It provisions the Web Service and
-# sets environment variables for you.
-#
-# HOW TO USE:
-#   1. Push this file to your GitHub repository
-#   2. Go to https://dashboard.render.com/blueprints
-#   3. Click "New Blueprint" → Connect your repo
-#   4. Render auto-detects render.yaml and provisions the service
-#   5. Set the missing env vars in the Render Dashboard
-#
-#   Note: Render does NOT provide a free managed MongoDB.
-#   You MUST use MongoDB Atlas (or set DATABASE_URL manually).
-# ═══════════════════════════════════════════════════════════════
-
 services:
-  # ── Web Service (Node.js + Socket.io) ──
   - type: web
     name: quemahtech-ems
     env: node
-    region: oregon          # Choose the closest region
-    plan: free              # Free tier (spins down after 15 min idle)
+    region: oregon
+    plan: free
     buildCommand: npm install
     startCommand: node server.js
     healthCheckPath: /api/health
     envVars:
-      # ── MongoDB (REQUIRED) ──
-      # Get your free cluster at https://mongodb.com/cloud/atlas
-      - key: DATABASE_URL
-        sync: false
-        # ⚠ Set this in Render Dashboard after deployment!
-        # mongodb+srv://user:pass@cluster.xxxxx.mongodb.net/quemahtech?retryWrites=true&w=majority
-
-      # ── SMTP Email (REQUIRED for OTP) ──
+      - key: FIREBASE_SERVICE_ACCOUNT_PATH
+        value: firebase-service-account.json
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT
         value: "587"
       - key: SMTP_USER
         sync: false
-        # ⚠ Set to: atharvashishn@gmail.com (or your Gmail)
       - key: SMTP_PASS
         sync: false
-        # ⚠ Set to your Gmail App Password (generate at https://myaccount.google.com/apppasswords)
-
-      # ── Admin Email (hardcoded in server.js as fallback) ──
-      - key: ADMIN_EMAIL
-        value: atharvashishn@gmail.com

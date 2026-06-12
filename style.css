@@ -71,7 +71,6 @@ input,select,textarea{font-family:var(--font);}
 .page{display:none;min-height:100vh;position:relative;}
 .page.active{display:block;}
 
-/* Ambient decorative glow behind the content area (admin/employee pages only) */
 #page-admin.page.active::before,
 #page-employee.page.active::before{
   content:'';
@@ -193,7 +192,6 @@ input,select,textarea{font-family:var(--font);}
   color:var(--gold-light);
 }
 
-/* Dark toggle button */
 .dark-toggle-btn{
   font-size:14px;
   background:rgba(245,158,11,0.08);
@@ -594,20 +592,6 @@ tbody tr{
   display:flex;justify-content:space-between;gap:10px;
   border-radius:0 0 14px 14px;
 }
-
-/* OTP */
-.otp-row{display:flex;gap:12px;justify-content:center;margin:22px 0;}
-.otp-inp{
-  width:58px;height:64px;
-  text-align:center;
-  font-size:28px;font-weight:700;
-  border:2px solid var(--border);
-  border-radius:10px;
-  font-family:var(--font-mono);
-  outline:none;
-  transition:border-color 0.15s,box-shadow 0.15s;
-}
-.otp-inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
 
 /* FIELD */
 .field{margin-bottom:22px;}
@@ -1303,7 +1287,6 @@ body.dark-mode .leave-type-btn{background:var(--surface2);border-color:var(--bor
 body.dark-mode .leave-type-btn.active.lt-cl{background:rgba(59,130,246,0.15);color:#93c5fd;border-color:rgba(59,130,246,0.3);}
 body.dark-mode .leave-type-btn.active.lt-sl{background:rgba(22,163,74,0.15);color:#86efac;border-color:rgba(22,163,74,0.3);}
 body.dark-mode .leave-type-btn.active.lt-ul{background:rgba(220,38,38,0.15);color:#fca5a5;border-color:rgba(220,38,38,0.3);}
-body.dark-mode .otp-inp{background:var(--surface2);border-color:var(--border);color:var(--text);}
 body.dark-mode .dept-add-row input{background:var(--surface);border-color:var(--border);color:var(--text);}
 body.dark-mode .form-section-title{color:var(--subtle);border-bottom-color:var(--border);}
 body.dark-mode .archived-banner{background:linear-gradient(135deg,rgba(217,119,6,0.1),rgba(245,158,11,0.05));border-color:rgba(245,158,11,0.2);}
@@ -1435,7 +1418,6 @@ body.dark-mode .ann-empty-sub{color:var(--subtle);}
   box-shadow:0 1px 4px rgba(0,0,0,0.2);
 }
 
-/* Login-specific field overrides */
 .login-card .field label{color:rgba(255,255,255,0.65);}
 .login-card .field input,.login-card .field select,.login-card .field textarea{
   border:1px solid rgba(255,255,255,0.12);
@@ -1521,7 +1503,6 @@ body.dark-mode .ann-empty-sub{color:var(--subtle);}
 }
 .forgot-link:hover{color:#fbbf24;text-decoration:underline;}
 
-/* Dark mode: login field backgrounds should keep their dark look */
 body.dark-mode .login-card .field input{background:rgba(255,255,255,0.08);}
 
 /* ═══════════════════════════════════
@@ -1563,7 +1544,6 @@ body.dark-mode .login-card .field input{background:rgba(255,255,255,0.08);}
 .blue-v{color:var(--accent);}
 .amber-v{color:var(--amber);}
 
-/* Dark mode: stat cards */
 body.dark-mode .stat-card:hover{
   border-top-color:var(--gold);
 }
@@ -1680,7 +1660,6 @@ body.dark-mode .stat-card:hover{
   font-family:var(--font);
 }
 .compose-field-input::placeholder{color:#a89884;}
-/* Readonly From field visual cue */
 #compose-from-display{
   cursor:default;
   opacity:0.8;
@@ -1969,7 +1948,6 @@ body.dark-mode .stat-card:hover{
   border-color:#c9a96e;
 }
 
-/* Dark mode compose */
 body.dark-mode .compose-modal-box{background:var(--surface);}
 body.dark-mode .compose-modal-header{background:linear-gradient(135deg,rgba(217,119,6,0.1) 0%,rgba(245,158,11,0.06) 100%);border-bottom-color:var(--border);}
 body.dark-mode .compose-modal-title{color:var(--text);}
@@ -2015,7 +1993,6 @@ body.dark-mode .compose-clear-btn:hover{background:var(--border);border-color:va
    EMPLOYEE PORTAL STYLES
 ═══════════════════════════════════ */
 
-/* EMPLOYEE HERO */
 .emp-hero{
   background:var(--surface);
   border:1px solid var(--border);
@@ -2035,7 +2012,6 @@ body.dark-mode .compose-clear-btn:hover{background:var(--border);border-color:va
   border:3px solid var(--border);
 }
 
-/* PUNCH AREA */
 .punch-area{
   background:linear-gradient(135deg,#fefce8 0%,#fffbeb 100%);
   border:1px solid #fde68a;
@@ -2061,7 +2037,6 @@ body.dark-mode .compose-clear-btn:hover{background:var(--border);border-color:va
 .pbtn-break{background:var(--surface);color:var(--text);border:1px solid var(--border);}
 .pbtn-break:hover{background:var(--surface2);}
 
-/* STATUS PILL */
 .status-pill{
   display:inline-flex;align-items:center;gap:8px;
   font-size:13px;font-weight:600;
@@ -2079,7 +2054,6 @@ body.dark-mode .compose-clear-btn:hover{background:var(--border);border-color:va
   50%{opacity:0.5;}
 }
 
-/* MINI STATS */
 .mini-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;}
 .mini-stat{
   background:var(--surface2);
@@ -2090,11 +2064,9 @@ body.dark-mode .compose-clear-btn:hover{background:var(--border);border-color:va
 .mini-stat-val{font-size:30px;font-weight:700;font-family:var(--font-display);}
 .mini-stat-lbl{font-size:13px;color:var(--muted);margin-top:3px;font-weight:500;}
 
-/* BIG CLOCK */
 .big-clock{font-family:var(--font-mono);font-size:32px;font-weight:600;color:var(--text);}
 .break-timer-display{font-family:var(--font-mono);font-size:28px;font-weight:600;color:var(--amber);}
 
-/* Dark mode overrides */
 body.dark-mode .emp-hero{background:var(--surface);border-color:var(--border);}
 body.dark-mode .emp-hero-av{border-color:var(--border-mid);}
 body.dark-mode .punch-area{
@@ -2227,8 +2199,6 @@ body.dark-mode .pbtn-break:hover{background:var(--border);}
   .modal-body{padding:16px;}
   .modal-header{padding:14px 16px;}
   .modal-header h3{font-size:15px;}
-  .otp-inp{width:48px;height:54px;font-size:22px;}
-  .otp-row{gap:8px;}
   .notif-panel-header{padding:14px 16px;}
   .notif-panel-header h3{font-size:14px;}
   .notif-panel-body{padding:10px;}
