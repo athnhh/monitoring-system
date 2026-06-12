@@ -343,18 +343,18 @@ apiRouter.get('/state', async (req, res) => {
   try {
     const [employees, archivedEmployeesDocs, attendanceRecords, leaveRequests, announcements, departments] =
       await Promise.all([
-        Employee.find({}).lean(),
-        ArchivedEmployee.find({}).lean(),
-        Attendance.find({}).lean(),
-        LeaveRequest.find({ $sort: { idx: -1 } }).lean(),
-        Announcement.find({}).lean(),
-        Department.find({}).lean()
+        Employee.find({}),
+        ArchivedEmployee.find({}),
+        Attendance.find({}),
+        LeaveRequest.find({ $sort: { idx: -1 } }),
+        Announcement.find({}),
+        Department.find({})
       ]);
     const archived = archivedEmployeesDocs.map(a => ({
       id: a.id || a.originalId, name: a.name, dept: a.dept,
       status: a.status, joining: a.joining, exit: a.exit
     }));
-    const allNotifs = await Notification.find({}).lean();
+    const allNotifs = await Notification.find({});
     return res.json({
       employees: employees.map(sanitizeEmp),
       archivedEmployees: archived,
@@ -374,7 +374,7 @@ apiRouter.get('/state', async (req, res) => {
 apiRouter.route('/employees')
   .get(async (req, res) => {
     try {
-      const emps = await Employee.find({}).lean();
+      const emps = await Employee.find({});
       res.json(emps.map(sanitizeEmp));
     } catch (e) { res.status(500).json({ error: e.message }); }
   })
@@ -406,7 +406,7 @@ apiRouter.route('/employees')
 apiRouter.route('/employees/:id')
   .get(async (req, res) => {
     try {
-      const emp = await Employee.findOne({ id: req.params.id }).lean();
+      const emp = await Employee.findOne({ id: req.params.id });
       if (!emp) return res.status(404).json({ error: 'Not found' });
       res.json(sanitizeEmp(emp));
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -466,7 +466,7 @@ apiRouter.post('/employees/:id/archive', async (req, res) => {
 apiRouter.route('/attendance')
   .get(async (req, res) => {
     try {
-      const recs = await Attendance.find({}).lean();
+      const recs = await Attendance.find({});
       res.json(recs);
     } catch (e) { res.status(500).json({ error: e.message }); }
   })
@@ -489,7 +489,7 @@ apiRouter.route('/attendance')
 apiRouter.route('/leave-requests')
   .get(async (req, res) => {
     try {
-      const reqs = await LeaveRequest.find({ $sort: { idx: -1 } }).lean();
+      const reqs = await LeaveRequest.find({ $sort: { idx: -1 } });
       res.json(reqs);
     } catch (e) { res.status(500).json({ error: e.message }); }
   })
@@ -520,7 +520,7 @@ apiRouter.put('/leave-requests/:idx', async (req, res) => {
 apiRouter.route('/announcements')
   .get(async (req, res) => {
     try {
-      const anns = await Announcement.find({}).lean();
+      const anns = await Announcement.find({});
       res.json(anns);
     } catch (e) { res.status(500).json({ error: e.message }); }
   })
@@ -536,7 +536,7 @@ apiRouter.route('/announcements')
 apiRouter.route('/departments')
   .get(async (req, res) => {
     try {
-      const depts = await Department.find({}).lean();
+      const depts = await Department.find({});
       res.json(depts.map(d => d.name));
     } catch (e) { res.status(500).json({ error: e.message }); }
   })
@@ -545,7 +545,7 @@ apiRouter.route('/departments')
       const exists = await Department.findOne({ name: req.body.name });
       if (exists) return res.status(400).json({ error: 'Exists' });
       await Department.create({ name: req.body.name });
-      const depts = await Department.find({}).lean();
+      const depts = await Department.find({});
       res.json({ success: true, departments: depts.map(d => d.name) });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -555,7 +555,7 @@ apiRouter.delete('/departments/:name', async (req, res) => {
   try {
     const name = decodeURIComponent(req.params.name);
     await Department.deleteOne({ name });
-    const depts = await Department.find({}).lean();
+    const depts = await Department.find({});
     res.json({ success: true, departments: depts.map(d => d.name) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -582,9 +582,9 @@ apiRouter.get('/notifications/:userId', async (req, res) => {
     const userId = req.params.userId;
     let notifs;
     if (userId === ADMIN_USERNAME) {
-      notifs = await Notification.find({ target: 'admin', $sort: { createdAt: -1 } }).lean();
+      notifs = await Notification.find({ target: 'admin', $sort: { createdAt: -1 } });
     } else {
-      const all = await Notification.find({ $sort: { createdAt: -1 } }).lean();
+      const all = await Notification.find({ $sort: { createdAt: -1 } });
       notifs = all.filter(r => r.target === 'emp' || r.userId === userId);
     }
     // Return both the array and the actual count for badge sync
