@@ -965,23 +965,6 @@
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════
-  APP CONFIGURATION — Dynamic API routing
-  ═══════════════════════════════════════════════════════════
-  API_BASE is detected automatically:
-    - localhost / 127.0.0.1  → http://localhost:3000
-    - Vercel (same origin)   → window.location.origin
-    - Other deployments       → window.location.origin
-  ═══════════════════════════════════════════════════════════
--->
-<script>
-  window.APP_CONFIG = {
-    API_BASE: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-      ? 'http://localhost:3000'
-      : window.location.origin,
-    ADMIN_EMAIL: 'atharvashishn@gmail.com'
-  };
-</script>
 <!-- Socket.io client for real-time notifications -->
 <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 <!-- Single consolidated script -->
