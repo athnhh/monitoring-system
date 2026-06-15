@@ -46,6 +46,40 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 // ═══════════════════════════════════════════════════════════════
+// LOADING SPINNER UTILITIES
+// ═══════════════════════════════════════════════════════════════
+function showLoading(msg, sub) {
+  const overlay = document.getElementById('loading-overlay');
+  if (!overlay) return;
+  const msgEl = document.getElementById('loading-msg');
+  const subEl = document.getElementById('loading-sub');
+  if (msgEl) msgEl.textContent = msg || 'Loading...';
+  if (subEl) subEl.textContent = sub || 'Please wait';
+  overlay.classList.add('show');
+}
+
+function hideLoading() {
+  const overlay = document.getElementById('loading-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('show');
+}
+
+function setButtonLoading(btnSelector, isLoading, originalText) {
+  const btn = typeof btnSelector === 'string' ? document.querySelector(btnSelector) : btnSelector;
+  if (!btn) return;
+  if (isLoading) {
+    btn.disabled = true;
+    btn._origText = btn.innerHTML;
+    btn.innerHTML = '<span class="loading-spinner-sm" style="margin-right:8px;vertical-align:middle;"></span> Processing...';
+    btn.classList.add('btn-loading');
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = btn._origText || originalText || btn.innerHTML;
+    btn.classList.remove('btn-loading');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // DYNAMIC API BASE URL
 // ═══════════════════════════════════════════════════════════════
 function resolveApiBase() {
@@ -570,10 +604,13 @@ function changeAdminPwd() {
   if (!cur || !newPwd || !conf) { showNotifBar('warning', 'Please fill in all fields.', '⚠️'); return; }
   if (newPwd.length < 6) { showNotifBar('warning', 'New password must be at least 6 characters.', '⚠️'); return; }
   if (newPwd !== conf) { showNotifBar('warning', 'Passwords do not match.', '⚠️'); return; }
+  const btn = document.querySelector('#admin-settings .btn-primary');
+  setButtonLoading(btn, true);
   api('/api/auth/password', {
     method: 'PUT',
     body: { userId: 'atharvashishn@gmail.com', currentPwd: cur, newPwd: newPwd }
   }).then(res => {
+    setButtonLoading(btn, false, 'Update Password');
     if (res && res.success) {
       document.getElementById('a-cur-pwd').value = '';
       document.getElementById('a-new-pwd').value = '';
@@ -843,13 +880,21 @@ function changeEmpPwd() {
   if (cur !== emp.password) { showNotifBar('error', 'Current password is incorrect.', '❌'); return; }
   if (newPwd.length < 6) { showNotifBar('warning', 'New password must be at least 6 characters.', '⚠️'); return; }
   if (newPwd !== conf) { showNotifBar('warning', 'Passwords do not match.', '⚠️'); return; }
-  api('/api/auth/password', { method: 'PUT', body: { userId: uid, currentPwd: cur, newPwd }});
-  emp.password = newPwd;
-  document.getElementById('e-cur-pwd').value = '';
-  document.getElementById('e-new-pwd').value = '';
-  document.getElementById('e-conf-pwd').value = '';
-  document.getElementById('e-strength').style.width = '0%';
-  showNotifBar('success', 'Password updated successfully!', '✓');
+  const btn = document.querySelector('#emp-settings .btn-primary');
+  setButtonLoading(btn, true);
+  api('/api/auth/password', { method: 'PUT', body: { userId: uid, currentPwd: cur, newPwd }}).then(res => {
+    setButtonLoading(btn, false, 'Update Password');
+    if (res && res.success) {
+      emp.password = newPwd;
+      document.getElementById('e-cur-pwd').value = '';
+      document.getElementById('e-new-pwd').value = '';
+      document.getElementById('e-conf-pwd').value = '';
+      document.getElementById('e-strength').style.width = '0%';
+      showNotifBar('success', 'Password updated successfully!', '✓');
+    } else {
+      showNotifBar('error', (res && res.error) || 'Failed to update password.', '❌');
+    }
+  });
 }
 
 /* ═══════════════════════════════════
@@ -1145,6 +1190,10 @@ async function doLogin() {
     return;
   }
 
+  // ── Show loading state on the login button ──
+  const loginBtn = document.querySelector('.login-btn');
+  setButtonLoading(loginBtn, true);
+
   // Always authenticate against the live server — no local fallback
   const res = await api('/api/auth/login', {
     method: 'POST',
@@ -1153,6 +1202,7 @@ async function doLogin() {
 
   // Handle server-side errors (time-block, DB down, etc.)
   if (res && res.error === 'TIME_BLOCK') {
+    setButtonLoading(loginBtn, false, 'Sign In');
     document.getElementById('err-msg').style.display = 'flex';
     document.getElementById('err-msg-text').textContent = res.message || 'Employee logins are blocked after 6:00 PM IST.';
     return;
@@ -1167,8 +1217,11 @@ async function doLogin() {
     if (res.role === 'admin') {
       currentUser = { name: 'Administrator' };
       currentRole = 'admin';
+      showLoading('Loading admin panel...', 'Fetching employee data from server');
       showAdminPage();
+      hideLoading();
     } else if (res.role === 'employee') {
+      showLoading('Loading employee data...', 'Syncing from server');
       // Load employee data from server
       await loadStateFromServer();
       currentUser = res.user;
@@ -1181,7 +1234,9 @@ async function doLogin() {
       const emp = employees.find(e => e.id === res.user.id);
       if (emp) {
         showEmployeePage(emp);
+        hideLoading();
       } else {
+        hideLoading();
         showNotifBar('error', 'Employee data not found. Check database connection.', '❌');
       }
     }
@@ -1190,12 +1245,14 @@ async function doLogin() {
 
   // ── Server returned error (invalid creds, etc.) ──
   if (res) {
+    setButtonLoading(loginBtn, false, 'Sign In');
     document.getElementById('err-msg').style.display = 'flex';
     document.getElementById('err-msg-text').textContent = res.message || 'Invalid credentials. Please try again.';
     return;
   }
 
   // ── Server unreachable ──
+  setButtonLoading(loginBtn, false, 'Sign In');
   document.getElementById('err-msg').style.display = 'flex';
   document.getElementById('err-msg-text').textContent = 'Server unreachable. Please ensure the backend is running and try again.';
 }
@@ -1682,20 +1739,24 @@ async function init() {
   const savedUid = localStorage.getItem('userId');
   const savedRole = localStorage.getItem('userRole');
   if (savedUid && savedRole) {
+    showLoading('Restoring your session...', 'Loading data from server');
     const loaded = await loadStateFromServer();
     if (loaded) {
       if (savedRole === 'admin') {
         showAdminPage();
+        hideLoading();
         return;
       } else if (savedRole === 'employee') {
         const emp = employees.find(e => e.id === savedUid);
         if (emp) {
           showEmployeePage(emp);
+          hideLoading();
           return;
         }
       }
     }
     // Session expired or server unreachable — clear stale token and show login
+    hideLoading();
     localStorage.removeItem('userId');
     localStorage.removeItem('userRole');
   }

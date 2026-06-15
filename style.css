@@ -2063,6 +2063,102 @@ body.dark-mode .pbtn-break{background:var(--surface2);color:var(--text);border:1
 body.dark-mode .pbtn-break:hover{background:var(--border);}
 
 /* ═══════════════════════════════════
+   LOADING SPINNER — Global overlay + inline
+═══════════════════════════════════ */
+
+#loading-overlay {
+  position:fixed;
+  inset:0;
+  background:rgba(15,23,42,0.6);
+  backdrop-filter:blur(4px);
+  -webkit-backdrop-filter:blur(4px);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:99999;
+  animation:overlayFadeIn 0.2s ease;
+}
+@keyframes overlayFadeIn {
+  from{opacity:0;}
+  to{opacity:1;}
+}
+#loading-overlay.show{display:flex;}
+.loading-card {
+  background:var(--surface);
+  border-radius:16px;
+  padding:36px 44px;
+  text-align:center;
+  box-shadow:var(--shadow-lg),0 0 0 1px rgba(255,255,255,0.06);
+  animation:loadingCardIn 0.3s cubic-bezier(0.22,1,0.36,1);
+  min-width:260px;
+}
+@keyframes loadingCardIn {
+  from{opacity:0;transform:scale(0.92) translateY(8px);}
+  to{opacity:1;transform:scale(1) translateY(0);}
+}
+.loading-spinner {
+  width:44px;height:44px;
+  margin:0 auto 18px;
+  border:3px solid var(--border);
+  border-top-color:var(--gold);
+  border-radius:50%;
+  animation:spin 0.7s linear infinite;
+}
+.loading-spinner-sm {
+  width:18px;height:18px;
+  border:2px solid rgba(255,255,255,0.3);
+  border-top-color:#fff;
+  border-radius:50%;
+  display:inline-block;
+  animation:spin 0.7s linear infinite;
+  vertical-align:middle;
+}
+@keyframes spin {
+  to{transform:rotate(360deg);}
+}
+.loading-msg {
+  font-size:15px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:4px;
+}
+.loading-sub {
+  font-size:13px;
+  color:var(--subtle);
+}
+.btn-loading {
+  position:relative;
+  pointer-events:none;
+  opacity:0.8;
+}
+.btn-loading .btn-text {visibility:hidden;}
+.btn-loading .btn-spinner {
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+body.dark-mode #loading-overlay {
+  background:rgba(0,0,0,0.65);
+}
+body.dark-mode .loading-card {
+  background:var(--surface);
+  box-shadow:0 20px 60px rgba(0,0,0,0.5);
+}
+body.dark-mode .loading-spinner {
+  border-color:var(--border-mid);
+  border-top-color:var(--gold);
+}
+body.dark-mode .loading-msg {
+  color:var(--text);
+}
+body.dark-mode .loading-sub {
+  color:var(--subtle);
+}
+
+/* ═══════════════════════════════════
    RESPONSIVE DESIGN
 ═══════════════════════════════════ */
 @media(max-width:1024px){
