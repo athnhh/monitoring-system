@@ -1,150 +1,325 @@
-const mongoose = require('mongoose');
+/**
+ * models/index.js — Firebase Firestore wrapper
+ *
+ * Provides the same API surface as the previous Mongoose models (find, findOne,
+ * create, save, toObject, updateOne, deleteOne, countDocuments) so server.js
+ * controller code requires minimal changes.
+ */
 
-// Helper to handle $sort queries in find and findOne (keeps server.js controller code unchanged)
-const handleQuerySort = function(next) {
-  const query = this.getQuery();
-  if (query && query.$sort) {
-    this.sort(query.$sort);
-    delete query.$sort;
+const admin = require('firebase-admin');
+const path = require('path');
+
+// ── Initialize Firebase Admin SDK ──
+const SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
+  ? path.resolve(__dirname, '..', process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
+  : path.join(__dirname, '..', 'firebase-service-account.json');
+
+if (!admin.apps.length) {
+  try {
+    const serviceAccount = require(SERVICE_ACCOUNT_PATH);
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    console.log('Firebase Admin SDK initialized successfully');
+  } catch (e) {
+    console.error('Firebase Admin SDK init error:', e.message);
+    console.error('Expected service account at:', SERVICE_ACCOUNT_PATH);
   }
-  next();
-};
+}
 
-const schemaOptions = {
-  timestamps: true,
-  id: false // Disable virtual 'id' getter so that custom 'id' fields can be read normally
-};
+const db = admin.firestore();
 
-// Admin Schema
-const AdminSchema = new mongoose.Schema({
-  username: { type: String, required: true },
-  password: { type: String, required: true },
-  email: { type: String, required: true }
-}, schemaOptions);
+// ── Internal Helpers ──
 
-// Employee Schema
-const EmployeeSchema = new mongoose.Schema({
-  id: { type: String, required: true, unique: true },
-  name: { type: String, required: true },
-  dept: { type: String, required: true },
-  designation: { type: String },
-  email: { type: String },
-  phone: { type: String },
-  bday: { type: String },
-  joining: { type: String },
-  password: { type: String, default: 'emp123' },
-  cl: { type: Number, default: 7.5 },
-  sl: { type: Number, default: 3.0 },
-  ul: { type: Number, default: 0 },
-  active: { type: Boolean, default: true },
-  calendarEventId: { type: String },
-  _lastAccrualMonth: { type: Number },
-  _lastAccrualYear: { type: Number }
-}, schemaOptions);
+/** Convert a Firestore QuerySnapshot to an array of plain objects with _ref attached */
+function snapToArray(snapshot) {
+  const results = [];
+  snapshot.forEach(doc => {
+    if (doc.exists) {
+      const data = doc.data();
+      results.push(attachRef(doc.ref, { id: doc.id, ...data }));
+    }
+  });
+  return results;
+}
 
-// Attendance Schema
-const AttendanceSchema = new mongoose.Schema({
-  id: { type: String, required: true }, // Employee ID
-  name: { type: String, required: true },
-  dept: { type: String, required: true },
-  date: { type: String, required: true },
-  in: { type: String },
-  out: { type: String },
-  hours: { type: Number, default: 0 },
-  status: { type: String, default: 'Present' }
-}, schemaOptions);
+/** Convert a single DocumentSnapshot to a plain object with _ref, or null */
+function snapToDoc(snapshot) {
+  if (!snapshot.exists) return null;
+  const data = snapshot.data();
+  return attachRef(snapshot.ref, { ...data });
+}
 
-// Leave Request Schema
-const LeaveRequestSchema = new mongoose.Schema({
-  idx: { type: Number, required: true, unique: true },
-  empId: { type: String, required: true },
-  empName: { type: String, required: true },
-  dept: { type: String, required: true },
-  type: { type: String, required: true }, // CL, SL, UL
-  from: { type: String, required: true },
-  to: { type: String, required: true },
-  days: { type: Number, required: true },
-  reason: { type: String, required: true },
-  status: { type: String, default: 'Pending' }
-}, schemaOptions);
+/** Attach _ref and helper methods to a data object.
+ *  BE CAREFUL: save() must strip ALL non-Firestore properties (_ref, save, toObject)
+ *  before writing back, otherwise Firestore will throw "Cannot encode value: async function".
+ */
+function attachRef(ref, data) {
+  // Start with a clean copy — no functions yet
+  const obj = { ...data, _ref: ref };
 
-// Announcement Schema
-const AnnouncementSchema = new mongoose.Schema({
-  subject: { type: String, required: true },
-  date: { type: String, required: true },
-  recipientType: { type: String },
-  recipientValue: { type: String },
-  priority: { type: String, default: 'normal' },
-  body: { type: String, required: true }
-}, schemaOptions);
+  obj.save = async function () {
+    // Build a clean data object — exclude ALL non-data properties
+    const { _ref: r, save: s, toObject: t, ...cleanData } = this;
+    await r.set(cleanData);
+    return this;
+  };
 
-// Notification Schema
-const NotificationSchema = new mongoose.Schema({
-  text: { type: String, required: true },
-  time: { type: String },
-  unread: { type: Boolean, default: true },
-  target: { type: String, default: 'admin' },
-  userId: { type: String }
-}, schemaOptions);
+  obj.toObject = function () {
+    const { _ref: r, save: s, toObject: t, ...rest } = this;
+    return rest;
+  };
 
-// Password Reset Schema
-const PasswordResetSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
-  tempPassword: { type: String, required: true },
-  email: { type: String, required: true },
-  expiresAt: { type: String, required: true }
-}, schemaOptions);
+  return obj;
+}
 
-// Department Schema
-const DepartmentSchema = new mongoose.Schema({
-  name: { type: String, required: true, unique: true }
-}, schemaOptions);
+/** Build a Firestore query from a simple filter object.
+ *  Supports:
+ *    { field: value }          → where('field', '==', value)
+ *    { $sort: { field: -1 } }  → orderBy('field', 'desc')
+ *    { $sort: { field: 1 } }   → orderBy('field', 'asc')
+ */
+function buildQuery(collectionRef, filter) {
+  let query = collectionRef;
+  const sort = filter && filter.$sort;
+  if (sort) {
+    delete filter.$sort;
+  }
+  // Apply equality filters
+  if (filter && typeof filter === 'object') {
+    const keys = Object.keys(filter);
+    for (const key of keys) {
+      if (key.startsWith('$')) continue;
+      query = query.where(key, '==', filter[key]);
+    }
+  }
+  // Apply sort
+  if (sort && typeof sort === 'object') {
+    const sortKey = Object.keys(sort)[0];
+    const sortDir = sort[sortKey] === -1 ? 'desc' : 'asc';
+    query = query.orderBy(sortKey, sortDir);
+  }
+  return query;
+}
 
-// Archived Employee Schema
-const ArchivedEmployeeSchema = new mongoose.Schema({
-  originalId: { type: String, required: true },
-  id: { type: String },
-  name: { type: String },
-  dept: { type: String },
-  status: { type: String },
-  joining: { type: String },
-  exit: { type: String },
-  employeeData: { type: mongoose.Schema.Types.Mixed }
-}, schemaOptions);
+// ── Factory: create a model-like object for a collection ──
 
-// System Config Schema
-const SystemConfigSchema = new mongoose.Schema({
-  key: { type: String, required: true, unique: true },
-  value: { type: mongoose.Schema.Types.Mixed }
-}, schemaOptions);
+function createModel(collectionName) {
+  const colRef = () => db.collection(collectionName);
 
-// Apply query middleware
-const schemas = [
-  AdminSchema, EmployeeSchema, AttendanceSchema, LeaveRequestSchema,
-  AnnouncementSchema, NotificationSchema, PasswordResetSchema,
-  DepartmentSchema, ArchivedEmployeeSchema, SystemConfigSchema
-];
+  const model = {
+    /** Find documents matching a filter. Returns array. */
+    async find(filter = {}) {
+      try {
+        let query = buildQuery(colRef(), { ...filter });
+        // Remove $sort from the filter passed to buildQuery for iterative call
+        // Actually buildQuery already handles this
+        const snapshot = await query.get();
+        return snapToArray(snapshot);
+      } catch (e) {
+        console.error(`[${collectionName}] find error:`, e.message);
+        // Fallback: get all and filter locally
+        try {
+          const all = await colRef().get();
+          let results = snapToArray(all);
+          if (filter && typeof filter === 'object') {
+            const { $sort, ...conditions } = filter;
+            for (const [key, val] of Object.entries(conditions)) {
+              results = results.filter(r => r[key] === val);
+            }
+            if ($sort) {
+              const sortKey = Object.keys($sort)[0];
+              const sortDir = $sort[sortKey];
+              results.sort((a, b) => {
+                const va = a[sortKey] || 0;
+                const vb = b[sortKey] || 0;
+                return sortDir === -1 ? vb - va : va - vb;
+              });
+            }
+          }
+          return results;
+        } catch (e2) {
+          console.error(`[${collectionName}] find fallback error:`, e2.message);
+          return [];
+        }
+      }
+    },
 
-schemas.forEach(schema => {
-  schema.pre('find', handleQuerySort);
-  schema.pre('findOne', handleQuerySort);
-});
+    /** Find a single document matching a filter. Returns object or null. */
+    async findOne(filter = {}) {
+      try {
+        let query = buildQuery(colRef(), { ...filter });
+        const snapshot = await query.limit(1).get();
+        if (snapshot.empty) return null;
+        return snapToDoc(snapshot.docs[0]);
+      } catch (e) {
+        console.error(`[${collectionName}] findOne error:`, e.message);
+        // Fallback: get all and filter locally
+        try {
+          const results = await model.find(filter);
+          return results.length > 0 ? results[0] : null;
+        } catch (e2) {
+          return null;
+        }
+      }
+    },
 
-// Compile models
-const Admin = mongoose.models.Admin || mongoose.model('Admin', AdminSchema);
-const Employee = mongoose.models.Employee || mongoose.model('Employee', EmployeeSchema);
-const Attendance = mongoose.models.Attendance || mongoose.model('Attendance', AttendanceSchema);
-const LeaveRequest = mongoose.models.LeaveRequest || mongoose.model('LeaveRequest', LeaveRequestSchema);
-const Announcement = mongoose.models.Announcement || mongoose.model('Announcement', AnnouncementSchema);
-const Notification = mongoose.models.Notification || mongoose.model('Notification', NotificationSchema);
-const PasswordReset = mongoose.models.PasswordReset || mongoose.model('PasswordReset', PasswordResetSchema);
-const Department = mongoose.models.Department || mongoose.model('Department', DepartmentSchema);
-const ArchivedEmployee = mongoose.models.ArchivedEmployee || mongoose.model('ArchivedEmployee', ArchivedEmployeeSchema);
-const SystemConfig = mongoose.models.SystemConfig || mongoose.model('SystemConfig', SystemConfigSchema);
+    /** Create a new document. */
+    async create(data) {
+      const docId = data.id || data.username || data.idx !== undefined ? String(data.idx) : undefined;
+      const ref = docId ? colRef().doc(docId) : colRef().doc();
+      await ref.set(data);
+      return attachRef(ref, { ...data });
+    },
+
+    /** Delete a document matching filter. Returns the deleted doc or null. */
+    async findOneAndDelete(filter = {}) {
+      try {
+        const doc = await model.findOne(filter);
+        if (!doc) return null;
+        await doc._ref.delete();
+        return doc;
+      } catch (e) {
+        console.error(`[${collectionName}] findOneAndDelete error:`, e.message);
+        return null;
+      }
+    },
+
+    /** Count documents in the collection. */
+    async countDocuments(filter = {}) {
+      try {
+        const snapshot = await colRef().get();
+        if (!filter || Object.keys(filter).length === 0) return snapshot.size;
+        const results = await model.find(filter);
+        return results.length;
+      } catch (e) {
+        console.error(`[${collectionName}] countDocuments error:`, e.message);
+        return 0;
+      }
+    },
+
+    /** Update a document. filter should have an 'id' or be a simple equality filter.
+     *  Supports { upsert: true } via options.
+     */
+    async updateOne(filter = {}, update = {}, options = {}) {
+      try {
+        // Determine document ID from filter
+        let docId = filter.id || null;
+        let doc = null;
+
+        if (docId) {
+          const ref = colRef().doc(docId);
+          if (options.upsert) {
+            // Handle $set operator
+            const data = update.$set || update;
+            await ref.set(data, { merge: true });
+            const snap = await ref.get();
+            doc = snap.exists ? attachRef(ref, snap.data()) : null;
+          } else {
+            await ref.update(update);
+            const snap = await ref.get();
+            doc = snap.exists ? attachRef(ref, snap.data()) : null;
+          }
+        } else {
+          // Find the document first
+          doc = await model.findOne(filter);
+          if (doc) {
+            const updateData = update.$set || update;
+            await doc._ref.update(updateData);
+            const snap = await doc._ref.get();
+            if (snap.exists) {
+              Object.assign(doc, snap.data());
+            }
+          } else if (options.upsert) {
+            // Can't upsert without an ID; create new doc
+            const data = update.$set || update;
+            const ref = colRef().doc();
+            await ref.set(data);
+            const snap = await ref.get();
+            doc = snap.exists ? attachRef(ref, snap.data()) : null;
+          }
+        }
+        return doc;
+      } catch (e) {
+        console.error(`[${collectionName}] updateOne error:`, e.message);
+        // Fallback: find and update locally
+        try {
+          let doc = await model.findOne(filter);
+          if (doc) {
+            const updateData = update.$set || update;
+            Object.assign(doc, updateData);
+            await doc.save();
+          } else if (options.upsert) {
+            const data = update.$set || update;
+            doc = await model.create(data);
+          }
+          return doc;
+        } catch (e2) {
+          return null;
+        }
+      }
+    },
+
+    /** Insert multiple documents. */
+    async insertMany(docs) {
+      const batch = db.batch();
+      for (const doc of docs) {
+        const ref = colRef().doc(doc.name || doc.id || String(Math.random()));
+        batch.set(ref, doc);
+      }
+      await batch.commit();
+      return docs;
+    },      /** Delete a single document by filter. */
+    async deleteOne(filter = {}) {
+      try {
+        const doc = await model.findOne(filter);
+        if (doc) {
+          await doc._ref.delete();
+          return { deletedCount: 1 };
+        }
+        return { deletedCount: 0 };
+      } catch (e) {
+        console.error(`[${collectionName}] deleteOne error:`, e.message);
+        return { deletedCount: 0 };
+      }
+    },
+
+    /** Delete all documents matching a filter (or all documents if filter is empty). */
+    async deleteMany(filter = {}) {
+      try {
+        const docs = await model.find(filter);
+        const batch = db.batch();
+        for (const doc of docs) {
+          if (doc._ref) batch.delete(doc._ref);
+        }
+        await batch.commit();
+        return { deletedCount: docs.length };
+      } catch (e) {
+        console.error(`[${collectionName}] deleteMany error:`, e.message);
+        return { deletedCount: 0 };
+      }
+    }
+  };
+
+  return model;
+}
+
+// ── Exported Models ──
+
+const Admin = createModel('admins');
+const Employee = createModel('employees');
+const Attendance = createModel('attendance');
+const LeaveRequest = createModel('leaveRequests');
+const Announcement = createModel('announcements');
+const Notification = createModel('notifications');
+const PasswordReset = createModel('passwordResets');
+const Department = createModel('departments');
+const ArchivedEmployee = createModel('archivedEmployees');
+const SystemConfig = createModel('systemConfig');
 
 // Dummy initFirestore for compatibility
 function initFirestore() {
-  console.log('Firebase Firestore disabled, using Mongoose instead.');
+  console.log('Firebase Firestore ready (Admin SDK).');
 }
 
 module.exports = {
@@ -158,5 +333,7 @@ module.exports = {
   Department,
   ArchivedEmployee,
   SystemConfig,
-  initFirestore
+  initFirestore,
+  // Expose db for direct access if needed
+  db
 };

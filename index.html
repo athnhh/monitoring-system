@@ -3,9 +3,14 @@
 <head>
 <script>
   window.APP_CONFIG = {
+    // On localhost, connect to local backend on port 3000.
+    // In production (deployed on Render or similar), use the same origin so frontend & backend are served together.
+    // To use a separate backend URL, override API_BASE below.
     API_BASE: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
       ? 'http://localhost:3000'
-      : 'https://monitoring-system.vercel.app'
+      : window.location.origin
+    // ◀ Example: For a separate backend, uncomment and set your Render URL:
+    // API_BASE: 'https://quemahtech-ems.onrender.com'
   };
 </script>
 <meta charset="UTF-8">

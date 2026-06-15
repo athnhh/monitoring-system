@@ -1,6 +1,6 @@
 # 🚀 Deploying Quemahtech EMS to Render.com
 
-This guide walks you through deploying the **Node.js backend** to Render.com with a **Firebase Firestore** database so your app has a live API endpoint accessible from anywhere.
+This guide walks you through deploying the **Node.js backend** to Render.com with **Firebase Firestore**.
 
 ---
 
@@ -10,7 +10,8 @@ This guide walks you through deploying the **Node.js backend** to Render.com wit
 |------|-----------------|
 | **GitHub account** | [github.com](https://github.com) |
 | **Render account** | [render.com](https://render.com) (free tier) |
-| **Firebase Project** | [console.firebase.google.com](https://console.firebase.google.com) (free tier) |
+| **Firebase Project** | Already set up at `quemahtech-e9148` |
+| **Service account JSON** | Already saved as `firebase-service-account.json` |
 
 ---
 
@@ -18,88 +19,66 @@ This guide walks you through deploying the **Node.js backend** to Render.com wit
 
 ```bash
 git add .
-git commit -m "Ready for deployment"
+git commit -m "Firebase migration complete"
 git push origin main
 ```
 
-> Make sure `render.yaml` and `DEPLOY.md` are in the root of your repo.
+> Make sure `render.yaml` is in the root of your repo (it already is).
 
 ---
 
-## ✅ Step 2 — Set up Firebase Firestore
-
-1. Go to [console.firebase.google.com](https://console.firebase.google.com) → Create a project (or use existing)
-2. Go to **Project Settings** → **Service Accounts** → **Generate New Private Key**
-3. Download the JSON file and save it as `firebase-service-account.json` in the project root
-4. Enable **Firestore Database** in the Firebase Console (choose a region)
-5. Set Firestore security rules to allow only Admin SDK access (the service account bypasses rules)
-
----
-
-## ✅ Step 3 — Deploy via Render Blueprint (render.yaml)
+## ✅ Step 2 — Deploy via Render Blueprint (render.yaml)
 
 1. Go to [dashboard.render.com/blueprints](https://dashboard.render.com/blueprints)
 2. Click **"New Blueprint"** → Connect your GitHub repo
 3. Render will detect `render.yaml` and prompt you:
    - **Name**: `quemahtech-ems`
-   - **Region**: Pick one close to you (e.g. Oregon)
+   - **Region**: Pick one close to you (e.g. **Oregon** or **Singapore** for India)
    - **Plan**: Free
 4. Click **"Apply"** — Render will start deploying
+   - The first deploy will fail because the Firebase service account is not yet uploaded to Render
 
 ---
 
-## ✅ Step 4 — Add Firebase Service Account to Render
+## ✅ Step 3 — Add Firebase Service Account to Render
 
-After the initial deploy fails (expected — Firebase service account needs to be configured):
+1. Go to your [Render Dashboard](https://dashboard.render.com) → Click the `quemahtech-ems` service
+2. Click the **Environment** tab
+3. Scroll to **Secret Files** → Click **"Add Secret File"**
+4. **File Name**: `firebase-service-account.json`
+5. **File Contents**: Open your local `firebase-service-account.json`, **copy the entire contents**, and paste it here
+6. Click **"Save"**
+7. Click **"Save Changes"** at the bottom — Render will auto-redeploy
 
-1. Go to your Render Dashboard → Click the service → **Environment** tab
-2. Click **"Add Secret File"** → File Name: `firebase-service-account.json`
-3. Paste the entire contents of your Firebase service account JSON
-4. Click **"Save"**
-
-The env var `FIREBASE_SERVICE_ACCOUNT_PATH` is already set in `render.yaml`.
-
-Then click **"Save Changes"** → The service will auto-redeploy.
+> The env var `FIREBASE_SERVICE_ACCOUNT_PATH: firebase-service-account.json` is already set in `render.yaml`.
 
 ---
 
-## ✅ Step 5 — Get Your Live Backend URL
+## ✅ Step 4 — Get Your Live URL
 
-Once deployed, Render gives you a URL like:
+Once the deploy succeeds, Render gives you a URL like:
 
 ```
 https://quemahtech-ems.onrender.com
 ```
 
-1. Click the link to open it
-2. Test the health endpoint: `https://quemahtech-ems.onrender.com/api/health`
-   - You should see: `{"status":"ok","db":"connected"}`
-
----
-
-## ✅ Step 6 — Configure the Frontend
-
-If you're not deploying everything to a single origin (e.g., frontend on GitHub Pages + backend on Render), set `API_BASE` in `index.html` to your Render URL:
-
-```html
-<script>
-  window.APP_CONFIG = {
-    API_BASE: 'https://quemahtech-ems.onrender.com',   // ← Your Render URL
-    ADMIN_EMAIL: 'atharvashishn@gmail.com'
-  };
-</script>
+Test that the backend is working:
 ```
-
-The frontend now automatically detects `localhost` vs production. For custom backends, override `API_BASE` as above.
+https://quemahtech-ems.onrender.com/api/health
+```
+✅ Expected: `{"status":"ok","db":"connected"}`
 
 ---
 
-## ✅ Step 7 — Test Login
+## ✅ Step 5 — Open the App
 
-Open your live app URL in a browser:
+Visit your Render URL (`https://quemahtech-ems.onrender.com`) in a browser.
 
+Log in with:
 - **Admin**: username `quemahtech` / password `quemah123`
-- **Employee**: add employees via the admin panel first
+- **Employee**: `EMP001` / `emp123`
+
+> The frontend is served from the same origin, so `API_BASE` is automatically set to `window.location.origin`. No extra configuration needed.
 
 ---
 
@@ -117,7 +96,7 @@ Open your live app URL in a browser:
 
 ## 🔄 Redeploying After Changes
 
-Whenever you push to `main` on GitHub, Render auto-redeploys:
+Push to `main` → Render auto-redeploys:
 
 ```bash
 git add .
@@ -125,7 +104,7 @@ git commit -m "Your change description"
 git push origin main
 ```
 
-You can also trigger a manual deploy from the Render Dashboard → **Manual Deploy** → **Deploy latest commit**.
+Or trigger a manual deploy from the Render Dashboard → **Manual Deploy** → **Deploy latest commit**.
 
 ---
 
@@ -133,8 +112,7 @@ You can also trigger a manual deploy from the Render Dashboard → **Manual Depl
 
 | Problem | Solution |
 |---------|----------|
-| `Cannot connect to Firestore` | Check the Firebase service account JSON is correctly uploaded as a Secret File on Render |
-| `405 / HTML instead of JSON` | The frontend `API_BASE` is pointing to the wrong URL. Check `window.APP_CONFIG.API_BASE` matches your Render URL. |
-| `Socket.io not connecting` | Check browser console for errors. Ensure `API_BASE` is set correctly. |
-| App shows "Database not connected" | The Firebase service account is missing or invalid. Check FIREBASE_SERVICE_ACCOUNT_PATH. |
-| `MongoDB` errors in logs | The code no longer uses MongoDB — ensure you're running the latest code after the Firebase migration. |
+| `Cannot connect to Firestore` | The service account JSON is missing or invalid on Render. Check Environment → Secret Files. |
+| `405 / HTML instead of JSON` | The frontend is hitting the wrong URL. Since frontend & backend are on the same origin, this shouldn't happen. |
+| App shows "Database not connected" | The Firebase service account on Render is missing or invalid. Re-upload it. |
+| **First load is slow** | Normal — Render's free plan spins down after 15 min of inactivity (~5s cold start). |

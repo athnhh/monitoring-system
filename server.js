@@ -4,15 +4,15 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-const mongoose = require('mongoose');
 const { Server } = require('socket.io');
 
+const admin = require('firebase-admin');
 const calendarService = require('./google-calendar');
 
 const {
   Admin, Employee, Attendance, LeaveRequest,
   Announcement, Notification, PasswordReset,
-  Department, ArchivedEmployee, SystemConfig, initFirestore
+  Department, ArchivedEmployee, SystemConfig
 } = require('./models');
 
 const PORT = process.env.PORT || 3000;
@@ -26,22 +26,20 @@ const server = http.createServer(app);
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json({ limit: '5mb' }));
 
-// ── MongoDB connection using Mongoose ──
+// ── Firestore connection status ──
 let dbConnected = false;
 
 async function connectDB() {
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    console.error('DATABASE_URL is not set in environment variables!');
-    return;
-  }
   try {
-    await mongoose.connect(dbUrl);
+    // Test Firestore connection
+    await admin.firestore().collection('systemConfig').doc('_connection_test').set({
+      connected: true, timestamp: new Date().toISOString()
+    });
     dbConnected = true;
-    console.log('MongoDB connected successfully');
+    console.log('Firebase Firestore connected successfully');
 
     // Seed / reset default admin
-    const adminUser = await Admin.findOne({ email: ADMIN_EMAIL });
+    const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
     if (adminUser) {
       if (!process.env.VERCEL) {
         adminUser.password = 'quemah123';
@@ -72,13 +70,14 @@ async function connectDB() {
     // Seed default departments
     const deptCount = await Department.countDocuments();
     if (deptCount === 0) {
-      await Department.insertMany(
-        ['Engineering', 'HR', 'IT', 'Marketing', 'Finance', 'Operations'].map(name => ({ name }))
-      );
+      for (const name of ['Engineering', 'HR', 'IT', 'Marketing', 'Finance', 'Operations']) {
+        await Department.create({ name });
+      }
       console.log('Default departments created');
     }
   } catch (e) {
-    console.error('MongoDB connection/seeding error:', e.message);
+    console.error('Firestore connection/seeding error:', e.message);
+    dbConnected = false;
   }
 }
 
@@ -109,7 +108,7 @@ function broadcast(event, data) {
 // Only strip Firestore doc _id and password — keep business id (e.g. 'EMP001')
 function sanitizeEmp(e) {
   const obj = e.toObject ? e.toObject() : { ...e };
-  const { _id, password, ...rest } = obj;
+  const { _ref, _collection, _id, password, ...rest } = obj;
   return rest;
 }
 
@@ -128,7 +127,7 @@ const ACCRUAL_FLAG_KEY = '_leaveAccrualLastRun';
 async function runMonthlyLeaveAccrual() {
   try {
     if (!dbConnected) return;
-    // Check when accrual was last run (stored in MongoDB SystemConfig)
+    // Check when accrual was last run (stored in Firestore SystemConfig)
     const config = await SystemConfig.findOne({ key: 'leaveAccrual' });
     const lastRun = config && config.value ? config.value.lastRun : '';
     const today = new Date();
@@ -161,7 +160,7 @@ async function runMonthlyLeaveAccrual() {
 // ── Middleware: require DB ──
 function requireDB(req, res, next) {
   if (!dbConnected) {
-    return res.status(503).json({ error: 'Database not connected. Check Firebase service account in .env.' });
+    return res.status(503).json({ error: 'Database not connected. Check Firebase service account configuration.' });
   }
   next();
 }
@@ -905,9 +904,9 @@ if (process.env.VERCEL) {
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`\n  ${process.env.APP_NAME || 'Quemahtech'} Employee Management System`);
       console.log(`  http://localhost:${PORT}`);
-      console.log(`  DB: ${dbConnected ? 'MongoDB connected' : 'DB offline'}`);
+      console.log(`  DB: ${dbConnected ? 'Firestore connected' : 'DB offline'}`);
       console.log(`  Socket.io: ${io ? 'enabled' : 'disabled (Vercel)'}`);
-      console.log(`  Admin: ${ADMIN_EMAIL} / quemah123`);
+      console.log(`  Admin: ${ADMIN_USERNAME} / quemah123`);
       console.log(`  Emp:   EMP001 / emp123\n`);
     });
   })();

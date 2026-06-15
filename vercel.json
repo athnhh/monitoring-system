@@ -6,5 +6,8 @@
   "routes": [
     { "src": "/api/(.*)", "dest": "server.js" },
     { "src": "/(.*)", "dest": "index.html" }
-  ]
+  ],
+  "env": {
+    "FIREBASE_SERVICE_ACCOUNT_PATH": "firebase-service-account.json"
+  }
 }
