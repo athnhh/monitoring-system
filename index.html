@@ -9,8 +9,6 @@
 <!-- Single consolidated stylesheet -->
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<!-- GitHub Pages users: uncomment and set your backend URL below -->
-<!-- <script>window.APP_CONFIG = { API_BASE: 'https://your-app.vercel.app' };</script> -->
 </head>
 <body>
 <div id="notif-bar" class="notif-bar" style="display:none;">
@@ -961,18 +959,19 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
-  APP CONFIGURATION
+  APP CONFIGURATION — Dynamic API routing
   ═══════════════════════════════════════════════════════════
-  For local dev: leave API_BASE unset (uses same origin).
-  For production: set API_BASE to your running backend URL.
+  API_BASE is detected automatically:
+    - localhost / 127.0.0.1  → http://localhost:3000
+    - Vercel (same origin)   → window.location.origin
+    - Other deployments       → window.location.origin
   ═══════════════════════════════════════════════════════════
 -->
 <script>
   window.APP_CONFIG = {
-    // 🔧 For production: set API_BASE to your backend server URL (e.g. Render, Railway, etc.)
-    // Example: API_BASE: 'https://quemahtech-ems.onrender.com'
-    // For local dev: leave unset — it auto-detects http://localhost:3000
-    API_BASE: '',
+    API_BASE: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? 'http://localhost:3000'
+      : window.location.origin,
     ADMIN_EMAIL: 'atharvashishn@gmail.com'
   };
 </script>

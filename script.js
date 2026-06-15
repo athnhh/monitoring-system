@@ -1627,10 +1627,14 @@ async function checkServerHealth() {
       const banner = document.createElement('div');
       banner.id = 'server-warning-banner';
       banner.style.cssText = 'background:rgba(220,38,38,0.15);border:1px solid rgba(220,38,38,0.3);border-radius:8px;padding:12px 14px;margin-bottom:20px;font-size:13px;color:#fca5a5;display:flex;align-items:center;gap:8px;';
-      const isStaticHost = ['github.io','pages.dev','netlify.app','vercel.app'].some(h => window.location.hostname.includes(h));
-      banner.innerHTML = isStaticHost
-        ? '⚠️ <strong>Backend not configured</strong> — Deployed on static hosting. Uncomment <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">APP_CONFIG</code> in <strong>index.html</strong> to set your backend URL, or deploy everything to Vercel.'
-        : '⚠️ <strong>Server offline</strong> — The backend server is not reachable. Please start the server with <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">npm start</code>.';
+      const isStaticHost = ['github.io','pages.dev','netlify.app'].some(h => window.location.hostname.includes(h));
+      if (window.location.hostname.includes('vercel.app')) {
+        banner.innerHTML = '⚠️ <strong>Backend offline</strong> — The Vercel serverless function is unreachable. Check your Vercel deployment logs and ensure the serverless function is healthy.';
+      } else if (isStaticHost) {
+        banner.innerHTML = '⚠️ <strong>Backend not configured</strong> — You are on static hosting but the backend URL (<code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">' + API_BASE + '</code>) is unreachable. Deploy the backend to Vercel or Render, or set a custom <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">API_BASE</code> in <strong>index.html</strong>.';
+      } else {
+        banner.innerHTML = '⚠️ <strong>Server offline</strong> — The backend server at <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">' + API_BASE + '</code> is not reachable. Please start the server with <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">npm start</code>.';
+      }
       loginCard.prepend(banner);
     }
     serverAvailable = false;
