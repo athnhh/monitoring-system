@@ -9,6 +9,15 @@
 <!-- Single consolidated stylesheet -->
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<!-- ════════════════════════════════════════════════════════════════
+     CONFIGURATION — Set API_BASE for GitHub Pages deployments
+     ════════════════════════════════════════════════════════════════
+     When deploying frontend (GitHub Pages) and backend (Vercel) separately,
+     uncomment and set your Vercel URL below. Example:
+       window.APP_CONFIG = { API_BASE: 'https://monitoring-system.vercel.app' };
+     For local dev or same-origin deployments, leave commented out (auto-detected).
+     ════════════════════════════════════════════════════════════════ -->
+<script>window.APP_CONFIG = window.APP_CONFIG || {};</script>
 </head>
 <body>
 <div id="notif-bar" class="notif-bar" style="display:none;">
