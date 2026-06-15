@@ -30,28 +30,41 @@ app.use(express.json({ limit: '5mb' }));
 let dbConnected = false;
 
 async function connectDB() {
-  // Look for the service account JSON file
-  const possiblePaths = [
-    process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
-    './quemahtech-e9148-firebase-adminsdk-fbsvc-72d38afb10.json',
-    './firebase-service-account.json'
-  ];
-
   let serviceAccount = null;
-  for (const p of possiblePaths) {
-    if (p) {
-      try {
-        serviceAccount = require(path.resolve(__dirname, p));
-        if (serviceAccount && serviceAccount.client_email) break;
-      } catch (e) {
-        // try next path
+
+  // 1. Try raw JSON from FIREBASE_SERVICE_ACCOUNT env var (Vercel / Render)
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      if (serviceAccount && serviceAccount.client_email) {
+        console.log('Firebase service account loaded from FIREBASE_SERVICE_ACCOUNT env var');
+      }
+    } catch (e) {
+      console.warn('FIREBASE_SERVICE_ACCOUNT env var is set but invalid JSON:', e.message);
+    }
+  }
+
+  // 2. Try file paths (local dev)
+  if (!serviceAccount || !serviceAccount.client_email) {
+    const possiblePaths = [
+      process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+      './quemahtech-e9148-firebase-adminsdk-fbsvc-72d38afb10.json',
+      './firebase-service-account.json'
+    ];
+    for (const p of possiblePaths) {
+      if (p) {
+        try {
+          serviceAccount = require(path.resolve(__dirname, p));
+          if (serviceAccount && serviceAccount.client_email) break;
+        } catch (e) { /* try next path */ }
       }
     }
   }
 
   if (!serviceAccount || !serviceAccount.client_email) {
-    console.warn('Firebase service account not found. Check FIREBASE_SERVICE_ACCOUNT_PATH in .env');
-    console.warn('Looked in:', possiblePaths.filter(Boolean));
+    console.warn('Firebase service account not found.',
+      'Set FIREBASE_SERVICE_ACCOUNT env var to the raw service account JSON,');
+    console.warn('or set FIREBASE_SERVICE_ACCOUNT_PATH to a local JSON file path.');
     return;
   }
 
