@@ -8,6 +8,7 @@
 ═══════════════════════════════════ */
 
 const ADMIN_EMAIL = 'atharvashishn@gmail.com';
+const ADMIN_USERNAME = 'quemahtech';
 
 // ── localStorage DB — Fallback for GitHub Pages / static hosting ──
 const LOCAL_DB_KEY = 'quemahtech_ems_data';
@@ -1216,7 +1217,7 @@ async function doLogin() {
 
   // ── Local time-block check (employees only, applies in both offline & server modes) ──
   const currentHour = new Date().getHours();
-  if (uid.toLowerCase() !== 'atharvashishn@gmail.com' && currentHour >= 18) {
+  if (uid !== ADMIN_USERNAME && uid.toLowerCase() !== ADMIN_EMAIL && currentHour >= 18) {
     document.getElementById('err-msg').style.display = 'flex';
     document.getElementById('err-msg-text').textContent = 'Employee logins are blocked after 6:00 PM IST.';
     return;
@@ -1237,6 +1238,7 @@ async function doLogin() {
 
   if (res && res.success) {
     localStorage.setItem('userId', uid);
+    localStorage.setItem('userRole', res.role);
     if (rememberMe) localStorage.setItem('rememberedUser', uid);
     else localStorage.removeItem('rememberedUser');
 
@@ -1281,12 +1283,13 @@ async function doLogin() {
   }
 
   // Admin local auth — read password from localStorage (may have been changed via Settings)
-  if (uid.toLowerCase() === 'atharvashishn@gmail.com') {
+  if (uid === ADMIN_USERNAME || uid.toLowerCase() === ADMIN_EMAIL) {
     const localData = loadFromLocalDB();
     const adminPwd = (localData && localData.adminPassword) || 'quemah123';
     if (pwd === adminPwd) {
       console.log('[EMS] Local admin auth successful.');
-      localStorage.setItem('userId', 'atharvashishn@gmail.com');
+      localStorage.setItem('userId', uid);
+      localStorage.setItem('userRole', 'admin');
       if (rememberMe) localStorage.setItem('rememberedUser', uid);
       else localStorage.removeItem('rememberedUser');
       currentUser = { name: 'Administrator' };
@@ -1302,6 +1305,7 @@ async function doLogin() {
     if (emp && emp.password === pwd) {
       console.log('[EMS] Local employee auth successful:', uid);
       localStorage.setItem('userId', uid);
+      localStorage.setItem('userRole', 'employee');
       if (rememberMe) localStorage.setItem('rememberedUser', uid);
       else localStorage.removeItem('rememberedUser');
       currentUser = emp;
@@ -1319,7 +1323,9 @@ async function doLogin() {
 
 function logout() {
   currentUser = null;
+  currentRole = '';
   localStorage.removeItem('userId');
+  localStorage.removeItem('userRole');
   document.getElementById('page-admin').classList.remove('active');
   document.getElementById('page-employee').classList.remove('active');
   document.getElementById('page-login').classList.add('active');
@@ -1746,36 +1752,11 @@ function downloadFile(content, filename, mimeType) {
 }
 
 async function checkServerHealth() {
-  // Remove any existing banner first (handles re-init edge cases)
-  const existing = document.getElementById('server-warning-banner');
-  if (existing) existing.remove();
-
-  // Test if the backend server is reachable
   const res = await api('/api/health');
-  if (!res || res.status !== 'ok') {
-    // Server is down — show a persistent warning
-    const loginCard = document.querySelector('.login-card');
-    if (loginCard) {
-      const banner = document.createElement('div');
-      banner.id = 'server-warning-banner';
-      banner.style.cssText = 'background:rgba(220,38,38,0.15);border:1px solid rgba(220,38,38,0.3);border-radius:8px;padding:12px 14px;margin-bottom:20px;font-size:13px;color:#fca5a5;display:flex;align-items:center;gap:8px;';
-      const isStaticHost = ['github.io','pages.dev','netlify.app'].some(h => window.location.hostname.includes(h));
-      if (window.location.hostname.includes('vercel.app')) {
-        banner.innerHTML = '⚠️ <strong>Backend offline</strong> — The Vercel serverless function is unreachable. Check your Vercel deployment logs and ensure the serverless function is healthy.';
-      } else if (isStaticHost) {
-        banner.innerHTML = '⚠️ <strong>Backend not configured</strong> — You are on static hosting but the backend URL (<code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">' + API_BASE + '</code>) is unreachable. Deploy the backend to Vercel or Render, or set a custom <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">API_BASE</code> in <strong>index.html</strong>.';
-      } else {
-        banner.innerHTML = '⚠️ <strong>Server offline</strong> — The backend server at <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">' + API_BASE + '</code> is not reachable. Please start the server with <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">npm start</code>.';
-      }
-      loginCard.prepend(banner);
-    }
-    serverAvailable = false;
-  } else {
-    serverAvailable = true;
-  }
+  serverAvailable = !!(res && res.status === 'ok');
 }
 
-function init() {
+async function init() {
   // Initialize localStorage seed data if first visit
   seedLocalDB();
 
@@ -1794,6 +1775,51 @@ function init() {
 
   // Check server health on load — show a banner if the backend is unreachable
   checkServerHealth();
+
+  // Restore session if previously logged in
+  const savedUid = localStorage.getItem('userId');
+  const savedRole = localStorage.getItem('userRole');
+  if (savedUid && savedRole) {
+    if (savedRole === 'admin') {
+      if (serverAvailable) {
+        const loaded = await loadStateFromServer();
+        if (loaded) {
+          showAdminPage();
+          return;
+        }
+      }
+      // Fallback to local DB
+      const localData = loadFromLocalDB();
+      if (localData) {
+        applyLocalState(localData);
+        usingLocalDB = true;
+        showAdminPage();
+        return;
+      }
+    } else if (savedRole === 'employee') {
+      if (serverAvailable) {
+        const loaded = await loadStateFromServer();
+        if (loaded) {
+          const emp = (employees || []).find(e => e.id === savedUid);
+          if (emp) {
+            showEmployeePage(emp);
+            return;
+          }
+        }
+      }
+      // Fallback to local DB
+      const localData = loadFromLocalDB();
+      if (localData) {
+        applyLocalState(localData);
+        usingLocalDB = true;
+        const emp = employees.find(e => e.id === savedUid);
+        if (emp) {
+          showEmployeePage(emp);
+          return;
+        }
+      }
+    }
+  }
 
   const annBody = document.getElementById('ann-body');
   if (annBody) {

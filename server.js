@@ -203,13 +203,13 @@ authRouter.post('/login', async (req, res) => {
     const normalized = (uid || '').toLowerCase().trim();
 
     // ── ADMIN ROUTE ──
-    if (normalized === 'atharvashishn@gmail.com') {
-      let adminUser = await Admin.findOne({ email: 'atharvashishn@gmail.com' });
+    if (normalized === ADMIN_USERNAME || normalized === ADMIN_EMAIL.toLowerCase()) {
+      let adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
       if (!adminUser) {
-        adminUser = await Admin.findOne({ username: 'quemahtech' });
+        adminUser = await Admin.findOne({ email: ADMIN_EMAIL });
       }
       if (adminUser && adminUser.password === pwd) {
-        return res.json({ success: true, role: 'admin', user: { id: 'atharvashishn@gmail.com', name: 'Administrator' } });
+        return res.json({ success: true, role: 'admin', user: { id: ADMIN_USERNAME, name: 'Administrator' } });
       }
       return res.json({ success: false });
     }
