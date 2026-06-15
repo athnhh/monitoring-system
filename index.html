@@ -443,21 +443,17 @@
           <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="changeAdminPwd()">Update Password</button>
         </div>
         <div class="settings-section">
-          <div class="sec-title">📧 Email (Server SMTP)</div>
-          <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">Email is sent via the server's SMTP (configured in <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px;">.env</code>).</p>
+          <div class="sec-title">📨 Real-Time Notifications (In-App)</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:6px;">All email functionality has been replaced with instant real-time in-app delivery. Password resets, leave alerts, and admin notifications are delivered directly to the UI via Socket.io.</p>
           <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;">
             <div style="display:flex;justify-content:space-between;align-items:center;">
-              <span style="font-size:13px;color:var(--muted);">📧 Service</span>
-              <span id="email-config-service" style="font-size:13px;font-weight:600;color:var(--text);font-family:var(--font-mono);">SMTP</span>
+              <span style="font-size:13px;color:var(--muted);">📨 Delivery Mode</span>
+              <span id="email-config-service" style="font-size:13px;font-weight:600;color:var(--text);font-family:var(--font-mono);">In-App</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:13px;color:var(--muted);">📊 Status</span>
               <span id="email-config-status" style="font-size:13px;font-weight:600;">Loading…</span>
             </div>
-          </div>
-          <div class="compose-row">
-            <span style="font-size:13px;color:var(--muted);flex:1;">Test SMTP connection</span>
-            <button class="btn btn-sm" onclick="testEmailJS()">🔌 Test SMTP</button>
           </div>
         </div>
       </div>
@@ -470,18 +466,11 @@
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
-            <input type="checkbox" id="email-notif-on" checked> Send email notifications to employees for holidays & occasions
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
             <input type="checkbox" id="popup-notif-on" checked> Show in-app popups for upcoming events
           </label>
 
         </div>
         <button class="btn btn-primary" style="margin-top:16px;" onclick="showNotifBar('success','Alert settings saved successfully!','✓')">Save Alert Settings</button>
-      </div>
-      <!-- ── COMPOSE BUTTON ── -->
-      <div style="display:flex;gap:10px;margin-bottom:16px;">
-        <button class="btn btn-primary" onclick="openComposeModal()" style="padding:14px 28px;font-size:15px;">✉️ Compose New Email</button>
       </div>
       <div class="settings-section">
         <div class="sec-title">Google Calendar Integration</div>
@@ -791,25 +780,27 @@
   </div>
 </div>
 
-<!-- FORGOT PASSWORD MODAL -->
+<!-- FORGOT PASSWORD MODAL — REAL-TIME IN-APP DELIVERY -->
 <div id="forgot-modal" class="modal-overlay" style="display:none;">
-  <div class="modal-box" style="max-width:420px;">
+  <div class="modal-box" style="max-width:480px;">
     <div class="modal-header">
       <h3>🔑 Reset Admin Password</h3>
       <button class="close-modal-btn" onclick="document.getElementById('forgot-modal').style.display='none'">×</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">🔒 <strong>Admin only</strong> — enter your admin username to receive a temporary password via email at <strong style="color:var(--text);">atharvashishn@gmail.com</strong>.</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">🔒 <strong>Admin only</strong> — generates a temporary password and delivers it instantly to this screen via real-time connection (no email needed).</p>
       <div class="field"><label>Admin Username</label>
         <input type="text" id="forgot-uid" value="quemahtech" placeholder="Enter admin username" readonly style="background:var(--surface2);color:var(--muted);cursor:not-allowed;">
-        <small style="color:var(--subtle);font-size:11px;display:block;margin-top:3px;">🔒 The system admin account is pre-configured. No other users can reset passwords.</small>
+        <small style="color:var(--subtle);font-size:11px;display:block;margin-top:3px;">🔒 The system admin account is pre-configured.</small>
       </div>
 
-      <!-- 🔒 PRIVACY: Status message — only shows 'check your email', NEVER the password -->
       <div id="fp-status-message" style="display:none;font-size:13px;font-weight:600;margin-bottom:12px;padding:14px 16px;border-radius:8px;"></div>
 
-      <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="sendOTP()">📧 Send Reset Email to Admin</button>
-      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">🔒 A temporary password will be sent via SMTP to <strong>atharvashishn@gmail.com</strong>. The temporary password expires in <strong>10 minutes</strong>. <u>No password is displayed on screen.</u></p>
+      <!-- Password display area — filled by Socket.io -->
+      <div id="fp-temp-password" style="display:none;font-size:22px;font-weight:700;color:#0f2744;text-align:center;padding:18px;background:#f0f4f8;border:2px dashed #f59e0b;border-radius:10px;letter-spacing:3px;font-family:monospace;margin:12px 0 16px;word-break:break-all;"></div>
+
+      <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="sendOTP()">🔑 Generate Reset Password</button>
+      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">🔑 A temporary password will appear above via real-time connection. Expires in <strong>10 minutes</strong>. Copy it now and use it to log in.</p>
     </div>
   </div>
 </div>
@@ -957,7 +948,7 @@
         <button class="compose-clear-btn" onclick="clearCompose()">Clear</button>
       </div>
       <div class="compose-modal-footer-right">
-        <span id="compose-smtp-status" style="color:var(--red);">Not configured</span>
+        <span id="compose-smtp-status" style="color:var(--green);">In-App delivery</span>
       </div>
     </div>
   </div>

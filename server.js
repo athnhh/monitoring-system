@@ -4,7 +4,6 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
 const admin = require('firebase-admin');
 const { Server } = require('socket.io');
 
@@ -87,59 +86,6 @@ async function connectDB() {
   }
 }
 
-// ── SMTP ──
-function createTransporter() {
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: parseInt(process.env.SMTP_PORT || '587', 10) === 465,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    tls: { rejectUnauthorized: false }
-  });
-}
-
-async function sendEmail({ to, subject, html }) {
-  const transporter = createTransporter();
-  if (!transporter) throw new Error('SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS env vars.');
-  const info = await transporter.sendMail({
-    from: `"Quemahtech EMS" <${process.env.SMTP_USER}>`,
-    to, subject, html, text: html ? html.replace(/<[^>]*>/g, '') : subject
-  });
-  return { success: true, messageId: info.messageId };
-}
-
-async function notifyAdminLeaveRequest(lr) {
-  if (!ADMIN_EMAIL) return;
-  const transporter = createTransporter();
-  if (!transporter) return;
-  try {
-    await transporter.sendMail({
-      from: `"Quemahtech EMS" <${process.env.SMTP_USER}>`,
-      to: ADMIN_EMAIL,
-      subject: `New Leave Request: ${lr.empName} (${lr.type})`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-        <div style="background:linear-gradient(135deg,#0f2744,#1a3355);padding:24px;text-align:center;border-radius:12px 12px 0 0;">
-          <h1 style="color:#f59e0b;margin:0;">📋 New Leave Request</h1>
-          <p style="color:#94a3b8;margin:6px 0 0;">Employee Management System</p>
-        </div>
-        <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;">
-          <p style="color:#1e293b;margin:0 0 16px;">A new leave request has been submitted.</p>
-          <table style="width:100%;border-collapse:collapse;font-size:13px;">
-            <tr><td style="color:#64748b;padding:4px 8px;">Employee</td><td style="font-weight:600;padding:4px 8px;">${lr.empName}</td></tr>
-            <tr><td style="color:#64748b;padding:4px 8px;">Department</td><td style="font-weight:600;padding:4px 8px;">${lr.dept || '—'}</td></tr>
-            <tr><td style="color:#64748b;padding:4px 8px;">Leave Type</td><td style="font-weight:600;padding:4px 8px;">${lr.type}</td></tr>
-            <tr><td style="color:#64748b;padding:4px 8px;">Duration</td><td style="font-weight:600;padding:4px 8px;">${lr.days} day(s)</td></tr>
-          </table>
-          <p style="color:#475569;margin:16px 0 0;">Please log in to the admin panel to review.</p>
-        </div>
-      </div>`
-    });
-  } catch (e) {
-    console.error('Leave email notification failed:', e.message);
-  }
-}
-
 // ── Socket.io ──
 let io = null;
 
@@ -152,6 +98,9 @@ function setupSocketIO() {
     console.log(`Socket connected: ${socket.id} (${io.engine.clientsCount} total)`);
     socket.on('disconnect', () => {
       console.log(`Socket disconnected: ${socket.id} (${io.engine.clientsCount} total)`);
+    });
+    socket.on('request_password_reset', () => {
+      console.log(`Password reset requested via socket from ${socket.id}`);
     });
   });
 }
@@ -211,70 +160,47 @@ authRouter.post('/login', async (req, res) => {
   }
 });
 
-// ── ADMIN-ONLY Forgot Password — PRIVACY-SAFE ──
-// This endpoint is strictly for the system administrator only.
-// It generates a temp password, emails it via SMTP, and NEVER returns it in the response.
+// ── ADMIN-ONLY Forgot Password — REAL-TIME IN-APP DELIVERY ──
+// This endpoint generates a secure temp password, stores it in the database,
+// and instantly delivers it to the active Admin UI via Socket.io.
 authRouter.post('/forgot-password', async (req, res) => {
   try {
     const { uid } = req.body;
 
-    // Strict admin-only check
     if (!uid || uid !== ADMIN_USERNAME) {
       return res.status(400).json({ error: 'Invalid admin username. Only the system administrator can reset their password.' });
-    }
-
-    // Validate SMTP is configured before doing anything
-    if (!ADMIN_EMAIL || !process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      return res.status(400).json({ error: 'SMTP not configured. Cannot send reset email.' });
     }
 
     const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
     if (!adminUser) return res.status(404).json({ error: 'Admin not found' });
 
-    // Generate a random temporary password (16 alphanumeric chars, high entropy)
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%&*';
-    const tempPassword = Array.from({ length: 16 }, () =>
+    // Generate secure temp password
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    const tempPassword = Array.from({ length: 12 }, () =>
       chars[Math.floor(Math.random() * chars.length)]
     ).join('');
 
-    // ═══ SEND EMAIL FIRST — only modify DB on success ═══
-    try {
-      await sendEmail({
-        to: ADMIN_EMAIL,
-        subject: `${process.env.APP_NAME || 'Quemahtech EMS'} — Admin Password Reset`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">
-          <div style="background:linear-gradient(135deg,#0f2744,#1a3355);padding:24px;text-align:center;border-radius:12px 12px 0 0;">
-            <h1 style="color:#f59e0b;margin:0;">🔑 Admin Password Reset</h1>
-          </div>
-          <div style="padding:28px 24px;background:#fff;border:1px solid #e2e8f0;">
-            <p style="color:#1e293b;">A password reset was requested for the Quemahtech EMS admin panel.</p>
-            <p style="color:#1e293b;">Use the temporary password below to log in:</p>
-            <div style="font-size:24px;font-weight:700;color:#0f2744;text-align:center;padding:20px;background:#f0f4f8;border-radius:8px;letter-spacing:4px;font-family:monospace;margin:16px 0;">${tempPassword}</div>
-            <p style="color:#64748b;font-size:13px;">This temporary password expires in <strong>10 minutes</strong>.</p>
-            <p style="color:#64748b;font-size:13px;">After logging in, navigate to <strong>Settings</strong> to change your password immediately.</p>
-            <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
-            <p style="color:#94a3b8;font-size:12px;">${process.env.APP_NAME || 'Quemahtech'} Employee Management System</p>
-          </div>
-        </div>`
-      });
-    } catch (emailErr) {
-      return res.status(500).json({ error: 'Failed to send email: ' + emailErr.message + '. Password was NOT changed.' });
-    }
-
-    // ═══ Email sent successfully — now update the database ═══
+    // Update admin password in DB
     adminUser.password = tempPassword;
     await adminUser.save();
 
-    // Store reset record with expiry (10 minutes)
+    // Store reset record with 10-minute expiry
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
     await PasswordReset.create({
       userId: ADMIN_USERNAME,
       tempPassword,
       email: ADMIN_EMAIL,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+      expiresAt
     });
 
-    // 🔒 PRIVACY: Only success message — NO password, token, or code displayed on screen
-    res.json({ success: true, message: 'Check your email inbox for the temporary password.' });
+    // INSTANT DELIVERY via Socket.io directly to the Admin UI
+    broadcast('password_reset', {
+      tempPassword,
+      expiresAt,
+      message: 'Your temporary password has been generated and is displayed below.'
+    });
+
+    res.json({ success: true, message: 'Temporary password delivered to the admin panel via real-time connection.' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -498,7 +424,6 @@ apiRouter.route('/leave-requests')
       const count = await LeaveRequest.countDocuments();
       const lr = await LeaveRequest.create({ ...req.body, idx: count });
       broadcast('leave_request', lr.toObject());
-      notifyAdminLeaveRequest(lr.toObject());
       res.json({ success: true, leaveRequest: lr.toObject() });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -610,19 +535,41 @@ apiRouter.route('/notifications')
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-// GET /api/notifications/:userId — returns notifications array AND actual .length from DB for badge sync
+// GET /api/notifications/:userId — returns unread notifications array AND count for badge sync
 apiRouter.get('/notifications/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
     let notifs;
     if (userId === ADMIN_USERNAME) {
-      notifs = await Notification.find({ target: 'admin', $sort: { createdAt: -1 } });
+      const all = await Notification.find({ target: 'admin', $sort: { createdAt: -1 } });
+      notifs = all;
     } else {
       const all = await Notification.find({ $sort: { createdAt: -1 } });
       notifs = all.filter(r => r.target === 'emp' || r.userId === userId);
     }
-    // Return both the array and the actual count for badge sync
-    res.json({ notifications: notifs, count: notifs.length });
+    const unreadNotifs = notifs.filter(n => n.unread !== false);
+    res.json({ notifications: notifs, count: unreadNotifs.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/notifications/mark-read — mark all notifications as read for a user
+apiRouter.post('/notifications/mark-read', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    let notifs;
+    if (!userId || userId === ADMIN_USERNAME) {
+      notifs = await Notification.find({ target: 'admin' });
+    } else {
+      const all = await Notification.find({});
+      notifs = all.filter(r => r.target === 'emp' || r.userId === userId);
+    }
+    for (const n of notifs) {
+      if (n.unread !== false) {
+        n.unread = false;
+        if (n.save) await n.save();
+      }
+    }
+    res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -652,39 +599,6 @@ apiRouter.post('/save', async (req, res) => {
     }
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// POST /api/send-email
-apiRouter.post('/send-email', async (req, res) => {
-  try {
-    const { to, subject, html } = req.body;
-    if (!to || !subject) return res.status(400).json({ error: 'Missing required fields' });
-    const result = await sendEmail({ to, subject, html: html || subject });
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: 'Email failed: ' + err.message });
-  }
-});
-
-// POST /api/test-smtp
-apiRouter.post('/test-smtp', async (req, res) => {
-  try {
-    const transporter = createTransporter();
-    if (!transporter) return res.status(400).json({ error: 'SMTP not configured.' });
-    await transporter.verify();
-    res.json({ success: true, message: 'SMTP connection verified' });
-  } catch (err) {
-    res.status(500).json({ error: 'SMTP test failed: ' + err.message });
-  }
-});
-
-// GET /api/email-config
-apiRouter.get('/email-config', (req, res) => {
-  res.json({
-    configured: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
-    host: process.env.SMTP_HOST || '', port: parseInt(process.env.SMTP_PORT || '587', 10),
-    email: process.env.SMTP_USER || '', adminEmail: ADMIN_EMAIL || ''
-  });
 });
 
 // GET/POST /api/calendar-config

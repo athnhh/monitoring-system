@@ -85,14 +85,18 @@ function connectSocketIO() {
     });
     socket.on('notification', (data) => {
       console.log('Socket notification:', data);
-      if (data.target === 'admin') {
-        adminNotifications.unshift(data);
-        updateAdminNotifBadge();
-        renderAdminNotifPanel();
-      } else {
-        empNotifications.unshift(data);
-        updateEmpNotifBadge();
-        renderEmpNotifPanel();
+      const targetList = data.target === 'admin' ? adminNotifications : empNotifications;
+      const exists = targetList.some(n => n.text === data.text && n.time === data.time);
+      if (!exists) {
+        if (data.target === 'admin') {
+          adminNotifications.unshift(data);
+          updateAdminNotifBadge();
+          renderAdminNotifPanel();
+        } else {
+          empNotifications.unshift(data);
+          updateEmpNotifBadge();
+          renderEmpNotifPanel();
+        }
       }
     });
     socket.on('leave_request', (data) => {
@@ -131,6 +135,27 @@ function connectSocketIO() {
       if (emp) { emp.cl = data.cl; emp.sl = data.sl; emp.ul = data.ul; }
       renderLeaveBalances();
     });
+    socket.on('password_reset', (data) => {
+      console.log('Password reset received via socket:', data);
+      const pwdDisplay = document.getElementById('fp-temp-password');
+      const statusEl = document.getElementById('fp-status-message');
+      if (pwdDisplay && data.tempPassword) {
+        pwdDisplay.textContent = data.tempPassword;
+        pwdDisplay.style.display = 'block';
+      }
+      if (statusEl) {
+        statusEl.innerHTML = '✅ <strong>Temporary password generated!</strong> Use the password below to log in. It expires in <strong>10 minutes</strong>.';
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--green-text)';
+        statusEl.style.background = 'var(--green-bg)';
+      }
+      const sendBtn = document.querySelector('#forgot-modal .btn-primary');
+      if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = '🔑 Generate Reset Password';
+      }
+      showNotifBar('success', '🔑 Temporary password delivered! Check the modal.', '🔑');
+    });
   } catch (e) {
     console.warn('Socket.io init failed:', e.message);
   }
@@ -145,7 +170,7 @@ function adminTab(tabName, btnElement) {
   switchTab('#page-admin', 'admin', tabName, btnElement, () => {
     if (tabName === 'records') renderRecords();
     if (tabName === 'reports') setReport('daily', document.querySelector('.rtab.active'));
-    if (tabName === 'settings') { loadEmailConfig(); loadCalendarConfig(); }
+    if (tabName === 'settings') { loadCalendarConfig(); }
   });
 }
 
@@ -766,7 +791,6 @@ function submitLeaveRequest() {
   const newReq = { idx: leaveRequests.length, empId: emp.id, empName: emp.name, dept: emp.dept, type: currentLeaveType, from, to, days, reason, status: 'Pending' };
   leaveRequests.push(newReq);
   api('/api/leave-requests', { method: 'POST', body: newReq });
-  api('/api/notifications', { method: 'POST', body: { text: 'New leave request from ' + emp.name + ' (' + currentLeaveType + ') for ' + formatDate(from) + '.', target: 'admin' } });
   renderMyLeaveHistory(emp);
   showNotifBar('success', 'Leave request submitted! Awaiting admin approval.', '✓');
   addAdminNotif('New leave request from ' + emp.name + ' (' + currentLeaveType + ') for ' + formatDate(from) + '.');
@@ -804,29 +828,32 @@ function changeEmpPwd() {
 }
 
 /* ═══════════════════════════════════
-   FORGOT PASSWORD — ADMIN ONLY, PRIVACY-SAFE
+   FORGOT PASSWORD — ADMIN ONLY, REAL-TIME IN-APP DELIVERY
    - Only the admin (quemahtech) can reset their password
-   - Sends temp password via SMTP to atharvashishn@gmail.com
-   - NEVER displays the password on screen
+   - Generates secure temp password, stores in DB, delivers via Socket.io
+   - Password appears directly in the admin UI — no email needed
 ═══════════════════════════════════ */
 
 function openForgotModal() {
   document.getElementById('forgot-uid').value = 'quemahtech';
   document.getElementById('forgot-modal').style.display = 'flex';
-  // Hide any previous status message
   const statusEl = document.getElementById('fp-status-message');
   if (statusEl) statusEl.style.display = 'none';
+  // Clear any previous password display
+  const pwdDisplay = document.getElementById('fp-temp-password');
+  if (pwdDisplay) {
+    pwdDisplay.style.display = 'none';
+    pwdDisplay.textContent = '';
+  }
 }
 
 async function sendOTP() {
-  // 🔒 The username is hardcoded to 'quemahtech' — no input needed
   const uid = 'quemahtech';
 
-  // Show sending state
   const sendBtn = document.querySelector('#forgot-modal .btn-primary');
   if (sendBtn) {
     sendBtn.disabled = true;
-    sendBtn.textContent = '⏳ Sending...';
+    sendBtn.textContent = '⏳ Generating...';
   }
 
   try {
@@ -836,24 +863,26 @@ async function sendOTP() {
     });
 
     if (res && res.success) {
-      // 🔒 PRIVACY: Show only inbox check message — NO code/password displayed
       const statusEl = document.getElementById('fp-status-message');
       if (statusEl) {
-        statusEl.innerHTML = '✅ <strong>Temporary password sent!</strong> Check your email inbox (<strong>atharvashishn@gmail.com</strong>) for the reset instructions. This code expires in 10 minutes.';
+        statusEl.innerHTML = '⏳ <strong>Waiting for password delivery via real-time connection...</strong>';
         statusEl.style.display = 'block';
-        statusEl.style.color = 'var(--green-text)';
-        statusEl.style.background = 'var(--green-bg)';
+        statusEl.style.color = 'var(--amber-text)';
+        statusEl.style.background = 'var(--amber-bg)';
       }
-      showNotifBar('success', '✅ Temporary password sent to atharvashishn@gmail.com. Check your inbox!', '📧');
+      showNotifBar('info', '⏳ Generating temporary password... Check the modal for the password.', '🔑');
     } else {
-      showNotifBar('error', (res && res.error) || 'Failed to send reset email.', '❌');
+      showNotifBar('error', (res && res.error) || 'Failed to generate reset password.', '❌');
+      if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = '🔑 Generate Reset Password';
+      }
     }
   } catch (e) {
     showNotifBar('error', 'Server unreachable: ' + e.message, '❌');
-  } finally {
     if (sendBtn) {
       sendBtn.disabled = false;
-      sendBtn.textContent = '📧 Send Reset Email to Admin';
+      sendBtn.textContent = '🔑 Generate Reset Password';
     }
   }
 }
@@ -971,13 +1000,32 @@ function addEmpNotif(text, userId) {
 function toggleNotifPanel() {
   adminNotifPanelOpen = !adminNotifPanelOpen;
   document.getElementById('notif-panel').classList.toggle('open', adminNotifPanelOpen);
-  if (adminNotifPanelOpen) renderAdminNotifPanel();
+  if (adminNotifPanelOpen) {
+    renderAdminNotifPanel();
+    markAdminNotifsRead();
+  }
 }
 
 function toggleEmpNotifPanel() {
   empNotifPanelOpen = !empNotifPanelOpen;
   document.getElementById('emp-notif-panel').classList.toggle('open', empNotifPanelOpen);
-  if (empNotifPanelOpen) renderEmpNotifPanel();
+  if (empNotifPanelOpen) {
+    renderEmpNotifPanel();
+    markEmpNotifsRead();
+  }
+}
+
+function markAdminNotifsRead() {
+  adminNotifications.forEach(n => { n.unread = false; });
+  updateAdminNotifBadge();
+  api('/api/notifications/mark-read', { method: 'POST', body: { userId: ADMIN_EMAIL } });
+}
+
+function markEmpNotifsRead() {
+  empNotifications.forEach(n => { n.unread = false; });
+  updateEmpNotifBadge();
+  const uid = localStorage.getItem('userId');
+  api('/api/notifications/mark-read', { method: 'POST', body: { userId: uid } });
 }
 
 function renderAdminNotifPanel() {
@@ -1179,7 +1227,8 @@ function toggleDarkMode() {
 }
 
 function switchTab(pageId, prefix, tabName, btnElement, onShow) {
-  const tabs = document.querySelectorAll(pageId + ' .' + prefix + 'tab');
+  const tabClass = prefix === 'admin' ? 'atab' : 'etab';
+  const tabs = document.querySelectorAll(pageId + ' .' + tabClass);
   tabs.forEach(t => {
     t.classList.remove('show');
     t.classList.add('tab-leaving');
@@ -1384,8 +1433,11 @@ function sendCustomEmail() {
   const subject = document.getElementById('compose-subject').value.trim();
   const body = document.getElementById('compose-body').value.trim();
   if (!to || !subject) { showNotifBar('warning', 'Please fill in To and Subject.', '⚠️'); return; }
-  api('/api/send-email', { method: 'POST', body: { to, subject, html: body } });
-  showNotifBar('success', 'Email sent to ' + to + '!', '📧');
+  // Send as in-app notification instead of SMTP email
+  const text = '📧 [' + subject + '] to ' + to + ': ' + (body || '').replace(/<[^>]*>/g, '').substring(0, 100);
+  addAdminNotif(text);
+  api('/api/notifications', { method: 'POST', body: { text, target: 'admin' } });
+  showNotifBar('success', 'Notification sent to admin panel!', '📨');
   closeComposeModal();
 }
 
@@ -1429,30 +1481,9 @@ function loadEmailConfig() {
   const statusEl = document.getElementById('email-config-status');
   const serviceEl = document.getElementById('email-config-service');
   if (!statusEl) return;
-  api('/api/email-config').then(cfg => {
-    if (cfg && cfg.configured) {
-      if (serviceEl) serviceEl.textContent = cfg.host || 'SMTP';
-      statusEl.textContent = '✅ SMTP Configured';
-      statusEl.style.color = 'var(--green)';
-    } else {
-      if (serviceEl) serviceEl.textContent = 'Not set';
-      statusEl.textContent = '⚠️ SMTP not configured — set in .env';
-      statusEl.style.color = 'var(--amber)';
-    }
-  }).catch(() => {
-    if (serviceEl) serviceEl.textContent = 'Offline';
-    statusEl.textContent = '⚠️ Server unreachable';
-    statusEl.style.color = 'var(--red)';
-  });
-}
-
-function testEmailJS() {
-  api('/api/test-smtp', { method: 'POST' }).then(res => {
-    if (res && res.success) showNotifBar('success', 'SMTP connection verified!', '🔌');
-    else showNotifBar('error', 'SMTP test failed', '❌');
-  }).catch(() => {
-    showNotifBar('error', 'Server unreachable', '❌');
-  });
+  if (serviceEl) serviceEl.textContent = 'In-App';
+  statusEl.textContent = '✅ Real-time delivery active';
+  statusEl.style.color = 'var(--green)';
 }
 
 function loadCalendarConfig() {
