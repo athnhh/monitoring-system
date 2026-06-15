@@ -8,8 +8,18 @@
   ],
   "routes": [
     {
+      "src": "/api/(.*)",
+      "dest": "server.js",
+      "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    },
+    {
       "src": "/(.*)",
       "dest": "server.js"
     }
-  ]
+  ],
+  "env": {
+    "ADMIN_USERNAME": "quemahtech",
+    "ADMIN_EMAIL": "atharvashishn@gmail.com",
+    "APP_NAME": "Quemahtech EMS"
+  }
 }

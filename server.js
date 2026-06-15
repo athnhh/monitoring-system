@@ -117,12 +117,83 @@ function sanitizeEmp(e) {
   return rest;
 }
 
+// ── IST time helpers ──
+function getISTNow() {
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  return new Date(now.getTime() + istOffset);
+}
+function getISTHour() { return getISTNow().getUTCHours(); }
+function getISTMinutes() { return getISTNow().getUTCMinutes(); }
+
+// ── Monthly Leave Accrual ──
+const ACCRUAL_FLAG_KEY = '_leaveAccrualLastRun';
+
+async function runMonthlyLeaveAccrual() {
+  try {
+    if (!dbConnected) return;
+    // Check when accrual was last run (stored as a document in systemConfig)
+    const configRef = admin.firestore().collection('systemConfig').doc('leaveAccrual');
+    const configSnap = await configRef.get();
+    const config = configSnap.exists ? configSnap.data() : {};
+    const lastRun = config.lastRun || '';
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const firstOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+
+    // Run only on the 1st of the month and only if not already run this month
+    if (todayStr !== firstOfMonth) return;
+    if (lastRun === firstOfMonth) return;
+
+    const emps = await Employee.find({ active: true });
+    let count = 0;
+    for (const emp of emps) {
+      emp.cl = (parseFloat(emp.cl) || 0) + 1.0; // +1 CL per month
+      emp.sl = (parseFloat(emp.sl) || 0) + 0.5; // +0.5 SL per month
+      // Cap maximum carry-forward (optional: max 30 CL, 15 SL)
+      emp.cl = Math.min(emp.cl, 30);
+      emp.sl = Math.min(emp.sl, 15);
+      if (emp.save) await emp.save();
+      count++;
+    }
+
+    await configRef.set({ lastRun: firstOfMonth }, { merge: true });
+    console.log(`[Accrual] ${count} employees credited (${firstOfMonth})`);
+  } catch (e) {
+    console.error('[Accrual] Error:', e.message);
+  }
+}
+
 // ── Middleware: require DB ──
 function requireDB(req, res, next) {
   if (!dbConnected) {
     return res.status(503).json({ error: 'Database not connected. Check Firebase service account in .env.' });
   }
   next();
+}
+
+// ── Monthly Leave Accrual Cron (run on server start for all active employees) ──
+async function runMonthlyAccrualForAll() {
+  try {
+    if (!dbConnected) return;
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const allEmps = await Employee.find({ active: true });
+    for (const emp of allEmps) {
+      if (emp._lastAccrualMonth !== currentMonth || emp._lastAccrualYear !== currentYear) {
+        emp.cl = (emp.cl || 0) + 1.0;
+        emp.sl = (emp.sl || 0) + 0.5;
+        emp._lastAccrualMonth = currentMonth;
+        emp._lastAccrualYear = currentYear;
+        await emp.save();
+      }
+    }
+    console.log(`Monthly leave accrual applied to ${allEmps.length} employees for ${currentMonth + 1}/${currentYear}`);
+  } catch (e) {
+    console.error('Monthly accrual cron error:', e.message);
+  }
 }
 
 // ── Auth Router ──
@@ -141,6 +212,13 @@ authRouter.post('/login', async (req, res) => {
       return res.json({ success: false });
     }
     if (role === 'employee') {
+      // Time-block: reject login if past 18:00 IST
+      const hr = getISTHour();
+      const min = getISTMinutes();
+      if (hr >= 18) {
+        return res.status(403).json({ success: false, error: `Login blocked after 6:00 PM IST (current time: ${String(hr).padStart(2,'0')}:${String(min).padStart(2,'0')} IST). Please contact admin.` });
+      }
+
       let emp = await Employee.findOne({ id: uid, active: true });
       if (!emp) {
         const all = await Employee.find({ active: true });
@@ -399,11 +477,33 @@ apiRouter.route('/attendance')
   .post(async (req, res) => {
     try {
       const body = req.body;
+      const hr = getISTHour();
+      const min = getISTMinutes();
+
+      // Server-side attendance time enforcement
+      if (body.in && !body.out) {
+        // Punch-in after 18:00 IST — reject
+        if (hr >= 18) {
+          return res.status(403).json({ success: false, error: `Sign-in blocked after 6:00 PM IST.` });
+        }
+      }
+
       const existing = await Attendance.findOne({ id: body.id, date: body.date });
       if (existing) {
         Object.assign(existing, body);
+        // If first sign-in of the day was after 14:00, flag as Half-Day
+        if (existing.in && !existing.out && hr >= 14) {
+          existing.status = 'Half-Day';
+        }
         await existing.save();
       } else {
+        // New record — determine status server-side
+        let status = body.status || 'Present';
+        if (body.in && !body.out) {
+          if (hr >= 14) status = 'Half-Day';
+          else if (hr > 9 || (hr === 9 && min > 15)) status = 'Late';
+        }
+        body.status = status;
         await Attendance.create(body);
       }
       broadcast('attendance_update', body);
@@ -440,11 +540,20 @@ apiRouter.put('/leave-requests/:idx', async (req, res) => {
     Object.assign(lr, req.body);
     await lr.save();
 
-    // If leave is being approved NOW (was Pending, now Approved), deduct balance
+    // ── LEAVE MANAGEMENT ENGINE ──
+    // Rules:
+    // • CL: Casual Leave — accrues 1.0 day/month, carry-forward allowed
+    // • SL: Sick Leave — accrues 0.5 day/month, carry-forward allowed
+    // • Full-Day Sick Rule: 1 SL day = 0.5 SL + 0.5 Unpaid
+    // • Overflow: If CL/SL insufficient, remaining converts to Unpaid
+    // • Approved leaves override automated 'Absent' flags
+    // ────────────────────────────────────────────────────────────
+
     if (newStatus === 'Approved' && oldStatus !== 'Approved' && lr.empId && lr.days) {
       const emp = await Employee.findOne({ id: lr.empId });
       if (emp) {
         if (lr.type === 'CL') {
+          // Casual Leave: deduct from CL, overflow converts to UL
           if (emp.cl >= lr.days) {
             emp.cl -= lr.days;
           } else {
@@ -453,12 +562,14 @@ apiRouter.put('/leave-requests/:idx', async (req, res) => {
             emp.ul = (emp.ul || 0) + deficit;
           }
         } else if (lr.type === 'SL') {
+          // Full-Day Sick Rule: 1 SL day = 0.5 SL + 0.5 Unpaid
           const slNeeded = lr.days * 0.5;
           const ulNeeded = lr.days * 0.5;
           if (emp.sl >= slNeeded) {
             emp.sl -= slNeeded;
             emp.ul = (emp.ul || 0) + ulNeeded;
           } else {
+            // If insufficient SL, apply full days as UL
             emp.ul = (emp.ul || 0) + lr.days;
             emp.sl = Math.max(0, emp.sl - slNeeded);
           }
@@ -468,6 +579,38 @@ apiRouter.put('/leave-requests/:idx', async (req, res) => {
         await emp.save();
         broadcast('leave_balance_updated', { id: emp.id, cl: emp.cl, sl: emp.sl, ul: emp.ul });
       }
+    }
+
+    // ── Monthly Leave Accrual ──
+    // Run on every leave approval to ensure balances are updated for the current month
+    // CL: +1.0 per month, SL: +0.5 per month, carry-forward allowed
+    async function runMonthlyAccrual(emp) {
+      if (!emp) return;
+      const now = new Date();
+      const currentMonth = now.getMonth(); // 0-11
+      const currentYear = now.getFullYear();
+
+      // Check if accrual already ran this month (by checking a meta field)
+      if (emp._lastAccrualMonth === currentMonth && emp._lastAccrualYear === currentYear) {
+        return;
+      }
+
+      // Apply monthly accrual
+      emp.cl = (emp.cl || 0) + 1.0;  // +1.0 CL per month
+      emp.sl = (emp.sl || 0) + 0.5;  // +0.5 SL per month
+
+      // Track accrual run
+      emp._lastAccrualMonth = currentMonth;
+      emp._lastAccrualYear = currentYear;
+
+      await emp.save();
+      broadcast('leave_balance_updated', { id: emp.id, cl: emp.cl, sl: emp.sl, ul: emp.ul });
+    }
+
+    // Run accrual for the affected employee
+    if (lr.empId) {
+      const emp = await Employee.findOne({ id: lr.empId });
+      await runMonthlyAccrual(emp);
     }
 
     broadcast('leave_update', lr.toObject());
@@ -694,6 +837,27 @@ app.get('*', (req, res) => {
 // ── Socket.io ──
 setupSocketIO();
 
+// POST /api/leave-accrual — manually trigger monthly accrual
+apiRouter.post('/leave-accrual', async (req, res) => {
+  try {
+    if (!dbConnected) return res.status(503).json({ error: 'DB not connected' });
+    const emps = await Employee.find({ active: true });
+    let count = 0;
+    for (const emp of emps) {
+      emp.cl = (parseFloat(emp.cl) || 0) + 1.0;
+      emp.sl = (parseFloat(emp.sl) || 0) + 0.5;
+      emp.cl = Math.min(emp.cl, 30);
+      emp.sl = Math.min(emp.sl, 15);
+      if (emp.save) await emp.save();
+      count++;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    const configRef = admin.firestore().collection('systemConfig').doc('leaveAccrual');
+    await configRef.set({ lastRun: today }, { merge: true });
+    res.json({ success: true, count, message: `${count} employees credited (CL +1.0, SL +0.5)` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Start ──
 let serverReady = false;
 
@@ -711,6 +875,8 @@ module.exports = wrappedHandler;
 async function start() {
   await connectDB();
   serverReady = true;
+  // Run monthly leave accrual check
+  runMonthlyLeaveAccrual();
 
   if (!process.env.VERCEL) {
     server.listen(PORT, '0.0.0.0', () => {

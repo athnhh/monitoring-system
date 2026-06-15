@@ -633,12 +633,19 @@ function empPunchIn() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
   const dateStr = now.toISOString().split('T')[0];
+  const h = now.getHours();
+  const m = now.getMinutes();
+
+  // Local time-block: reject if past 18:00
+  if (h >= 18) {
+    showNotifBar('error', 'Cannot sign in after 6:00 PM. Contact admin if you need a correction.', '⛔');
+    return;
+  }
+
   const pill = document.getElementById('emp-pill');
   if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
   showNotifBar('success', 'Punched In at ' + timeStr, '✓');
   appendTimeline('in', 'Signed In', timeStr);
-  const h = now.getHours();
-  const m = now.getMinutes();
   if (h >= 14) showNotifBar('warning', 'First login after 2:00 PM — this day will be flagged as Half-Day.', '⚠️');
   const uid = localStorage.getItem('userId');
   const emp = employees.find(e => e.id === uid);
@@ -1125,13 +1132,34 @@ async function doLogin() {
 
   document.getElementById('err-msg').style.display = 'none';
 
+  // Client-side time check: block employee login after 18:00
+  const now = new Date();
+  if (currentRole === 'employee' && now.getHours() >= 18) {
+    document.getElementById('err-msg').style.display = 'flex';
+    document.getElementById('err-msg').textContent = '⚠ Employee logins are blocked after 6:00 PM (18:00). Office hours: 9:00 AM – 6:00 PM. Please contact your administrator.';
+    return;
+  }
+
   // Login via server API
   const res = await api('/api/auth/login', {
     method: 'POST',
     body: { uid, pwd, role: currentRole }
   });
 
-  if (res && res.success) {
+  // Handle server-side errors (time-block, DB down, etc.)
+  if (!res) {
+    document.getElementById('err-msg').style.display = 'flex';
+    document.getElementById('err-msg').textContent = '⚠ Server unreachable. Please ensure the server is running.';
+    return;
+  }
+
+  if (res.error === 'TIME_BLOCK' || (res.error && res.error.includes('18:00'))) {
+    document.getElementById('err-msg').style.display = 'flex';
+    document.getElementById('err-msg').textContent = '⚠ ' + (res.message || res.error || 'Login blocked after 6:00 PM IST.');
+    return;
+  }
+
+  if (res.success) {
     localStorage.setItem('userId', uid);
     if (rememberMe) localStorage.setItem('rememberedUser', uid);
     else localStorage.removeItem('rememberedUser');
@@ -1143,6 +1171,12 @@ async function doLogin() {
     } else if (res.role === 'employee') {
       currentUser = res.user;
       currentRole = 'employee';
+
+      // Show half-day warning from server if applicable
+      if (res.timeBlock && res.timeBlock.isHalfDay) {
+        showNotifBar('warning', '⚠️ First login after 2:00 PM — today will be flagged as Half-Day.', '⚠️');
+      }
+
       const emp = employees.find(e => e.id === uid);
       if (emp) {
         showEmployeePage(emp);
