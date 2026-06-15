@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════
    SCRIPT.JS — Quemahtech Employee Management System
-   Consolidated single file with server-backed data only.
+   Consolidated single file with localStorage fallback for static hosting.
 ═══════════════════════════════════ */
 
 /* ═══════════════════════════════════
@@ -8,6 +8,86 @@
 ═══════════════════════════════════ */
 
 const ADMIN_EMAIL = 'atharvashishn@gmail.com';
+
+// ── localStorage DB — Fallback for GitHub Pages / static hosting ──
+const LOCAL_DB_KEY = 'quemahtech_ems_data';
+let usingLocalDB = false;
+
+function seedLocalDB() {
+  const defaultData = {
+    adminPassword: 'quemah123',
+    employees: [
+      { id: 'EMP001', name: 'Rahul Sharma', dept: 'Engineering', email: 'rahul@quemahtech.com', phone: '+91 98765 43210', bday: '1990-05-15', joining: '2024-01-10', designation: 'Senior Developer', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' },
+      { id: 'EMP002', name: 'Priya Patel', dept: 'HR', email: 'priya@quemahtech.com', phone: '+91 87654 32109', bday: '1992-08-22', joining: '2024-02-05', designation: 'HR Manager', cl: 8.0, sl: 4.0, ul: 0.5, active: true, password: 'emp123' },
+      { id: 'EMP003', name: 'Amit Kumar', dept: 'Marketing', email: 'amit@quemahtech.com', phone: '+91 76543 21098', bday: '1988-11-03', joining: '2024-03-12', designation: 'Marketing Lead', cl: 6.0, sl: 2.5, ul: 1.0, active: true, password: 'emp123' },
+      { id: 'EMP004', name: 'Sneha Desai', dept: 'Finance', email: 'sneha@quemahtech.com', phone: '+91 65432 10987', bday: '1995-01-28', joining: '2024-04-01', designation: 'Accountant', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' },
+      { id: 'EMP005', name: 'Vikram Singh', dept: 'Operations', email: 'vikram@quemahtech.com', phone: '+91 54321 09876', bday: '1993-07-14', joining: '2024-05-20', designation: 'Operations Manager', cl: 6.5, sl: 2.0, ul: 0, active: true, password: 'emp123' }
+    ],
+    archivedEmployees: [],
+    attendanceRecords: [],
+    leaveRequests: [],
+    announcements: [],
+    adminNotifications: [],
+    empNotifications: [],
+    departments: ['Engineering', 'HR', 'IT', 'Marketing', 'Finance', 'Operations']
+  };
+
+  try {
+    const existing = localStorage.getItem(LOCAL_DB_KEY);
+    if (!existing) {
+      localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(defaultData));
+      console.log('[LocalDB] Seeded default data.');
+    }
+  } catch (e) {
+    console.warn('[LocalDB] Could not seed:', e.message);
+  }
+}
+
+function saveStateToLocal() {
+  try {
+    // Preserve the existing admin password (may have been changed via UI)
+    const existing = loadFromLocalDB();
+    const adminPassword = (existing && existing.adminPassword) || 'quemah123';
+    const data = {
+      adminPassword,
+      employees,
+      archivedEmployees,
+      attendanceRecords,
+      leaveRequests,
+      announcements,
+      adminNotifications,
+      empNotifications,
+      departments
+    };
+    localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn('[LocalDB] Save failed:', e.message);
+  }
+}
+
+function loadFromLocalDB() {
+  try {
+    const raw = localStorage.getItem(LOCAL_DB_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) {
+    console.warn('[LocalDB] Load failed:', e.message);
+    return null;
+  }
+}
+
+function applyLocalState(data) {
+  if (!data) return false;
+  employees = data.employees || [];
+  archivedEmployees = data.archivedEmployees || [];
+  attendanceRecords = data.attendanceRecords || [];
+  leaveRequests = data.leaveRequests || [];
+  announcements = data.announcements || [];
+  adminNotifications = data.adminNotifications || [];
+  empNotifications = data.empNotifications || [];
+  if (data.departments && data.departments.length) departments = data.departments;
+  return true;
+}
 
 // ── Global State (loaded from server) ──
 let currentUser = null;
@@ -910,9 +990,14 @@ async function api(url, opts = {}) {
       console.warn('API error:', url, errBody);
       return errBody;
     }
-    return await res.json();
+    const data = await res.json();
+    // Persist to localStorage after any successful mutation
+    if (opts.method && opts.method !== 'GET') saveStateToLocal();
+    return data;
   } catch (e) {
     console.warn('API fetch failed:', url, e.message);
+    // Even if server is down, mutations that already updated in-memory arrays should persist locally
+    if (opts.method && opts.method !== 'GET') saveStateToLocal();
     return null;
   }
 }
@@ -929,6 +1014,19 @@ async function loadStateFromServer() {
     adminNotifications = data.adminNotifications || [];
     empNotifications = data.empNotifications || [];
     if (data.departments && data.departments.length) departments = data.departments;
+    // Cache server state to localStorage as a backup
+    saveStateToLocal();
+    serverAvailable = true;
+    usingLocalDB = false;
+    return true;
+  }
+  // Fallback: load from localStorage
+  console.log('[EMS] Server unreachable — falling back to localStorage.');
+  const localData = loadFromLocalDB();
+  if (localData) {
+    applyLocalState(localData);
+    serverAvailable = false;
+    usingLocalDB = true;
     return true;
   }
   return false;
@@ -1127,6 +1225,14 @@ async function doLogin() {
 
   document.getElementById('err-msg').style.display = 'none';
 
+  // ── Local time-block check (employees only, applies in both offline & server modes) ──
+  const currentHour = new Date().getHours();
+  if (uid.toLowerCase() !== 'quemahtech' && currentHour >= 18) {
+    document.getElementById('err-msg').style.display = 'flex';
+    document.getElementById('err-msg-text').textContent = 'Employee logins are blocked after 6:00 PM IST.';
+    return;
+  }
+
   // Login via server API (no role — server auto-detects)
   const res = await api('/api/auth/login', {
     method: 'POST',
@@ -1134,19 +1240,13 @@ async function doLogin() {
   });
 
   // Handle server-side errors (time-block, DB down, etc.)
-  if (!res) {
-    document.getElementById('err-msg').style.display = 'flex';
-    document.getElementById('err-msg-text').textContent = 'Server unreachable. Please ensure the server is running.';
-    return;
-  }
-
-  if (res.error === 'TIME_BLOCK') {
+  if (res && res.error === 'TIME_BLOCK') {
     document.getElementById('err-msg').style.display = 'flex';
     document.getElementById('err-msg-text').textContent = res.message || 'Employee logins are blocked after 6:00 PM IST.';
     return;
   }
 
-  if (res.success) {
+  if (res && res.success) {
     localStorage.setItem('userId', uid);
     if (rememberMe) localStorage.setItem('rememberedUser', uid);
     else localStorage.removeItem('rememberedUser');
@@ -1179,6 +1279,49 @@ async function doLogin() {
       }
     }
     return;
+  }
+
+  // ── Server unreachable or returned error — try local auth ──
+  // Ensure local DB is loaded
+  if (!employees.length) {
+    const localData = loadFromLocalDB();
+    if (localData) {
+      applyLocalState(localData);
+      usingLocalDB = true;
+    }
+  }
+
+  // Admin local auth — read password from localStorage (may have been changed via Settings)
+  if (uid.toLowerCase() === 'quemahtech') {
+    const localData = loadFromLocalDB();
+    const adminPwd = (localData && localData.adminPassword) || 'quemah123';
+    if (pwd === adminPwd) {
+      console.log('[EMS] Local admin auth successful.');
+      localStorage.setItem('userId', 'quemahtech');
+      if (rememberMe) localStorage.setItem('rememberedUser', uid);
+      else localStorage.removeItem('rememberedUser');
+      currentUser = { name: 'Administrator' };
+      currentRole = 'admin';
+      serverAvailable = false;
+      usingLocalDB = true;
+      showAdminPage();
+      return;
+    }
+  } else {
+    // Employee local auth
+    const emp = employees.find(e => e.id === uid);
+    if (emp && emp.password === pwd) {
+      console.log('[EMS] Local employee auth successful:', uid);
+      localStorage.setItem('userId', uid);
+      if (rememberMe) localStorage.setItem('rememberedUser', uid);
+      else localStorage.removeItem('rememberedUser');
+      currentUser = emp;
+      currentRole = 'employee';
+      serverAvailable = false;
+      usingLocalDB = true;
+      showEmployeePage(emp);
+      return;
+    }
   }
 
   document.getElementById('err-msg').style.display = 'flex';
@@ -1644,6 +1787,9 @@ async function checkServerHealth() {
 }
 
 function init() {
+  // Initialize localStorage seed data if first visit
+  seedLocalDB();
+
   if (localStorage.getItem('darkMode') === 'true') {
     document.body.classList.add('dark-mode');
     document.querySelectorAll('.dark-toggle-btn').forEach(b => b.textContent = '☀️');
