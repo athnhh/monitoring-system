@@ -26,7 +26,7 @@
   </div>
 </div>
 
-<!-- LOGIN PAGE -->
+<!-- LOGIN PAGE — Unified Single Form -->
 <div id="page-login" class="page active">
   <div class="login-bg">
     <div class="login-card">
@@ -37,13 +37,9 @@
           <p>EMPLOYEE MANAGEMENT SYSTEM</p>
         </div>
       </div>
-      <div class="role-switch">
-        <button class="role-btn active" id="role-admin" onclick="setRole('admin')">🛡️ Admin</button>
-        <button class="role-btn" id="role-emp" onclick="setRole('employee')">👤 Employee</button>
-      </div>
       <div class="field">
-        <label id="uid-label">Username</label>
-        <input type="text" id="uid" placeholder="Enter username" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()">
+        <label>Email or Employee ID</label>
+        <input type="text" id="uid" placeholder="e.g. atharvashishn@gmail.com or EMP001" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()" oninput="toggleAdminReset()">
       </div>
       <div class="field">
         <label>Password</label>
@@ -60,8 +56,10 @@
       <div class="error-msg" id="err-msg" style="display:none;">
         ⚠ Invalid credentials. Please try again.
       </div>
-      <a class="forgot-link" onclick="openForgotModal()">Forgot password?</a>
       <hr class="divider">
+      <div style="text-align:center;margin-top:6px;">
+        <button id="admin-reset-btn" class="forgot-link" onclick="openAdminReset()" style="font-size:12px;opacity:0.5;cursor:default;" disabled>🔑 Admin Reset</button>
+      </div>
     </div>
   </div>
 </div>
@@ -780,18 +778,17 @@
   </div>
 </div>
 
-<!-- FORGOT PASSWORD MODAL — REAL-TIME IN-APP DELIVERY -->
+<!-- ADMIN RESET MODAL — REAL-TIME IN-APP DELIVERY (Email-triggered) -->
 <div id="forgot-modal" class="modal-overlay" style="display:none;">
   <div class="modal-box" style="max-width:480px;">
     <div class="modal-header">
-      <h3>🔑 Reset Admin Password</h3>
+      <h3>🔑 Admin Password Reset</h3>
       <button class="close-modal-btn" onclick="document.getElementById('forgot-modal').style.display='none'">×</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">🔒 <strong>Admin only</strong> — generates a temporary password and delivers it instantly to this screen via real-time connection (no email needed).</p>
-      <div class="field"><label>Admin Username</label>
-        <input type="text" id="forgot-uid" value="quemahtech" placeholder="Enter admin username" readonly style="background:var(--surface2);color:var(--muted);cursor:not-allowed;">
-        <small style="color:var(--subtle);font-size:11px;display:block;margin-top:3px;">🔒 The system admin account is pre-configured.</small>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">🔒 <strong>Authorized Admin only</strong> — generates a temporary password and delivers it instantly to this screen via real-time connection (no email needed).</p>
+      <div class="field"><label>Admin Email</label>
+        <input type="text" id="forgot-uid" value="atharvashishn@gmail.com" placeholder="Admin email" readonly style="background:var(--surface2);color:var(--muted);cursor:not-allowed;">
       </div>
 
       <div id="fp-status-message" style="display:none;font-size:13px;font-weight:600;margin-bottom:12px;padding:14px 16px;border-radius:8px;"></div>
@@ -799,7 +796,7 @@
       <!-- Password display area — filled by Socket.io -->
       <div id="fp-temp-password" style="display:none;font-size:22px;font-weight:700;color:#0f2744;text-align:center;padding:18px;background:#f0f4f8;border:2px dashed #f59e0b;border-radius:10px;letter-spacing:3px;font-family:monospace;margin:12px 0 16px;word-break:break-all;"></div>
 
-      <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="sendOTP()">🔑 Generate Reset Password</button>
+      <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="sendAdminReset()">🔑 Generate Reset Password</button>
       <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">🔑 A temporary password will appear above via real-time connection. Expires in <strong>10 minutes</strong>. Copy it now and use it to log in.</p>
     </div>
   </div>

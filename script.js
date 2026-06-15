@@ -11,7 +11,7 @@ const ADMIN_EMAIL = 'atharvashishn@gmail.com';
 
 // ── Global State (loaded from server) ──
 let currentUser = null;
-let currentRole = 'admin';
+let currentRole = '';
 let currentLeaveType = 'CL';
 let archivedVisible = false;
 let adminNotifPanelOpen = false;
@@ -835,18 +835,22 @@ function changeEmpPwd() {
 }
 
 /* ═══════════════════════════════════
-   FORGOT PASSWORD — ADMIN ONLY, REAL-TIME IN-APP DELIVERY
-   - Only the admin (quemahtech) can reset their password
+   ADMIN RESET — EMAIL-TRIGGERED, REAL-TIME IN-APP DELIVERY
+   - Only atharvashishn@gmail.com can trigger this
    - Generates secure temp password, stores in DB, delivers via Socket.io
-   - Password appears directly in the admin UI — no email needed
+   - No SMTP — password appears directly in the admin UI
 ═══════════════════════════════════ */
 
-function openForgotModal() {
-  document.getElementById('forgot-uid').value = 'quemahtech';
+function openAdminReset() {
+  const uid = document.getElementById('uid').value.trim();
+  if (uid.toLowerCase() !== ADMIN_EMAIL) {
+    showNotifBar('warning', 'Admin email required to reset. Please enter ' + ADMIN_EMAIL + ' and try again.', '🔑');
+    return;
+  }
+  document.getElementById('forgot-uid').value = ADMIN_EMAIL;
   document.getElementById('forgot-modal').style.display = 'flex';
   const statusEl = document.getElementById('fp-status-message');
   if (statusEl) statusEl.style.display = 'none';
-  // Clear any previous password display
   const pwdDisplay = document.getElementById('fp-temp-password');
   if (pwdDisplay) {
     pwdDisplay.style.display = 'none';
@@ -854,8 +858,8 @@ function openForgotModal() {
   }
 }
 
-async function sendOTP() {
-  const uid = 'quemahtech';
+async function sendAdminReset() {
+  const uid = ADMIN_EMAIL;
 
   const sendBtn = document.querySelector('#forgot-modal .btn-primary');
   if (sendBtn) {
@@ -1107,16 +1111,24 @@ function checkPwdStrength(inputId, barId) {
 }
 
 /* ═══════════════════════════════════
-   LOGIN / AUTH
+   LOGIN / AUTH — Unified Single Form
+   - Admin: enter atharvashishn@gmail.com
+   - Employee: enter Employee ID or email
 ═══════════════════════════════════ */
 
-function setRole(role) {
-  currentRole = role;
-  document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('role-' + role).classList.add('active');
-  document.getElementById('uid-label').textContent = role === 'admin' ? 'Username' : 'Employee ID';
-  document.getElementById('uid').placeholder = role === 'admin' ? 'Enter username' : 'e.g. EMP001';
-  document.getElementById('err-msg').style.display = 'none';
+function toggleAdminReset() {
+  const val = document.getElementById('uid').value.trim();
+  const btn = document.getElementById('admin-reset-btn');
+  if (!btn) return;
+  if (val.toLowerCase() === ADMIN_EMAIL) {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+  } else {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.cursor = 'default';
+  }
 }
 
 async function doLogin() {
@@ -1132,18 +1144,10 @@ async function doLogin() {
 
   document.getElementById('err-msg').style.display = 'none';
 
-  // Client-side time check: block employee login after 18:00
-  const now = new Date();
-  if (currentRole === 'employee' && now.getHours() >= 18) {
-    document.getElementById('err-msg').style.display = 'flex';
-    document.getElementById('err-msg').textContent = '⚠ Employee logins are blocked after 6:00 PM (18:00). Office hours: 9:00 AM – 6:00 PM. Please contact your administrator.';
-    return;
-  }
-
-  // Login via server API
+  // Login via server API (no role — server auto-detects)
   const res = await api('/api/auth/login', {
     method: 'POST',
-    body: { uid, pwd, role: currentRole }
+    body: { uid, pwd }
   });
 
   // Handle server-side errors (time-block, DB down, etc.)
@@ -1153,9 +1157,9 @@ async function doLogin() {
     return;
   }
 
-  if (res.error === 'TIME_BLOCK' || (res.error && res.error.includes('18:00'))) {
+  if (res.error === 'TIME_BLOCK') {
     document.getElementById('err-msg').style.display = 'flex';
-    document.getElementById('err-msg').textContent = '⚠ ' + (res.message || res.error || 'Login blocked after 6:00 PM IST.');
+    document.getElementById('err-msg').textContent = '⚠ ' + (res.message || 'Employee logins are blocked after 6:00 PM IST.');
     return;
   }
 
@@ -1177,13 +1181,14 @@ async function doLogin() {
         showNotifBar('warning', '⚠️ First login after 2:00 PM — today will be flagged as Half-Day.', '⚠️');
       }
 
-      const emp = employees.find(e => e.id === uid);
+      const empId = res.user.id;
+      const emp = employees.find(e => e.id === empId);
       if (emp) {
         showEmployeePage(emp);
       } else {
         const loaded = await loadStateFromServer();
         if (loaded) {
-          const emp2 = employees.find(e => e.id === uid);
+          const emp2 = employees.find(e => e.id === empId);
           if (emp2) showEmployeePage(emp2);
         } else {
           showNotifBar('error', 'Employee data not available. Check database connection.', '❌');
@@ -1658,6 +1663,8 @@ function init() {
   if (remembered) {
     document.getElementById('uid').value = remembered;
     document.getElementById('remember-me').checked = true;
+    // Trigger admin reset visibility check if remembered user is the admin
+    if (typeof toggleAdminReset === 'function') toggleAdminReset();
   }
 
   // Check server health on load — show a banner if the backend is unreachable

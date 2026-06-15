@@ -200,39 +200,54 @@ async function runMonthlyAccrualForAll() {
 const authRouter = express.Router();
 authRouter.use(requireDB);
 
-// POST /api/auth/login
+// POST /api/auth/login — Smart Unified Authentication
+// - If input matches ADMIN_EMAIL → authenticate as admin (no time-block)
+// - Otherwise → treat as Employee ID or Employee Email (time-block after 18:00)
 authRouter.post('/login', async (req, res) => {
   try {
-    const { uid, pwd, role } = req.body;
-    if (role === 'admin') {
-      const admin = await Admin.findOne({ username: uid });
-      if (admin && admin.password === pwd) {
-        return res.json({ success: true, role: 'admin', user: { id: admin.username, name: 'Administrator' } });
-      }
-      return res.json({ success: false });
-    }
-    if (role === 'employee') {
-      // Time-block: reject login if past 18:00 IST
-      const hr = getISTHour();
-      const min = getISTMinutes();
-      if (hr >= 18) {
-        return res.status(403).json({ success: false, error: `Login blocked after 6:00 PM IST (current time: ${String(hr).padStart(2,'0')}:${String(min).padStart(2,'0')} IST). Please contact admin.` });
-      }
+    const { uid, pwd } = req.body;
+    const normalized = (uid || '').toLowerCase().trim();
 
-      let emp = await Employee.findOne({ id: uid, active: true });
-      if (!emp) {
-        const all = await Employee.find({ active: true });
-        emp = all.find(e => e.id && e.id.toLowerCase() === uid.toLowerCase());
-      }
-      if (emp && emp.password === pwd) {
-        return res.json({
-          success: true, role: 'employee',
-          user: { id: emp.id, name: emp.name, dept: emp.dept, designation: emp.designation, cl: emp.cl, sl: emp.sl, ul: emp.ul }
-        });
+    // ── ADMIN ROUTE ──
+    if (normalized === ADMIN_EMAIL.toLowerCase()) {
+      const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
+      if (adminUser && adminUser.password === pwd) {
+        return res.json({ success: true, role: 'admin', user: { id: adminUser.username, name: 'Administrator' } });
       }
       return res.json({ success: false });
     }
-    res.json({ success: false });
+
+    // ── EMPLOYEE ROUTE ──
+    // Time-block: reject employee login if past 18:00 IST
+    const hr = getISTHour();
+    const min = getISTMinutes();
+    if (hr >= 18) {
+      return res.json({ success: false, error: 'TIME_BLOCK', message: `Employee logins are blocked after 6:00 PM IST (current time: ${String(hr).padStart(2,'0')}:${String(min).padStart(2,'0')} IST). Office hours: 9:00 AM – 6:00 PM.` });
+    }
+
+    // Try employee by ID first, then by email
+    let emp = await Employee.findOne({ id: normalized, active: true });
+    if (!emp) {
+      emp = await Employee.findOne({ email: normalized, active: true });
+    }
+    if (!emp) {
+      const all = await Employee.find({ active: true });
+      emp = all.find(e => e.id && e.id.toLowerCase() === normalized);
+    }
+    if (!emp) {
+      const all = await Employee.find({ active: true });
+      emp = all.find(e => e.email && e.email.toLowerCase() === normalized);
+    }
+
+    if (emp && emp.password === pwd) {
+      const halfDay = hr >= 14;
+      return res.json({
+        success: true, role: 'employee',
+        user: { id: emp.id, name: emp.name, dept: emp.dept, designation: emp.designation, cl: emp.cl, sl: emp.sl, ul: emp.ul },
+        timeBlock: { isHalfDay: halfDay }
+      });
+    }
+    return res.json({ success: false });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -245,8 +260,11 @@ authRouter.post('/forgot-password', async (req, res) => {
   try {
     const { uid } = req.body;
 
-    if (!uid || uid !== ADMIN_USERNAME) {
-      return res.status(400).json({ error: 'Invalid admin username. Only the system administrator can reset their password.' });
+    const normalized = (uid || '').toLowerCase().trim();
+    const isAuthorized = normalized === ADMIN_USERNAME.toLowerCase() || normalized === ADMIN_EMAIL.toLowerCase();
+
+    if (!isAuthorized) {
+      return res.status(400).json({ error: 'Unauthorized. Only the system administrator can reset their password.' });
     }
 
     const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
