@@ -1491,6 +1491,9 @@ body.dark-mode .ann-empty-sub{color:var(--subtle);}
   font-size:12px;
   font-weight:700;
 }
+.forgot-row{text-align:right;margin-top:6px;}
+.forgot-row a{color:#f59e0b;font-size:13px;font-weight:600;text-decoration:none;transition:color 0.15s;}
+.forgot-row a:hover{color:#fbbf24;text-decoration:underline;}
 .forgot-link{
   display:block;
   text-align:right;

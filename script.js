@@ -835,19 +835,13 @@ function changeEmpPwd() {
 }
 
 /* ═══════════════════════════════════
-   ADMIN RESET — EMAIL-TRIGGERED, REAL-TIME IN-APP DELIVERY
-   - Only atharvashishn@gmail.com can trigger this
-   - Generates secure temp password, stores in DB, delivers via Socket.io
-   - No SMTP — password appears directly in the admin UI
+   FORGOT PASSWORD — EMAIL-TRIGGERED, REAL-TIME IN-APP DELIVERY (Admin only)
+   - Admin enters registered email → server generates temp password → Socket.io delivers
+   - Employee requests are rejected server-side
 ═══════════════════════════════════ */
 
 function openAdminReset() {
-  const uid = document.getElementById('uid').value.trim();
-  if (uid.toLowerCase() !== ADMIN_EMAIL) {
-    showNotifBar('warning', 'Admin email required to reset. Please enter ' + ADMIN_EMAIL + ' and try again.', '🔑');
-    return;
-  }
-  document.getElementById('forgot-uid').value = ADMIN_EMAIL;
+  document.getElementById('forgot-uid').value = '';
   document.getElementById('forgot-modal').style.display = 'flex';
   const statusEl = document.getElementById('fp-status-message');
   if (statusEl) statusEl.style.display = 'none';
@@ -859,7 +853,7 @@ function openAdminReset() {
 }
 
 async function sendAdminReset() {
-  const uid = ADMIN_EMAIL;
+  const uid = document.getElementById('forgot-uid').value.trim();
 
   const sendBtn = document.querySelector('#forgot-modal .btn-primary');
   if (sendBtn) {
@@ -1112,23 +1106,12 @@ function checkPwdStrength(inputId, barId) {
 
 /* ═══════════════════════════════════
    LOGIN / AUTH — Unified Single Form
-   - Admin: enter atharvashishn@gmail.com
-   - Employee: enter Employee ID or email
-═══════════════════════════════════ */
+   - Admin: enter quemahtech
+   - Employee: enter Employee ID
+╔═══════════════════════════════════ */
 
 function toggleAdminReset() {
-  const val = document.getElementById('uid').value.trim();
-  const btn = document.getElementById('admin-reset-btn');
-  if (!btn) return;
-  if (val.toLowerCase() === ADMIN_EMAIL) {
-    btn.disabled = false;
-    btn.style.opacity = '1';
-    btn.style.cursor = 'pointer';
-  } else {
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-    btn.style.cursor = 'default';
-  }
+  // no-op: forgot password link is always visible now
 }
 
 async function doLogin() {

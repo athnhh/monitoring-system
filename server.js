@@ -201,7 +201,7 @@ const authRouter = express.Router();
 authRouter.use(requireDB);
 
 // POST /api/auth/login — Smart Unified Authentication
-// - If input matches ADMIN_EMAIL → authenticate as admin (no time-block)
+// - If input matches ADMIN_USERNAME → authenticate as admin (no time-block)
 // - Otherwise → treat as Employee ID or Employee Email (time-block after 18:00)
 authRouter.post('/login', async (req, res) => {
   try {
@@ -209,7 +209,7 @@ authRouter.post('/login', async (req, res) => {
     const normalized = (uid || '').toLowerCase().trim();
 
     // ── ADMIN ROUTE ──
-    if (normalized === ADMIN_EMAIL.toLowerCase()) {
+    if (normalized === ADMIN_USERNAME) {
       const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
       if (adminUser && adminUser.password === pwd) {
         return res.json({ success: true, role: 'admin', user: { id: adminUser.username, name: 'Administrator' } });
@@ -261,7 +261,7 @@ authRouter.post('/forgot-password', async (req, res) => {
     const { uid } = req.body;
 
     const normalized = (uid || '').toLowerCase().trim();
-    const isAuthorized = normalized === ADMIN_USERNAME.toLowerCase() || normalized === ADMIN_EMAIL.toLowerCase();
+    const isAuthorized = normalized === ADMIN_USERNAME || normalized === ADMIN_EMAIL.toLowerCase();
 
     if (!isAuthorized) {
       return res.status(400).json({ error: 'Unauthorized. Only the system administrator can reset their password.' });
