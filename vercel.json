@@ -4,12 +4,7 @@
     { "src": "server.js", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/(.*)", "dest": "server.js" }
-  ],
-  "buildCommand": "npm run build",
-  "env": {
-    "ADMIN_USERNAME": "quemahtech",
-    "ADMIN_EMAIL": "atharvashishn@gmail.com",
-    "APP_NAME": "Quemahtech EMS"
-  }
+    { "src": "/api/(.*)", "dest": "server.js" },
+    { "src": "/(.*)", "dest": "index.html" }
+  ]
 }

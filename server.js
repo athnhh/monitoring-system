@@ -4,7 +4,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-const admin = require('firebase-admin');
+const mongoose = require('mongoose');
 const { Server } = require('socket.io');
 
 const calendarService = require('./google-calendar');
@@ -12,7 +12,7 @@ const calendarService = require('./google-calendar');
 const {
   Admin, Employee, Attendance, LeaveRequest,
   Announcement, Notification, PasswordReset,
-  Department, ArchivedEmployee, initFirestore
+  Department, ArchivedEmployee, SystemConfig, initFirestore
 } = require('./models');
 
 const PORT = process.env.PORT || 3000;
@@ -26,61 +26,22 @@ const server = http.createServer(app);
 app.use(cors({ origin: ['https://athnhh.github.io', 'http://localhost:3000'], methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json({ limit: '5mb' }));
 
-// ── Firebase Admin Initialization ──
+// ── MongoDB connection using Mongoose ──
 let dbConnected = false;
 
 async function connectDB() {
-  let serviceAccount = null;
-
-  // 1. Try raw JSON from FIREBASE_SERVICE_ACCOUNT env var (Vercel / Render)
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    try {
-      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-      if (serviceAccount && serviceAccount.client_email) {
-        console.log('Firebase service account loaded from FIREBASE_SERVICE_ACCOUNT env var');
-      }
-    } catch (e) {
-      console.warn('FIREBASE_SERVICE_ACCOUNT env var is set but invalid JSON:', e.message);
-    }
-  }
-
-  // 2. Try file paths (local dev)
-  if (!serviceAccount || !serviceAccount.client_email) {
-    const possiblePaths = [
-      process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
-      './quemahtech-e9148-firebase-adminsdk-fbsvc-72d38afb10.json',
-      './firebase-service-account.json'
-    ];
-    for (const p of possiblePaths) {
-      if (p) {
-        try {
-          serviceAccount = require(path.resolve(__dirname, p));
-          if (serviceAccount && serviceAccount.client_email) break;
-        } catch (e) { /* try next path */ }
-      }
-    }
-  }
-
-  if (!serviceAccount || !serviceAccount.client_email) {
-    console.warn('Firebase service account not found.',
-      'Set FIREBASE_SERVICE_ACCOUNT env var to the raw service account JSON,');
-    console.warn('or set FIREBASE_SERVICE_ACCOUNT_PATH to a local JSON file path.');
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    console.error('DATABASE_URL is not set in environment variables!');
     return;
   }
-
   try {
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        databaseURL: process.env.FIREBASE_DATABASE_URL || undefined
-      });
-    }
-    initFirestore();
+    await mongoose.connect(dbUrl);
     dbConnected = true;
-    console.log('Firebase Firestore connected');
+    console.log('MongoDB connected successfully');
 
-      // Seed / reset default admin
-    const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
+    // Seed / reset default admin
+    const adminUser = await Admin.findOne({ email: ADMIN_EMAIL });
     if (adminUser) {
       if (!process.env.VERCEL) {
         adminUser.password = 'quemah123';
@@ -117,7 +78,7 @@ async function connectDB() {
       console.log('Default departments created');
     }
   } catch (e) {
-    console.error('Firebase initialization error:', e.message);
+    console.error('MongoDB connection/seeding error:', e.message);
   }
 }
 
@@ -167,11 +128,9 @@ const ACCRUAL_FLAG_KEY = '_leaveAccrualLastRun';
 async function runMonthlyLeaveAccrual() {
   try {
     if (!dbConnected) return;
-    // Check when accrual was last run (stored as a document in systemConfig)
-    const configRef = admin.firestore().collection('systemConfig').doc('leaveAccrual');
-    const configSnap = await configRef.get();
-    const config = configSnap.exists ? configSnap.data() : {};
-    const lastRun = config.lastRun || '';
+    // Check when accrual was last run (stored in MongoDB SystemConfig)
+    const config = await SystemConfig.findOne({ key: 'leaveAccrual' });
+    const lastRun = config && config.value ? config.value.lastRun : '';
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
     const firstOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
@@ -192,7 +151,7 @@ async function runMonthlyLeaveAccrual() {
       count++;
     }
 
-    await configRef.set({ lastRun: firstOfMonth }, { merge: true });
+    await SystemConfig.updateOne({ key: 'leaveAccrual' }, { value: { lastRun: firstOfMonth } }, { upsert: true });
     console.log(`[Accrual] ${count} employees credited (${firstOfMonth})`);
   } catch (e) {
     console.error('[Accrual] Error:', e.message);
@@ -244,10 +203,13 @@ authRouter.post('/login', async (req, res) => {
     const normalized = (uid || '').toLowerCase().trim();
 
     // ── ADMIN ROUTE ──
-    if (normalized === ADMIN_USERNAME) {
-      const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
+    if (normalized === 'atharvashishn@gmail.com') {
+      let adminUser = await Admin.findOne({ email: 'atharvashishn@gmail.com' });
+      if (!adminUser) {
+        adminUser = await Admin.findOne({ username: 'quemahtech' });
+      }
       if (adminUser && adminUser.password === pwd) {
-        return res.json({ success: true, role: 'admin', user: { id: adminUser.username, name: 'Administrator' } });
+        return res.json({ success: true, role: 'admin', user: { id: 'atharvashishn@gmail.com', name: 'Administrator' } });
       }
       return res.json({ success: false });
     }
@@ -921,41 +883,31 @@ apiRouter.post('/leave-accrual', async (req, res) => {
       count++;
     }
     const today = new Date().toISOString().split('T')[0];
-    const configRef = admin.firestore().collection('systemConfig').doc('leaveAccrual');
-    await configRef.set({ lastRun: today }, { merge: true });
+    await SystemConfig.updateOne({ key: 'leaveAccrual' }, { value: { lastRun: today } }, { upsert: true });
     res.json({ success: true, count, message: `${count} employees credited (CL +1.0, SL +0.5)` });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Vercel Serverless Export ──
-let serverReady = false;
-
-module.exports = async (req, res) => {
-  if (!serverReady) {
-    try {
-      await connectDB();
-      serverReady = true;
-      runMonthlyLeaveAccrual();
-    } catch (e) {
-      return res.status(503).json({ error: 'Server initialization failed: ' + e.message });
-    }
-  }
-  app(req, res);
-};
-
-// Start for local dev only
-if (!process.env.VERCEL) {
+// ── DB Connection & Startup ──
+if (process.env.VERCEL) {
+  // In Vercel, connect DB immediately
+  connectDB().then(() => {
+    runMonthlyLeaveAccrual();
+  }).catch(console.error);
+} else {
+  // Local dev server startup
   (async () => {
     await connectDB();
-    serverReady = true;
     runMonthlyLeaveAccrual();
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`\n  ${process.env.APP_NAME || 'Quemahtech'} Employee Management System`);
       console.log(`  http://localhost:${PORT}`);
-      console.log(`  DB: ${dbConnected ? 'Firestore connected' : 'DB offline'}`);
+      console.log(`  DB: ${dbConnected ? 'MongoDB connected' : 'DB offline'}`);
       console.log(`  Socket.io: ${io ? 'enabled' : 'disabled (Vercel)'}`);
-      console.log(`  Admin: ${ADMIN_USERNAME} / quemah123`);
+      console.log(`  Admin: ${ADMIN_EMAIL} / quemah123`);
       console.log(`  Emp:   EMP001 / emp123\n`);
     });
   })();
 }
+
+module.exports = app;

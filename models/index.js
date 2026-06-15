@@ -1,343 +1,162 @@
-/* ═══════════════════════════════════
-   MODELS — Firebase Firestore Data Access Layer
-   Replaces Mongoose schemas with Firestore collections.
-   Each model exports an object with Mongoose-compatible methods.
-═══════════════════════════════════ */
+const mongoose = require('mongoose');
 
-const admin = require('firebase-admin');
+// Helper to handle $sort queries in find and findOne (keeps server.js controller code unchanged)
+const handleQuerySort = function(next) {
+  const query = this.getQuery();
+  if (query && query.$sort) {
+    this.sort(query.$sort);
+    delete query.$sort;
+  }
+  next();
+};
 
-let firestoreDb = null;
+const schemaOptions = {
+  timestamps: true,
+  id: false // Disable virtual 'id' getter so that custom 'id' fields can be read normally
+};
 
+// Admin Schema
+const AdminSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  password: { type: String, required: true },
+  email: { type: String, required: true }
+}, schemaOptions);
+
+// Employee Schema
+const EmployeeSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  dept: { type: String, required: true },
+  designation: { type: String },
+  email: { type: String },
+  phone: { type: String },
+  bday: { type: String },
+  joining: { type: String },
+  password: { type: String, default: 'emp123' },
+  cl: { type: Number, default: 7.5 },
+  sl: { type: Number, default: 3.0 },
+  ul: { type: Number, default: 0 },
+  active: { type: Boolean, default: true },
+  calendarEventId: { type: String },
+  _lastAccrualMonth: { type: Number },
+  _lastAccrualYear: { type: Number }
+}, schemaOptions);
+
+// Attendance Schema
+const AttendanceSchema = new mongoose.Schema({
+  id: { type: String, required: true }, // Employee ID
+  name: { type: String, required: true },
+  dept: { type: String, required: true },
+  date: { type: String, required: true },
+  in: { type: String },
+  out: { type: String },
+  hours: { type: Number, default: 0 },
+  status: { type: String, default: 'Present' }
+}, schemaOptions);
+
+// Leave Request Schema
+const LeaveRequestSchema = new mongoose.Schema({
+  idx: { type: Number, required: true, unique: true },
+  empId: { type: String, required: true },
+  empName: { type: String, required: true },
+  dept: { type: String, required: true },
+  type: { type: String, required: true }, // CL, SL, UL
+  from: { type: String, required: true },
+  to: { type: String, required: true },
+  days: { type: Number, required: true },
+  reason: { type: String, required: true },
+  status: { type: String, default: 'Pending' }
+}, schemaOptions);
+
+// Announcement Schema
+const AnnouncementSchema = new mongoose.Schema({
+  subject: { type: String, required: true },
+  date: { type: String, required: true },
+  recipientType: { type: String },
+  recipientValue: { type: String },
+  priority: { type: String, default: 'normal' },
+  body: { type: String, required: true }
+}, schemaOptions);
+
+// Notification Schema
+const NotificationSchema = new mongoose.Schema({
+  text: { type: String, required: true },
+  time: { type: String },
+  unread: { type: Boolean, default: true },
+  target: { type: String, default: 'admin' },
+  userId: { type: String }
+}, schemaOptions);
+
+// Password Reset Schema
+const PasswordResetSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  tempPassword: { type: String, required: true },
+  email: { type: String, required: true },
+  expiresAt: { type: String, required: true }
+}, schemaOptions);
+
+// Department Schema
+const DepartmentSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true }
+}, schemaOptions);
+
+// Archived Employee Schema
+const ArchivedEmployeeSchema = new mongoose.Schema({
+  originalId: { type: String, required: true },
+  id: { type: String },
+  name: { type: String },
+  dept: { type: String },
+  status: { type: String },
+  joining: { type: String },
+  exit: { type: String },
+  employeeData: { type: mongoose.Schema.Types.Mixed }
+}, schemaOptions);
+
+// System Config Schema
+const SystemConfigSchema = new mongoose.Schema({
+  key: { type: String, required: true, unique: true },
+  value: { type: mongoose.Schema.Types.Mixed }
+}, schemaOptions);
+
+// Apply query middleware
+const schemas = [
+  AdminSchema, EmployeeSchema, AttendanceSchema, LeaveRequestSchema,
+  AnnouncementSchema, NotificationSchema, PasswordResetSchema,
+  DepartmentSchema, ArchivedEmployeeSchema, SystemConfigSchema
+];
+
+schemas.forEach(schema => {
+  schema.pre('find', handleQuerySort);
+  schema.pre('findOne', handleQuerySort);
+});
+
+// Compile models
+const Admin = mongoose.models.Admin || mongoose.model('Admin', AdminSchema);
+const Employee = mongoose.models.Employee || mongoose.model('Employee', EmployeeSchema);
+const Attendance = mongoose.models.Attendance || mongoose.model('Attendance', AttendanceSchema);
+const LeaveRequest = mongoose.models.LeaveRequest || mongoose.model('LeaveRequest', LeaveRequestSchema);
+const Announcement = mongoose.models.Announcement || mongoose.model('Announcement', AnnouncementSchema);
+const Notification = mongoose.models.Notification || mongoose.model('Notification', NotificationSchema);
+const PasswordReset = mongoose.models.PasswordReset || mongoose.model('PasswordReset', PasswordResetSchema);
+const Department = mongoose.models.Department || mongoose.model('Department', DepartmentSchema);
+const ArchivedEmployee = mongoose.models.ArchivedEmployee || mongoose.model('ArchivedEmployee', ArchivedEmployeeSchema);
+const SystemConfig = mongoose.models.SystemConfig || mongoose.model('SystemConfig', SystemConfigSchema);
+
+// Dummy initFirestore for compatibility
 function initFirestore() {
-  if (!firestoreDb) {
-    firestoreDb = admin.firestore();
-  }
-  return firestoreDb;
+  console.log('Firebase Firestore disabled, using Mongoose instead.');
 }
 
-function db() {
-  return initFirestore();
-}
-
-// ── Helpers ──
-
-function wrapDoc(collectionName, docId, data) {
-  if (!data) return null;
-  const ref = db().collection(collectionName).doc(docId);
-  return {
-    ...data,
-    id: docId,
-    _id: docId,
-    save: async function() {
-      // Serialize current state (exclude internal meta fields)
-      const { id, _id, save, toObject, ...currentData } = this;
-      await ref.set(currentData, { merge: true });
-    },
-    toObject: function() {
-      const { id, _id, save, toObject, ...rest } = this;
-      return { ...rest };
-    }
-  };
-}
-
-async function getDoc(collectionName, docId) {
-  const snap = await db().collection(collectionName).doc(docId).get();
-  if (!snap.exists) return null;
-  return { id: snap.id, _id: snap.id, ...snap.data() };
-}
-
-async function getDocs(collectionName, filters = {}) {
-  let query = db().collection(collectionName);
-  let sortField = null;
-  let sortDir = 'asc';
-
-  if (filters.$sort) {
-    const entry = Object.entries(filters.$sort)[0];
-    sortField = entry[0];
-    sortDir = entry[1] === -1 ? 'desc' : 'asc';
-    delete filters.$sort;
-  }
-
-  // Remove known Mongoose-specific keys before passing to Firestore
-  const cleanFilters = { ...filters };
-  delete cleanFilters.$sort;
-
-  for (const [key, value] of Object.entries(cleanFilters)) {
-    if (value && typeof value === 'object' && value.$gt) {
-      query = query.where(key, '>', value.$gt);
-    } else if (value && typeof value === 'object' && value.$gte) {
-      query = query.where(key, '>=', value.$gte);
-    } else if (value && typeof value === 'object' && value.$lt) {
-      query = query.where(key, '<', value.$lt);
-    } else if (value && typeof value === 'object' && value.$lte) {
-      query = query.where(key, '<=', value.$lte);
-    } else if (value && typeof value === 'object' && value.$ne) {
-      query = query.where(key, '!=', value.$ne);
-    } else if (value === '__deleted__' || key === '_id') {
-      // skip
-    } else {
-      query = query.where(key, '==', value);
-    }
-  }
-
-  if (sortField) {
-    query = query.orderBy(sortField, sortDir);
-  }
-
-  const snap = await query.get();
-  const results = [];
-  snap.forEach(doc => results.push({ id: doc.id, _id: doc.id, ...doc.data() }));
-  return results;
-}
-
-// ── Models ──
-
-exports.Admin = {
-  findOne: async (query = {}) => {
-    const docs = await getDocs('admins', query);
-    return docs.length ? wrapDoc('admins', docs[0].id, docs[0]) : null;
-  },
-  countDocuments: async (query = {}) => {
-    const docs = await getDocs('admins', query);
-    return docs.length;
-  },
-  create: async (data) => {
-    const docRef = db().collection('admins').doc();
-    await docRef.set(data);
-    return { ...data, id: docRef.id, _id: docRef.id, save: async () => {}, toObject: () => ({ ...data }) };
-  }
+module.exports = {
+  Admin,
+  Employee,
+  Attendance,
+  LeaveRequest,
+  Announcement,
+  Notification,
+  PasswordReset,
+  Department,
+  ArchivedEmployee,
+  SystemConfig,
+  initFirestore
 };
-
-exports.Employee = {
-  findOne: async (query = {}) => {
-    const docs = await getDocs('employees', query);
-    return docs.length ? wrapDoc('employees', docs[0].id, docs[0]) : null;
-  },
-  find: async (query = {}) => {
-    const docs = await getDocs('employees', query);
-    const result = docs.map(d => ({ ...d }));
-    result.lean = () => docs.map(d => ({ ...d }));
-    return result;
-  },
-  findOneAndDelete: async (query = {}) => {
-    const docs = await getDocs('employees', query);
-    if (!docs.length) return null;
-    const doc = docs[0];
-    await db().collection('employees').doc(doc.id).delete();
-    return wrapDoc('employees', doc.id, doc);
-  },
-  create: async (data) => {
-    const docRef = db().collection('employees').doc(data.id);
-    await docRef.set(data);
-    return { ...data, id: data.id, _id: data.id, save: async () => {}, toObject: () => ({ ...data }) };
-  },
-  updateOne: async (filter, update, options = {}) => {
-    const docs = await getDocs('employees', filter);
-    if (docs.length) {
-      const docId = docs[0].id;
-      const ref = db().collection('employees').doc(docId);
-      const setData = update.$set || update;
-      if (options.upsert) {
-        await ref.set(setData, { merge: true });
-      } else {
-        await ref.set(setData, { merge: true });
-      }
-      return { modifiedCount: 1 };
-    } else if (options.upsert) {
-      const setId = filter.id || docs[0]?.id || Date.now().toString();
-      const ref = db().collection('employees').doc(setId);
-      const setData = update.$set || update;
-      await ref.set({ ...filter, ...setData });
-      return { modifiedCount: 1, upsertedId: setId };
-    }
-    return { modifiedCount: 0 };
-  }
-};
-
-exports.Attendance = {
-  findOne: async (query = {}) => {
-    const docs = await getDocs('attendance', query);
-    if (!docs.length) return null;
-    const d = docs[0];
-    const ref = db().collection('attendance').doc(d.id);
-    return {
-      ...d,
-      save: async function() {
-        const { id, _id, save, toObject, ...currentData } = this;
-        await ref.set(currentData, { merge: true });
-      }
-    };
-  },
-  find: async (query = {}) => {
-    const docs = await getDocs('attendance', query);
-    const result = docs.map(d => ({ ...d }));
-    result.lean = () => docs.map(d => ({ ...d }));
-    return result;
-  },
-  create: async (data) => {
-    const docId = data.id + '_' + data.date;
-    const docRef = db().collection('attendance').doc(docId);
-    await docRef.set(data);
-    return { ...data, _firestoreId: docRef.id, save: async () => {}, toObject: () => ({ ...data }) };
-  }
-};
-
-exports.LeaveRequest = {
-  find: async (query = {}) => {
-    const docs = await getDocs('leaveRequests', query);
-    const result = docs.map(d => ({ ...d }));
-    result.lean = () => docs.map(d => ({ ...d }));
-    return result;
-  },
-  findOne: async (query = {}) => {
-    const docs = await getDocs('leaveRequests', query);
-    return docs.length ? wrapDoc('leaveRequests', docs[0].id, docs[0]) : null;
-  },
-  create: async (data) => {
-    const docRef = db().collection('leaveRequests').doc();
-    await docRef.set(data);
-    return { ...data, _firestoreId: docRef.id, toObject: () => ({ ...data }) };
-  },
-  countDocuments: async (query = {}) => {
-    const docs = await getDocs('leaveRequests', query);
-    return docs.length;
-  }
-};
-
-exports.Announcement = {
-  find: async (query = {}) => {
-    const docs = await getDocs('announcements', query);
-    const result = docs.map(d => ({ ...d }));
-    result.lean = () => docs.map(d => ({ ...d }));
-    return result;
-  },
-  findOne: async (query = {}) => {
-    const docs = await getDocs('announcements', query);
-    return docs.length ? wrapDoc('announcements', docs[0].id, docs[0]) : null;
-  },
-  create: async (data) => {
-    const docRef = db().collection('announcements').doc();
-    await docRef.set(data);
-    return { ...data, _firestoreId: docRef.id, toObject: () => ({ ...data }) };
-  }
-};
-
-exports.Notification = {
-  find: async (query = {}) => {
-    const filter = { ...query };
-    let sortField = null;
-    let sortDir = 'asc';
-    if (filter.$sort) {
-      const entry = Object.entries(filter.$sort)[0];
-      sortField = entry[0];
-      sortDir = entry[1] === -1 ? 'desc' : 'asc';
-      delete filter.$sort;
-    }
-
-    // Handle $or queries
-    if (filter.$or) {
-      delete filter.$or;
-      const snap = await db().collection('notifications').get();
-      const all = [];
-      snap.forEach(doc => all.push({ id: doc.id, ...doc.data() }));
-      // Filter by $or is not directly supported; return all and let caller filter
-      const result = all.map(d => ({ ...d }));
-      result.lean = () => all.map(d => ({ ...d }));
-      return result;
-    }
-
-    const docs = await getDocs('notifications', filter);
-    let results = docs.map(d => ({ ...d }));
-    if (sortField) {
-      results.sort((a, b) => {
-        const aVal = a[sortField] || '';
-        const bVal = b[sortField] || '';
-        return sortDir === 'desc' ? (bVal > aVal ? 1 : -1) : (aVal > bVal ? 1 : -1);
-      });
-    }
-    results.lean = () => results.map(d => ({ ...d }));
-    return results;
-  },
-  create: async (data) => {
-    const docRef = db().collection('notifications').doc();
-    await docRef.set(data);
-    return { ...data, _firestoreId: docRef.id, toObject: () => ({ ...data }) };
-  }
-};
-
-exports.PasswordReset = {
-  findOne: async (query = {}) => {
-    const docs = await getDocs('passwordResets', query);
-    return docs.length ? wrapDoc('passwordResets', docs[0].id, docs[0]) : null;
-  },
-  create: async (data) => {
-    const docRef = db().collection('passwordResets').doc();
-    await docRef.set(data);
-    return { ...data, _firestoreId: docRef.id, toObject: () => ({ ...data }) };
-  },
-  deleteMany: async (query = {}) => {
-    const docs = await getDocs('passwordResets', query);
-    const batch = db().batch();
-    docs.forEach(d => batch.delete(db().collection('passwordResets').doc(d.id)));
-    await batch.commit();
-    return { deletedCount: docs.length };
-  }
-};
-
-exports.Department = {
-  find: async (query = {}) => {
-    const docs = await getDocs('departments', query);
-    const result = docs.map(d => ({ ...d }));
-    result.lean = () => docs.map(d => ({ ...d }));
-    return result;
-  },
-  findOne: async (query = {}) => {
-    const docs = await getDocs('departments', query);
-    return docs.length ? wrapDoc('departments', docs[0].id, docs[0]) : null;
-  },
-  create: async (data) => {
-    const docRef = db().collection('departments').doc();
-    await docRef.set(data);
-    return { ...data, _firestoreId: docRef.id, toObject: () => ({ ...data }) };
-  },
-  countDocuments: async (query = {}) => {
-    const docs = await getDocs('departments', query);
-    return docs.length;
-  },
-  insertMany: async (dataArray) => {
-    const batch = db().batch();
-    dataArray.forEach(data => {
-      const ref = db().collection('departments').doc();
-      batch.set(ref, data);
-    });
-    await batch.commit();
-  },
-  deleteMany: async (query = {}) => {
-    const docs = await getDocs('departments', query);
-    const batch = db().batch();
-    docs.forEach(d => batch.delete(db().collection('departments').doc(d.id)));
-    await batch.commit();
-  },
-  deleteOne: async (query = {}) => {
-    const docs = await getDocs('departments', query);
-    if (docs.length) {
-      await db().collection('departments').doc(docs[0].id).delete();
-    }
-  }
-};
-
-exports.ArchivedEmployee = {
-  find: async (query = {}) => {
-    const docs = await getDocs('archivedEmployees', query);
-    const result = docs.map(d => ({ ...d }));
-    result.lean = () => docs.map(d => ({ ...d }));
-    return result;
-  },
-  create: async (data) => {
-    const docRef = db().collection('archivedEmployees').doc();
-    await docRef.set(data);
-    return { ...data, _firestoreId: docRef.id, toObject: () => ({ ...data }) };
-  }
-};
-
-exports.initFirestore = initFirestore;

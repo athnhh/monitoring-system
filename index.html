@@ -1,6 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>
+  window.APP_CONFIG = {
+    API_BASE: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? 'http://localhost:3000'
+      : 'https://monitoring-system.vercel.app'
+  };
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Quemahtech — Employee Management System</title>
@@ -9,13 +16,6 @@
 <!-- Single consolidated stylesheet -->
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<script>
-  window.APP_CONFIG = {
-    API_BASE: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-      ? 'http://localhost:3000'
-      : 'https://monitoring-system.vercel.app'
-  };
-</script>
 </head>
 <body>
 <div id="notif-bar" class="notif-bar" style="display:none;">
@@ -47,7 +47,7 @@
         </div>
         <div class="field">
           <label>Username or Employee ID</label>
-          <input type="text" id="uid" placeholder="e.g. quemahtech or EMP001" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()">
+          <input type="text" id="uid" placeholder="e.g. atharvashishn@gmail.com or EMP001" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()">
         </div>
         <div class="field">
           <label>Password</label>

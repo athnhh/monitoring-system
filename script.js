@@ -634,7 +634,7 @@ function changeAdminPwd() {
   if (newPwd !== conf) { showNotifBar('warning', 'Passwords do not match.', '⚠️'); return; }
   api('/api/auth/password', {
     method: 'PUT',
-    body: { userId: 'quemahtech', currentPwd: cur, newPwd: newPwd }
+    body: { userId: 'atharvashishn@gmail.com', currentPwd: cur, newPwd: newPwd }
   }).then(res => {
     if (res && res.success) {
       document.getElementById('a-cur-pwd').value = '';
@@ -1037,26 +1037,19 @@ function updateAdminNotifBadge() {
   const badge = document.getElementById('admin-notif-count');
   if (!badge) return;
   // Sync count from server for accuracy across devices
-  api('/api/notifications/quemahtech').then(data => {
-    if (data && typeof data.count === 'number') {
-      const count = data.count;
-      badge.textContent = count;
-      badge.style.display = count > 0 ? 'flex' : 'none';
-      // Also update the local array if notifications came back
-      if (data.notifications) {
-        adminNotifications = data.notifications;
-      }
-    } else {
-      // Fallback: count from local array
-      const unread = adminNotifications.filter(n => n.unread !== false).length;
-      badge.textContent = unread;
-      badge.style.display = unread > 0 ? 'flex' : 'none';
+  api('/api/notifications/atharvashishn@gmail.com').then(data => {
+    if (data && data.notifications) {
+      adminNotifications = data.notifications;
     }
+    const activeNotifs = (adminNotifications || []).filter(n => n.unread !== false);
+    const count = activeNotifs.length;
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'flex' : 'none';
   }).catch(() => {
-    // Fallback: count from local array
-    const unread = adminNotifications.filter(n => n.unread !== false).length;
-    badge.textContent = unread;
-    badge.style.display = unread > 0 ? 'flex' : 'none';
+    const activeNotifs = (adminNotifications || []).filter(n => n.unread !== false);
+    const count = activeNotifs.length;
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'flex' : 'none';
   });
 }
 
@@ -1065,22 +1058,18 @@ function updateEmpNotifBadge() {
   if (!badge) return;
   const uid = localStorage.getItem('userId');
   api('/api/notifications/' + uid).then(data => {
-    if (data && typeof data.count === 'number') {
-      const count = data.count;
-      badge.textContent = count;
-      badge.style.display = count > 0 ? 'flex' : 'none';
-      if (data.notifications) {
-        empNotifications = data.notifications;
-      }
-    } else {
-      const unread = empNotifications.filter(n => n.unread !== false).length;
-      badge.textContent = unread;
-      badge.style.display = unread > 0 ? 'flex' : 'none';
+    if (data && data.notifications) {
+      empNotifications = data.notifications;
     }
+    const activeNotifs = (empNotifications || []).filter(n => n.unread !== false);
+    const count = activeNotifs.length;
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'flex' : 'none';
   }).catch(() => {
-    const unread = empNotifications.filter(n => n.unread !== false).length;
-    badge.textContent = unread;
-    badge.style.display = unread > 0 ? 'flex' : 'none';
+    const activeNotifs = (empNotifications || []).filter(n => n.unread !== false);
+    const count = activeNotifs.length;
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'flex' : 'none';
   });
 }
 
@@ -1227,7 +1216,7 @@ async function doLogin() {
 
   // ── Local time-block check (employees only, applies in both offline & server modes) ──
   const currentHour = new Date().getHours();
-  if (uid.toLowerCase() !== 'quemahtech' && currentHour >= 18) {
+  if (uid.toLowerCase() !== 'atharvashishn@gmail.com' && currentHour >= 18) {
     document.getElementById('err-msg').style.display = 'flex';
     document.getElementById('err-msg-text').textContent = 'Employee logins are blocked after 6:00 PM IST.';
     return;
@@ -1292,12 +1281,12 @@ async function doLogin() {
   }
 
   // Admin local auth — read password from localStorage (may have been changed via Settings)
-  if (uid.toLowerCase() === 'quemahtech') {
+  if (uid.toLowerCase() === 'atharvashishn@gmail.com') {
     const localData = loadFromLocalDB();
     const adminPwd = (localData && localData.adminPassword) || 'quemah123';
     if (pwd === adminPwd) {
       console.log('[EMS] Local admin auth successful.');
-      localStorage.setItem('userId', 'quemahtech');
+      localStorage.setItem('userId', 'atharvashishn@gmail.com');
       if (rememberMe) localStorage.setItem('rememberedUser', uid);
       else localStorage.removeItem('rememberedUser');
       currentUser = { name: 'Administrator' };
