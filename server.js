@@ -897,10 +897,10 @@ apiRouter.post('/leave-accrual', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Start ──
+// ── Vercel Serverless Export ──
 let serverReady = false;
 
-const wrappedHandler = (req, res) => {
+const handler = (req, res) => {
   if (!serverReady) {
     res.writeHead(503, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Server still initializing, please retry.' }));
@@ -909,12 +909,11 @@ const wrappedHandler = (req, res) => {
   server.emit('request', req, res);
 };
 
-module.exports = wrappedHandler;
+module.exports = app;
 
 async function start() {
   await connectDB();
   serverReady = true;
-  // Run monthly leave accrual check
   runMonthlyLeaveAccrual();
 
   if (!process.env.VERCEL) {

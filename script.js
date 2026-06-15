@@ -47,29 +47,9 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 // DYNAMIC API BASE URL
 // ═══════════════════════════════════════════════════════════════
 function resolveApiBase() {
-  // 1. Explicit config (set in index.html or config.js)
-  if (window.APP_CONFIG && window.APP_CONFIG.API_BASE) {
-    return window.APP_CONFIG.API_BASE;
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:3000';
   }
-  // 2. Local dev with node server
-  if (window.location.port === '3000' || window.location.port === '3001') {
-    return window.location.origin;
-  }
-  // 3. Deployed to Vercel (same origin serves both frontend and backend)
-  if (window.location.hostname !== 'localhost' &&
-      (window.location.hostname.includes('vercel') || window.location.hostname.includes('now.sh'))) {
-    return window.location.origin;
-  }
-  // 4. GitHub Pages or other static host — needs explicit API_BASE config
-  const isStaticHost = window.location.hostname.includes('github.io') ||
-    window.location.hostname.includes('pages.dev') ||
-    window.location.hostname.includes('netlify.app');
-  if (isStaticHost) {
-    console.error('[EMS] ❌ Cannot reach backend on static host.',
-      'Set window.APP_CONFIG.API_BASE in index.html to your backend URL (e.g. Vercel, Render).');
-  }
-  console.warn('[EMS] Deployed to static host without API_BASE config.',
-    'Set window.APP_CONFIG.API_BASE in index.html to point to your backend (e.g. Vercel).');
   return window.location.origin;
 }
 
@@ -1644,10 +1624,7 @@ async function checkServerHealth() {
       const banner = document.createElement('div');
       banner.id = 'server-warning-banner';
       banner.style.cssText = 'background:rgba(220,38,38,0.15);border:1px solid rgba(220,38,38,0.3);border-radius:8px;padding:12px 14px;margin-bottom:20px;font-size:13px;color:#fca5a5;display:flex;align-items:center;gap:8px;';
-      const isGitHubPages = window.location.hostname.includes('github.io') || window.location.hostname.includes('pages.dev');
-      banner.innerHTML = isGitHubPages
-        ? '⚠️ <strong>Backend not configured</strong> — Deployed on static hosting. Set <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">window.APP_CONFIG.API_BASE</code> in <strong>index.html</strong> to your backend URL (e.g. Vercel).'
-        : '⚠️ <strong>Server offline</strong> — The backend server is not reachable. Please start the server with <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">npm start</code>.';
+      banner.innerHTML = '⚠️ <strong>Server offline</strong> — The backend server is not reachable. Please start the server with <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px;">npm start</code>.';
       loginCard.prepend(banner);
     }
     serverAvailable = false;
