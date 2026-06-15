@@ -23,7 +23,7 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'quemahtech';
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors({ origin: ['https://athnhh.github.io', 'http://localhost:3000'], methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json({ limit: '5mb' }));
 
 // ── MongoDB connection using Mongoose ──
@@ -88,7 +88,7 @@ let io = null;
 function setupSocketIO() {
   if (process.env.VERCEL) return;
   io = new Server(server, {
-    cors: { origin: ['https://athnhh.github.io', 'http://localhost:3000'], methods: ['GET', 'POST', 'PUT', 'DELETE'] }
+    cors: { origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] }
   });
   io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id} (${io.engine.clientsCount} total)`);
@@ -458,6 +458,7 @@ apiRouter.route('/employees/:id')
           if (result.success) Employee.updateOne({ id: emp.id }, { calendarEventId: result.eventId });
         }).catch(() => {});
       }
+      broadcast('employee_updated', sanitizeEmp(emp));
       res.json({ success: true, employee: sanitizeEmp(emp) });
     } catch (e) { res.status(500).json({ error: e.message }); }
   })
@@ -679,6 +680,7 @@ apiRouter.route('/departments')
       if (exists) return res.status(400).json({ error: 'Exists' });
       await Department.create({ name: req.body.name });
       const depts = await Department.find({});
+      broadcast('departments_updated', { departments: depts.map(d => d.name) });
       res.json({ success: true, departments: depts.map(d => d.name) });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -689,6 +691,7 @@ apiRouter.delete('/departments/:name', async (req, res) => {
     const name = decodeURIComponent(req.params.name);
     await Department.deleteOne({ name });
     const depts = await Department.find({});
+    broadcast('departments_updated', { departments: depts.map(d => d.name) });
     res.json({ success: true, departments: depts.map(d => d.name) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

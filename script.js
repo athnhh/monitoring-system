@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════
    SCRIPT.JS — Quemahtech Employee Management System
-   Consolidated single file with localStorage fallback for static hosting.
+   All data is served from the MongoDB + Socket.io backend.
+   No localStorage caching — every read/write hits the server.
 ═══════════════════════════════════ */
 
 /* ═══════════════════════════════════
@@ -9,86 +10,6 @@
 
 const ADMIN_EMAIL = 'atharvashishn@gmail.com';
 const ADMIN_USERNAME = 'quemahtech';
-
-// ── localStorage DB — Fallback for GitHub Pages / static hosting ──
-const LOCAL_DB_KEY = 'quemahtech_ems_data';
-let usingLocalDB = false;
-
-function seedLocalDB() {
-  const defaultData = {
-    adminPassword: 'quemah123',
-    employees: [
-      { id: 'EMP001', name: 'Rahul Sharma', dept: 'Engineering', email: 'rahul@quemahtech.com', phone: '+91 98765 43210', bday: '1990-05-15', joining: '2024-01-10', designation: 'Senior Developer', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' },
-      { id: 'EMP002', name: 'Priya Patel', dept: 'HR', email: 'priya@quemahtech.com', phone: '+91 87654 32109', bday: '1992-08-22', joining: '2024-02-05', designation: 'HR Manager', cl: 8.0, sl: 4.0, ul: 0.5, active: true, password: 'emp123' },
-      { id: 'EMP003', name: 'Amit Kumar', dept: 'Marketing', email: 'amit@quemahtech.com', phone: '+91 76543 21098', bday: '1988-11-03', joining: '2024-03-12', designation: 'Marketing Lead', cl: 6.0, sl: 2.5, ul: 1.0, active: true, password: 'emp123' },
-      { id: 'EMP004', name: 'Sneha Desai', dept: 'Finance', email: 'sneha@quemahtech.com', phone: '+91 65432 10987', bday: '1995-01-28', joining: '2024-04-01', designation: 'Accountant', cl: 7.5, sl: 3.0, ul: 0, active: true, password: 'emp123' },
-      { id: 'EMP005', name: 'Vikram Singh', dept: 'Operations', email: 'vikram@quemahtech.com', phone: '+91 54321 09876', bday: '1993-07-14', joining: '2024-05-20', designation: 'Operations Manager', cl: 6.5, sl: 2.0, ul: 0, active: true, password: 'emp123' }
-    ],
-    archivedEmployees: [],
-    attendanceRecords: [],
-    leaveRequests: [],
-    announcements: [],
-    adminNotifications: [],
-    empNotifications: [],
-    departments: ['Engineering', 'HR', 'IT', 'Marketing', 'Finance', 'Operations']
-  };
-
-  try {
-    const existing = localStorage.getItem(LOCAL_DB_KEY);
-    if (!existing) {
-      localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(defaultData));
-      console.log('[LocalDB] Seeded default data.');
-    }
-  } catch (e) {
-    console.warn('[LocalDB] Could not seed:', e.message);
-  }
-}
-
-function saveStateToLocal() {
-  try {
-    // Preserve the existing admin password (may have been changed via UI)
-    const existing = loadFromLocalDB();
-    const adminPassword = (existing && existing.adminPassword) || 'quemah123';
-    const data = {
-      adminPassword,
-      employees,
-      archivedEmployees,
-      attendanceRecords,
-      leaveRequests,
-      announcements,
-      adminNotifications,
-      empNotifications,
-      departments
-    };
-    localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(data));
-  } catch (e) {
-    console.warn('[LocalDB] Save failed:', e.message);
-  }
-}
-
-function loadFromLocalDB() {
-  try {
-    const raw = localStorage.getItem(LOCAL_DB_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (e) {
-    console.warn('[LocalDB] Load failed:', e.message);
-    return null;
-  }
-}
-
-function applyLocalState(data) {
-  if (!data) return false;
-  employees = data.employees || [];
-  archivedEmployees = data.archivedEmployees || [];
-  attendanceRecords = data.attendanceRecords || [];
-  leaveRequests = data.leaveRequests || [];
-  announcements = data.announcements || [];
-  adminNotifications = data.adminNotifications || [];
-  empNotifications = data.empNotifications || [];
-  if (data.departments && data.departments.length) departments = data.departments;
-  return true;
-}
 
 // ── Global State (loaded from server) ──
 let currentUser = null;
@@ -105,7 +26,7 @@ let annSelectedRecipient = 'all';
 let annSelectedPriority = 'normal';
 let serverAvailable = false;
 
-// These are loaded from the server via /api/state — NOT in-memory arrays
+// These are loaded from the server via /api/state — NEVER cached to localStorage
 let employees = [];
 let archivedEmployees = [];
 let attendanceRecords = [];
@@ -207,6 +128,22 @@ function connectSocketIO() {
       renderEmpTable();
       renderLeaveBalances();
       updateDashboardStats();
+    });
+    socket.on('employee_updated', (data) => {
+      const idx = employees.findIndex(e => e.id === data.id);
+      if (idx !== -1) {
+        employees[idx] = data;
+        renderEmpTable();
+        renderLeaveBalances();
+        updateDashboardStats();
+      }
+    });
+    socket.on('departments_updated', (data) => {
+      if (data.departments && data.departments.length) {
+        departments = data.departments;
+        renderDepartments();
+        renderDeptHeadcount();
+      }
     });
     socket.on('password_changed', () => {
       showNotifBar('info', 'Password was changed in another session.', '🔑');
@@ -992,18 +929,14 @@ async function api(url, opts = {}) {
       return errBody;
     }
     const data = await res.json();
-    // Persist to localStorage after any successful mutation
-    if (opts.method && opts.method !== 'GET') saveStateToLocal();
     return data;
   } catch (e) {
     console.warn('API fetch failed:', url, e.message);
-    // Even if server is down, mutations that already updated in-memory arrays should persist locally
-    if (opts.method && opts.method !== 'GET') saveStateToLocal();
     return null;
   }
 }
 
-// ── Load State from Server (persistent Firebase backend) ──
+// ── Load State from Server (MongoDB + Socket.io backend) ──
 async function loadStateFromServer() {
   const data = await api('/api/state');
   if (data) {
@@ -1015,21 +948,10 @@ async function loadStateFromServer() {
     adminNotifications = data.adminNotifications || [];
     empNotifications = data.empNotifications || [];
     if (data.departments && data.departments.length) departments = data.departments;
-    // Cache server state to localStorage as a backup
-    saveStateToLocal();
     serverAvailable = true;
-    usingLocalDB = false;
     return true;
   }
-  // Fallback: load from localStorage
-  console.log('[EMS] Server unreachable — falling back to localStorage.');
-  const localData = loadFromLocalDB();
-  if (localData) {
-    applyLocalState(localData);
-    serverAvailable = false;
-    usingLocalDB = true;
-    return true;
-  }
+  console.error('[EMS] Server unreachable — cannot load state.');
   return false;
 }
 
@@ -1215,7 +1137,7 @@ async function doLogin() {
 
   document.getElementById('err-msg').style.display = 'none';
 
-  // ── Local time-block check (employees only, applies in both offline & server modes) ──
+  // ── Local time-block check (employees only) ──
   const currentHour = new Date().getHours();
   if (uid !== ADMIN_USERNAME && uid.toLowerCase() !== ADMIN_EMAIL && currentHour >= 18) {
     document.getElementById('err-msg').style.display = 'flex';
@@ -1223,7 +1145,7 @@ async function doLogin() {
     return;
   }
 
-  // Login via server API (no role — server auto-detects)
+  // Always authenticate against the live server — no local fallback
   const res = await api('/api/auth/login', {
     method: 'POST',
     body: { uid, pwd }
@@ -1247,78 +1169,35 @@ async function doLogin() {
       currentRole = 'admin';
       showAdminPage();
     } else if (res.role === 'employee') {
+      // Load employee data from server
+      await loadStateFromServer();
       currentUser = res.user;
       currentRole = 'employee';
 
-      // Show half-day warning from server if applicable
       if (res.timeBlock && res.timeBlock.isHalfDay) {
         showNotifBar('warning', '⚠️ First login after 2:00 PM — today will be flagged as Half-Day.', '⚠️');
       }
 
-      const empId = res.user.id;
-      const emp = employees.find(e => e.id === empId);
+      const emp = employees.find(e => e.id === res.user.id);
       if (emp) {
         showEmployeePage(emp);
       } else {
-        const loaded = await loadStateFromServer();
-        if (loaded) {
-          const emp2 = employees.find(e => e.id === empId);
-          if (emp2) showEmployeePage(emp2);
-        } else {
-          showNotifBar('error', 'Employee data not available. Check database connection.', '❌');
-        }
+        showNotifBar('error', 'Employee data not found. Check database connection.', '❌');
       }
     }
     return;
   }
 
-  // ── Server unreachable or returned error — try local auth ──
-  // Ensure local DB is loaded
-  if (!employees.length) {
-    const localData = loadFromLocalDB();
-    if (localData) {
-      applyLocalState(localData);
-      usingLocalDB = true;
-    }
+  // ── Server returned error (invalid creds, etc.) ──
+  if (res) {
+    document.getElementById('err-msg').style.display = 'flex';
+    document.getElementById('err-msg-text').textContent = res.message || 'Invalid credentials. Please try again.';
+    return;
   }
 
-  // Admin local auth — read password from localStorage (may have been changed via Settings)
-  if (uid === ADMIN_USERNAME || uid.toLowerCase() === ADMIN_EMAIL) {
-    const localData = loadFromLocalDB();
-    const adminPwd = (localData && localData.adminPassword) || 'quemah123';
-    if (pwd === adminPwd) {
-      console.log('[EMS] Local admin auth successful.');
-      localStorage.setItem('userId', uid);
-      localStorage.setItem('userRole', 'admin');
-      if (rememberMe) localStorage.setItem('rememberedUser', uid);
-      else localStorage.removeItem('rememberedUser');
-      currentUser = { name: 'Administrator' };
-      currentRole = 'admin';
-      serverAvailable = false;
-      usingLocalDB = true;
-      showAdminPage();
-      return;
-    }
-  } else {
-    // Employee local auth
-    const emp = employees.find(e => e.id === uid);
-    if (emp && emp.password === pwd) {
-      console.log('[EMS] Local employee auth successful:', uid);
-      localStorage.setItem('userId', uid);
-      localStorage.setItem('userRole', 'employee');
-      if (rememberMe) localStorage.setItem('rememberedUser', uid);
-      else localStorage.removeItem('rememberedUser');
-      currentUser = emp;
-      currentRole = 'employee';
-      serverAvailable = false;
-      usingLocalDB = true;
-      showEmployeePage(emp);
-      return;
-    }
-  }
-
+  // ── Server unreachable ──
   document.getElementById('err-msg').style.display = 'flex';
-  document.getElementById('err-msg-text').textContent = 'Invalid credentials. Please try again.';
+  document.getElementById('err-msg-text').textContent = 'Server unreachable. Please ensure the backend is running and try again.';
 }
 
 function logout() {
@@ -1754,11 +1633,36 @@ function downloadFile(content, filename, mimeType) {
 async function checkServerHealth() {
   const res = await api('/api/health');
   serverAvailable = !!(res && res.status === 'ok');
+  updateServerStatusIndicator();
+}
+
+function updateServerStatusIndicator() {
+  const indicator = document.getElementById('server-status-indicator');
+  if (!indicator) {
+    const topbar = document.querySelector('.topbar-right');
+    if (!topbar) return;
+    const el = document.createElement('span');
+    el.id = 'server-status-indicator';
+    el.style.cssText = 'font-size:11px;padding:3px 10px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;font-weight:500;';
+    topbar.prepend(el);
+  }
+  const el = document.getElementById('server-status-indicator');
+  if (!el) return;
+  if (serverAvailable) {
+    el.textContent = '● Live';
+    el.style.background = 'rgba(34,197,94,0.12)';
+    el.style.color = '#86efac';
+    el.style.border = '1px solid rgba(34,197,94,0.2)';
+  } else {
+    el.textContent = '○ Offline';
+    el.style.background = 'rgba(239,68,68,0.12)';
+    el.style.color = '#fca5a5';
+    el.style.border = '1px solid rgba(239,68,68,0.2)';
+  }
 }
 
 async function init() {
-  // Initialize localStorage seed data if first visit
-  seedLocalDB();
+  // No localStorage seeding — all data comes from the server
 
   if (localStorage.getItem('darkMode') === 'true') {
     document.body.classList.add('dark-mode');
@@ -1769,49 +1673,21 @@ async function init() {
   if (remembered) {
     document.getElementById('uid').value = remembered;
     document.getElementById('remember-me').checked = true;
-    // Trigger admin reset visibility check if remembered user is the admin
-    if (typeof toggleAdminReset === 'function') toggleAdminReset();
   }
 
-  // Check server health on load — show a banner if the backend is unreachable
+  // Check server health on load
   checkServerHealth();
 
-  // Restore session if previously logged in
+  // Restore session if previously logged in — always load fresh state from server
   const savedUid = localStorage.getItem('userId');
   const savedRole = localStorage.getItem('userRole');
   if (savedUid && savedRole) {
-    if (savedRole === 'admin') {
-      if (serverAvailable) {
-        const loaded = await loadStateFromServer();
-        if (loaded) {
-          showAdminPage();
-          return;
-        }
-      }
-      // Fallback to local DB
-      const localData = loadFromLocalDB();
-      if (localData) {
-        applyLocalState(localData);
-        usingLocalDB = true;
+    const loaded = await loadStateFromServer();
+    if (loaded) {
+      if (savedRole === 'admin') {
         showAdminPage();
         return;
-      }
-    } else if (savedRole === 'employee') {
-      if (serverAvailable) {
-        const loaded = await loadStateFromServer();
-        if (loaded) {
-          const emp = (employees || []).find(e => e.id === savedUid);
-          if (emp) {
-            showEmployeePage(emp);
-            return;
-          }
-        }
-      }
-      // Fallback to local DB
-      const localData = loadFromLocalDB();
-      if (localData) {
-        applyLocalState(localData);
-        usingLocalDB = true;
+      } else if (savedRole === 'employee') {
         const emp = employees.find(e => e.id === savedUid);
         if (emp) {
           showEmployeePage(emp);
@@ -1819,6 +1695,9 @@ async function init() {
         }
       }
     }
+    // Session expired or server unreachable — clear stale token and show login
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userRole');
   }
 
   const annBody = document.getElementById('ann-body');
