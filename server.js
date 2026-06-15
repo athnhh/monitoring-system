@@ -917,23 +917,25 @@ apiRouter.post('/leave-accrual', async (req, res) => {
 // ── Vercel Serverless Export ──
 let serverReady = false;
 
-const handler = (req, res) => {
+module.exports = async (req, res) => {
   if (!serverReady) {
-    res.writeHead(503, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Server still initializing, please retry.' }));
-    return;
+    try {
+      await connectDB();
+      serverReady = true;
+      runMonthlyLeaveAccrual();
+    } catch (e) {
+      return res.status(503).json({ error: 'Server initialization failed: ' + e.message });
+    }
   }
-  server.emit('request', req, res);
+  app(req, res);
 };
 
-module.exports = app;
-
-async function start() {
-  await connectDB();
-  serverReady = true;
-  runMonthlyLeaveAccrual();
-
-  if (!process.env.VERCEL) {
+// Start for local dev only
+if (!process.env.VERCEL) {
+  (async () => {
+    await connectDB();
+    serverReady = true;
+    runMonthlyLeaveAccrual();
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`\n  ${process.env.APP_NAME || 'Quemahtech'} Employee Management System`);
       console.log(`  http://localhost:${PORT}`);
@@ -942,7 +944,5 @@ async function start() {
       console.log(`  Admin: ${ADMIN_USERNAME} / quemah123`);
       console.log(`  Emp:   EMP001 / emp123\n`);
     });
-  }
+  })();
 }
-
-start();
