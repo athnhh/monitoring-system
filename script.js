@@ -1121,7 +1121,7 @@ async function doLogin() {
 
   if (!uid || !pwd) {
     document.getElementById('err-msg').style.display = 'flex';
-    document.getElementById('err-msg').textContent = '⚠ Please fill in all fields.';
+    document.getElementById('err-msg-text').textContent = 'Please fill in all fields.';
     return;
   }
 
@@ -1136,13 +1136,13 @@ async function doLogin() {
   // Handle server-side errors (time-block, DB down, etc.)
   if (!res) {
     document.getElementById('err-msg').style.display = 'flex';
-    document.getElementById('err-msg').textContent = '⚠ Server unreachable. Please ensure the server is running.';
+    document.getElementById('err-msg-text').textContent = 'Server unreachable. Please ensure the server is running.';
     return;
   }
 
   if (res.error === 'TIME_BLOCK') {
     document.getElementById('err-msg').style.display = 'flex';
-    document.getElementById('err-msg').textContent = '⚠ ' + (res.message || 'Employee logins are blocked after 6:00 PM IST.');
+    document.getElementById('err-msg-text').textContent = res.message || 'Employee logins are blocked after 6:00 PM IST.';
     return;
   }
 
@@ -1182,7 +1182,7 @@ async function doLogin() {
   }
 
   document.getElementById('err-msg').style.display = 'flex';
-  document.getElementById('err-msg').textContent = '⚠ Invalid credentials. Please try again.';
+  document.getElementById('err-msg-text').textContent = 'Invalid credentials. Please try again.';
 }
 
 function logout() {

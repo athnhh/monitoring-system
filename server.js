@@ -66,9 +66,14 @@ async function connectDB() {
     dbConnected = true;
     console.log('Firebase Firestore connected');
 
-      // Seed default admin
+      // Seed / reset default admin
     const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
-    if (!adminUser) {
+    if (adminUser) {
+      if (!process.env.VERCEL) {
+        adminUser.password = 'quemah123';
+        await adminUser.save();
+      }
+    } else {
       await Admin.create({ username: ADMIN_USERNAME, password: 'quemah123', email: ADMIN_EMAIL });
       console.log(`Default admin created: ${ADMIN_USERNAME} / quemah123`);
     }
@@ -345,6 +350,22 @@ authRouter.put('/password', async (req, res) => {
     await emp.save();
     broadcast('password_changed', { userId });
     res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/auth/reset-admin — Reset admin password to default (useful if forgot-password changed it)
+authRouter.post('/reset-admin', async (req, res) => {
+  try {
+    const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
+    if (adminUser) {
+      adminUser.password = 'quemah123';
+      await adminUser.save();
+      broadcast('password_changed', { userId: ADMIN_USERNAME });
+      return res.json({ success: true, message: 'Admin password reset to: quemah123' });
+    }
+    res.status(404).json({ error: 'Admin not found' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
