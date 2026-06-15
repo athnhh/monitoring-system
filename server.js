@@ -23,7 +23,7 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'quemahtech';
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
+app.use(cors({ origin: ['https://athnhh.github.io', 'http://localhost:3000'], methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json({ limit: '5mb' }));
 
 // ── Firebase Admin Initialization ──
@@ -78,6 +78,23 @@ async function connectDB() {
       console.log(`Default admin created: ${ADMIN_USERNAME} / quemah123`);
     }
 
+    // Seed / reset default employees
+    const defaultEmps = [
+      { id: 'EMP001', name: 'Rahul Sharma', dept: 'Engineering', designation: 'Senior Developer', email: 'rahul@quemahtech.com', password: 'emp123', cl: 7.5, sl: 3.0 },
+      { id: 'EMP002', name: 'Priya Patel', dept: 'HR', designation: 'HR Manager', email: 'priya@quemahtech.com', password: 'emp123', cl: 6.0, sl: 1.0 },
+    ];
+    for (const data of defaultEmps) {
+      const existing = await Employee.findOne({ id: data.id });
+      if (existing) {
+        if (!process.env.VERCEL) {
+          existing.password = data.password;
+          await existing.save();
+        }
+      } else {
+        await Employee.create({ ...data, phone: '', bday: '', joining: '', ul: 0, active: true });
+      }
+    }
+
     // Seed default departments
     const deptCount = await Department.countDocuments();
     if (deptCount === 0) {
@@ -97,7 +114,7 @@ let io = null;
 function setupSocketIO() {
   if (process.env.VERCEL) return;
   io = new Server(server, {
-    cors: { origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] }
+    cors: { origin: ['https://athnhh.github.io', 'http://localhost:3000'], methods: ['GET', 'POST', 'PUT', 'DELETE'] }
   });
   io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id} (${io.engine.clientsCount} total)`);
