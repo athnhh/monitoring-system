@@ -1276,6 +1276,7 @@ function renderAll() {
   if (!appState) return;
   updateDashboardStats();
   renderDashboardCards();
+  renderBirthdayModule();
   renderRecords();
   renderEmpTable();
   renderArchivedTable();
@@ -1438,6 +1439,27 @@ function renderAnnouncements() {
     const pClass = 'priority-' + (a.priority || 'normal');
     return '<div class="announcement-card ' + pClass + '"><div class="ann-header"><div class="ann-header-left"><span class="ann-category-badge ' + cat + '">' + (a.priority || 'normal') + '</span><div class="ann-subject">' + a.subject + '</div></div></div><div class="ann-meta"><span class="ann-meta-item">📅 ' + formatDate(a.date) + '</span><span class="ann-meta-item">👤 ' + (a.by || 'Admin') + '</span><span class="ann-meta-item">👥 ' + (a.recipient || 'All Employees') + '</span></div><div class="ann-body">' + a.body.replace(/\n/g, '<br>') + '</div></div>';
   }).join('');
+}
+
+function renderBirthdayModule() {
+  const birthdayModule = document.getElementById('birthday-module');
+  const birthdayList = document.getElementById('birthday-list');
+  if (!birthdayModule || !birthdayList || !appState) return;
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0].slice(5);
+  const employees = appState.employees || [];
+  const birthdayEmps = employees.filter(e => e.bday && e.bday.slice(5) === todayStr);
+  if (birthdayEmps.length > 0) {
+    birthdayModule.style.display = 'block';
+    birthdayList.innerHTML = birthdayEmps.map(e => {
+      const year = today.getFullYear();
+      const bday = e.bday.split('-');
+      const calendarUrl = 'https://www.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(e.name + '\'s Birthday') + '&dates=' + year + bday[1] + bday[2] + '/' + year + bday[1] + bday[2] + '&details=Birthday+of+' + encodeURIComponent(e.name);
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;"><span>🎂</span><span><strong>' + e.name + '</strong>\'s Birthday today!</span><a href="' + calendarUrl + '" target="_blank" style="margin-left:auto;font-size:12px;color:var(--accent);">📅 Add to Calendar</a></div>';
+    }).join('');
+  } else {
+    birthdayModule.style.display = 'none';
+  }
 }
 
 function renderAnnouncementsEmp(announcements) {
@@ -1668,30 +1690,11 @@ function startFirestoreListener() {
     const inited = FirebaseDB.init();
     if (inited) {
       if (fsUnsubscribe) fsUnsubscribe();
-      fsUnsubscribe = FirebaseDB.subscribe((data) => {
-        if (data) {
-          console.log('[Firestore] Real-time update received');
-          appState = {
-            employees: data.employees || [],
-            archivedEmployees: data.archivedEmployees || [],
-            attendanceRecords: data.attendanceRecords || [],
-            leaveRequests: data.leaveRequests || [],
-            announcements: data.announcements || [],
-            adminNotifications: data.adminNotifications || [],
-            empNotifications: data.empNotifications || [],
-            departments: data.departments || ['Engineering', 'HR', 'IT', 'Marketing', 'Finance', 'Operations']
-          };
-          serverAvailable = true;
-          if (document.getElementById('page-admin').classList.contains('active')) {
-            renderAll();
-          } else if (document.getElementById('page-employee').classList.contains('active')) {
-            const uid = sessionStorage.getItem('userId');
-            const emp = (appState.employees || []).find(e => e.id === uid);
-            if (emp) renderEmpDashboard(emp);
-          }
-        }
+      fsUnsubscribe = FirebaseDB.subscribe(() => {
+        console.log('[Firestore] Sync signal received — refreshing from server');
+        refreshStateAndRender();
       });
-      console.log('[Firestore] Real-time listener attached');
+      console.log('[Firestore] Real-time listener attached to _sync');
     }
   }
 }
@@ -1766,25 +1769,7 @@ async function init() {
   const todayEl2 = document.getElementById('today-date2');
   if (todayEl2) todayEl2.textContent = today.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
-  // Birthday widget - generate Google Calendar integration links
-  if (appState && appState.employees) {
-    const birthdayEl = document.getElementById('birthday-module');
-    if (birthdayEl) {
-      const todayStr = today.toISOString().split('T')[0].slice(5);
-      const birthdayEmps = appState.employees.filter(e => e.bday && e.bday.slice(5) === todayStr);
-      if (birthdayEmps.length > 0) {
-        birthdayEl.style.display = 'block';
-        birthdayEl.innerHTML = birthdayEmps.map(e => {
-          const year = today.getFullYear();
-          const bday = e.bday.split('-');
-          const calendarUrl = 'https://www.google.com/calendar/render?action=TEMPLATE&text=🎂+' + encodeURIComponent(e.name) + "'s+Birthday&dates=" + year + bday[1] + bday[2] + '/' + year + bday[1] + bday[2] + '&details=Birthday+of+' + encodeURIComponent(e.name);
-          return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;"><span>🎂</span><span><strong>' + e.name + '</strong>\'s Birthday today!</span><a href="' + calendarUrl + '" target="_blank" style="margin-left:auto;font-size:12px;color:var(--accent);">📅 Add to Calendar</a></div>';
-        }).join('');
-      } else {
-        birthdayEl.style.display = 'none';
-      }
-    }
-  }
+  renderBirthdayModule();
 }
 
 document.addEventListener('DOMContentLoaded', init);

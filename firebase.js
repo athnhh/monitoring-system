@@ -6,12 +6,10 @@
 (function () {
   'use strict';
 
-  const STATE_DOC_PATH = 'ems/state';
+  const SYNC_DOC_PATH = 'systemConfig/_sync';
   let db = null;
   let ready = false;
   let unsubscribe = null;
-  let remoteUpdatedAt = 0;
-  let localWriteInProgress = false;
 
   function getConfig() {
     if (typeof window === 'undefined') return null;
@@ -46,76 +44,16 @@
     }
   }
 
-  async function loadState() {
-    if (!ready || !db) return null;
-    try {
-      const snap = await db.doc(STATE_DOC_PATH).get();
-      if (!snap.exists) return null;
-      const data = snap.data();
-      if (data.updatedAt && data.updatedAt.toMillis) {
-        remoteUpdatedAt = data.updatedAt.toMillis();
-      }
-      return extractState(data);
-    } catch (e) {
-      console.error('Firebase load error:', e.message);
-      return null;
-    }
-  }
-
-  function extractState(data) {
-    if (!data) return null;
-    return {
-      adminPassword: data.adminPassword || 'quemah123',
-      employees: data.employees || [],
-      archivedEmployees: data.archivedEmployees || [],
-      attendanceRecords: data.attendanceRecords || [],
-      leaveRequests: data.leaveRequests || [],
-      announcements: data.announcements || [],
-      adminNotifications: data.adminNotifications || [],
-      empNotifications: data.empNotifications || [],
-      departments: data.departments || ['Engineering', 'HR', 'IT', 'Marketing', 'Finance', 'Operations']
-    };
-  }
-
-  async function saveState(state) {
-    if (!ready || !db) return false;
-    localWriteInProgress = true;
-    try {
-      const payload = {
-        adminPassword: state.adminPassword || 'quemah123',
-        employees: state.employees || [],
-        archivedEmployees: state.archivedEmployees || [],
-        attendanceRecords: state.attendanceRecords || [],
-        leaveRequests: state.leaveRequests || [],
-        announcements: state.announcements || [],
-        adminNotifications: state.adminNotifications || [],
-        empNotifications: state.empNotifications || [],
-        departments: state.departments || [],
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      };
-      await db.doc(STATE_DOC_PATH).set(payload, { merge: true });
-      remoteUpdatedAt = Date.now();
-      return true;
-    } catch (e) {
-      console.error('Firebase save error:', e.message);
-      return false;
-    } finally {
-      setTimeout(() => { localWriteInProgress = false; }, 800);
-    }
-  }
-
   function subscribe(callback) {
     if (!ready || !db) return null;
     if (unsubscribe) unsubscribe();
-    unsubscribe = db.doc(STATE_DOC_PATH).onSnapshot(
-      (snap) => {
-        if (localWriteInProgress) return;
-        if (!snap.exists) return;
-        const data = snap.data();
-        const ts = data.updatedAt && data.updatedAt.toMillis ? data.updatedAt.toMillis() : 0;
-        if (ts && ts <= remoteUpdatedAt) return;
-        remoteUpdatedAt = ts || Date.now();
-        callback(extractState(data));
+    let lastTimestamp = 0;
+    unsubscribe = db.doc(SYNC_DOC_PATH).onSnapshot(
+      () => {
+        const now = Date.now();
+        if (now - lastTimestamp < 2000) return;
+        lastTimestamp = now;
+        callback({ synced: true, timestamp: now });
       },
       (err) => console.error('Firebase listener error:', err.message)
     );
@@ -135,8 +73,6 @@
 
   const api = {
     init,
-    loadState,
-    saveState,
     subscribe,
     stopListening,
     isReady,
@@ -153,9 +89,7 @@
     module.exports = {
       initFirebase: init,
       isFirebaseReady: isReady,
-      readState: loadState,
-      writeState: saveState,
-      updateState: () => {} // placeholder (not used in server.js)
+      updateState: () => {}
     };
   }
 })();

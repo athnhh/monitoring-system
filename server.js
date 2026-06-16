@@ -111,6 +111,19 @@ function broadcast(event, data) {
     io.emit(event, data);
     console.log('Broadcast:', event);
   }
+  syncStateChange();
+}
+
+function syncStateChange() {
+  try {
+    const db2 = admin.firestore();
+    db2.collection('systemConfig').doc('_sync').set({
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      timestamp: Date.now()
+    }, { merge: true }).catch(() => {});
+  } catch (e) {
+    console.error('syncStateChange error:', e.message);
+  }
 }
 
 function sanitizeEmp(e) {
