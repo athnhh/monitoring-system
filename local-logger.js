@@ -19,6 +19,9 @@ const path = require('path');
 const os = require('os');
 const net = require('net');
 
+const SUPABASE_URL = 'https://jrdfxkyhoutwzdbieefq.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_vbDey0Diibq15CBKL4pXFA_Bl6U38T9';
+
 const SMB_SHARE = '\\\\AttendanceServerPC\\AttendanceData';
 const CSV_PATH   = path.join(SMB_SHARE, 'attendance_log.csv');
 const QUEUE_PATH = path.join(__dirname, 'local_queue.json');
@@ -46,6 +49,46 @@ function csvEscape(val) {
 
 // ── CSV writer ──
 
+// ── Supabase REST sync ──
+
+async function syncToSupabase(entry) {
+  try {
+    const dateStr = entry.timestamp.split(' ')[0];
+    const timeStr = entry.timestamp.split(' ')[1] || '';
+    const record = {
+      id: entry.employeeId,
+      name: entry.user || '',
+      dept: '',
+      date: dateStr,
+      in: entry.event === 'SIGNIN' ? timeStr : '',
+      out: entry.event === 'SIGNOUT' || entry.event === 'SHUTDOWN' ? timeStr : '',
+      hours: 0,
+      status: 'Present',
+      notes: `Auto-logged from ${entry.computer} (${entry.event})`
+    };
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/attendance`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(record)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Supabase sync failed: ${response.status} ${response.statusText}`);
+    }
+    console.log(`[SUPABASE] Synced ${entry.event} ${entry.employeeId} to cloud`);
+    return true;
+  } catch (err) {
+    console.warn(`[SUPABASE-OFFLINE] ${err.message}`);
+    return false;
+  }
+}
+
 function appendCSV(entry) {
   const line = [
     csvEscape(entry.timestamp),
@@ -57,25 +100,25 @@ function appendCSV(entry) {
     csvEscape(entry.notes || '')
   ].join(',') + '\n';
 
-  try {
-    // Check if the network share is reachable
-    if (!fs.existsSync(SMB_SHARE)) {
-      throw new Error('SMB share not reachable');
+  const csvOk = (() => {
+    try {
+      if (!fs.existsSync(SMB_SHARE)) throw new Error('SMB share not reachable');
+      let header = '';
+      if (!fs.existsSync(CSV_PATH)) header = 'Timestamp,EmployeeID,Event,Computer,User,IP,Notes\n';
+      fs.appendFileSync(CSV_PATH, header + line, 'utf8');
+      console.log(`[OK] Logged to ${CSV_PATH}: ${entry.event} ${entry.employeeId}`);
+      return true;
+    } catch (err) {
+      console.warn(`[OFFLINE] ${err.message} — queuing entry locally`);
+      return false;
     }
+  })();
 
-    // Append to CSV (create header if missing)
-    let header = '';
-    if (!fs.existsSync(CSV_PATH)) {
-      header = 'Timestamp,EmployeeID,Event,Computer,User,IP,Notes\n';
-    }
-    fs.appendFileSync(CSV_PATH, header + line, 'utf8');
-    console.log(`[OK] Logged to ${CSV_PATH}: ${entry.event} ${entry.employeeId}`);
-    return true;
-  } catch (err) {
-    console.warn(`[OFFLINE] ${err.message} — queuing entry locally`);
-    queueEntry(entry);
-    return false;
-  }
+  // Also try Supabase sync
+  syncToSupabase(entry);
+
+  if (!csvOk) queueEntry(entry);
+  return csvOk;
 }
 
 // ── Local queue (offline resilience) ──

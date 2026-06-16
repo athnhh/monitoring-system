@@ -6,7 +6,7 @@ const DIST = path.join(ROOT, 'dist');
 
 const STATIC_FILES = ['index.html', 'logo.webp', 'photo.jpeg'];
 const CSS_FILES = ['style.css'];
-const JS_FILES = ['firebase.js', 'firebase-config.js', 'script.js', 'firebase-client.js'];
+const JS_FILES = ['supabase.js', 'supabase-config.js', 'supabase-client.js', 'script.js'];
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

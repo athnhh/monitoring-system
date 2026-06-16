@@ -2,11 +2,7 @@
 <html lang="en">
 <head>
 <script>
-  window.APP_CONFIG = {
-    API_BASE: (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-      ? 'http://localhost:3000'
-      : window.location.origin
-  };
+  window.APP_CONFIG = {};
 </script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -296,12 +292,11 @@ body.dark-mode .skel-act-row {
 }
 </style>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<!-- Firebase SDK for client-side Firestore onSnapshot real-time sync -->
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-<script src="firebase-config.js"></script>
-<script src="firebase.js"></script>
-<script src="firebase-client.js"></script>
+<!-- Supabase JS client for PostgreSQL + Realtime -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-config.js"></script>
+<script src="supabase.js"></script>
+<script src="supabase-client.js"></script>
 </head>
 <body>
 <div id="notif-bar" class="notif-bar" style="display:none;">
@@ -1264,8 +1259,6 @@ body.dark-mode .skel-act-row {
   </div>
 </div>
 
-<!-- Socket.io client for real-time notifications -->
-<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 <!-- Single consolidated script -->
 <script src="script.js"></script>
 </body>

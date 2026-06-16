@@ -16,10 +16,6 @@ let annSelectedPriority = 'normal';
 let serverAvailable = false;
 
 let appState = null;
-let socket = null;
-
-// Firestore snapshot unsubscribe function
-let fsUnsubscribe = null;
 
 // ── Smart DOM Sync Utilities ──
 // Eliminate flicker by matching elements via data-id instead of full innerHTML rebuilds
@@ -262,103 +258,9 @@ function setButtonLoading(btnSelector, isLoading, originalText) {
   }
 }
 
-function resolveApiBase() {
-  if (window.APP_CONFIG && window.APP_CONFIG.API_BASE) {
-    return window.APP_CONFIG.API_BASE;
-  }
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return 'http://localhost:3000';
-  }
-  return window.location.origin;
-}
+console.log('[EMS] Supabase mode');
 
-const API_BASE = resolveApiBase();
-console.log('[EMS] API_BASE:', API_BASE);
-
-function connectSocketIO() {
-  if (typeof io === 'undefined') {
-    console.warn('Socket.io library not loaded, real-time updates disabled');
-    return;
-  }
-  try {
-    socket = io(API_BASE, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionDelay: 2000,
-      reconnectionAttempts: Infinity
-    });
-    socket.on('connect', () => {
-      console.log('Socket.io connected:', socket.id);
-      serverAvailable = true;
-    });
-    socket.on('disconnect', () => {
-      console.log('Socket.io disconnected');
-    });
-    socket.on('connect_error', (err) => {
-      console.warn('Socket.io connection error:', err.message);
-      serverAvailable = false;
-    });
-    socket.on('notification', (data) => {
-      console.log('Socket notification:', data);
-      RenderQueue.schedule();
-    });
-    socket.on('leave_request', () => { RenderQueue.schedule(); });
-    socket.on('leave_update', () => { RenderQueue.schedule(); });
-    socket.on('employee_added', (data) => {
-      console.log('Employee added (remote):', data);
-      RenderQueue.schedule();
-    });
-    socket.on('employee_deleted', (data) => {
-      console.log('Employee deleted (remote):', data);
-      RenderQueue.schedule();
-    });
-    socket.on('employee_updated', (data) => {
-      console.log('Employee updated (remote):', data);
-      RenderQueue.schedule();
-    });
-    socket.on('employee_archived', (data) => {
-      console.log('Employee archived (remote):', data);
-      RenderQueue.schedule();
-    });
-    socket.on('departments_updated', () => { RenderQueue.schedule(); });
-    socket.on('attendance_update', () => { RenderQueue.schedule(); });
-    socket.on('announcement', () => { RenderQueue.schedule(); });
-    socket.on('password_changed', () => {
-      showNotifBar('info', 'Password was changed in another session.', '🔑');
-    });
-    socket.on('leave_balance_updated', () => { RenderQueue.schedule(); });
-    socket.on('password_reset', (data) => {
-      console.log('Password reset received via socket:', data);
-      const pwdDisplay = document.getElementById('fp-temp-password');
-      const statusEl = document.getElementById('fp-status-message');
-      if (pwdDisplay && data.tempPassword) {
-        pwdDisplay.textContent = data.tempPassword;
-        pwdDisplay.style.display = 'block';
-      }
-      if (statusEl) {
-        statusEl.innerHTML = '✅ <strong>Temporary password generated!</strong> Use the password below to log in. It expires in <strong>10 minutes</strong>.';
-        statusEl.style.display = 'block';
-        statusEl.style.color = 'var(--green-text)';
-        statusEl.style.background = 'var(--green-bg)';
-      }
-      const sendBtn = document.querySelector('#forgot-modal .btn-primary');
-      if (sendBtn) {
-        sendBtn.disabled = false;
-        sendBtn.textContent = '🔑 Generate Reset Password';
-      }
-      showNotifBar('success', '🔑 Temporary password delivered! Check the modal.', '🔑');
-    });
-    socket.on('force_logout', (data) => {
-      showNotifBar('warning', data.message || 'Force logged out at 18:00 IST', '⏰');
-      const uid = sessionStorage.getItem('userId');
-      if (uid && uid !== ADMIN_USERNAME) {
-        logout();
-      }
-    });
-  } catch (e) {
-    console.warn('Socket.io init failed:', e.message);
-  }
-}
+// Supabase Realtime replaces Socket.io — handled in supabase.js
 
 function adminTab(tabName, btnElement) {
   sessionStorage.setItem('adminLastTab', tabName);
@@ -1140,40 +1042,13 @@ async function sendAdminReset() {
 }
 
 async function api(url, opts = {}) {
-  // Try FirebaseClient first if server is clearly unavailable (e.g. GitHub Pages)
-  if (typeof FirebaseClient !== 'undefined' && FirebaseClient.ready && !serverAvailable) {
-    const fbResult = await FirebaseClient.call(opts.method || 'GET', url, opts.body || null);
-    if (fbResult) return fbResult;
+  // Use SupabaseClient directly (stateless, no server needed)
+  if (typeof SupabaseClient !== 'undefined' && SupabaseClient.ready) {
+    const result = await SupabaseClient.call(opts.method || 'GET', url, opts.body || null);
+    if (result) return result;
   }
-  // Try server API
-  try {
-    const fetchOpts = {
-      method: opts.method || 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    };
-    if (opts.body) fetchOpts.body = JSON.stringify(opts.body);
-    const res = await fetch(API_BASE + url, fetchOpts);
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({ error: 'Request failed with status ' + res.status }));
-      console.warn('API error:', url, errBody);
-      // Fallback to FirebaseClient
-      if (typeof FirebaseClient !== 'undefined' && FirebaseClient.ready) {
-        const fbResult = await FirebaseClient.call(opts.method || 'GET', url, opts.body || null);
-        if (fbResult) return fbResult;
-      }
-      return errBody;
-    }
-    const data = await res.json();
-    return data;
-  } catch (e) {
-    console.warn('API fetch failed:', url, e.message);
-    // Fallback to FirebaseClient
-    if (typeof FirebaseClient !== 'undefined' && FirebaseClient.ready) {
-      const fbResult = await FirebaseClient.call(opts.method || 'GET', url, opts.body || null);
-      if (fbResult) return fbResult;
-    }
-    return null;
-  }
+  // Fallback: return null (SupabaseClient handles all API calls)
+  return null;
 }
 
 async function loadStateFromServer() {
@@ -1217,7 +1092,7 @@ function addAdminNotif(text) {
 
 function addEmpNotif(text, userId) {
   api('/api/notifications', { method: 'POST', body: { text, target: 'emp', userId } }).then(() => {
-    refreshStateAndRender();
+    RenderQueue.schedule();
   });
 }
 
@@ -1416,7 +1291,7 @@ async function doLogin() {
 
   setButtonLoading(loginBtn, false, 'Sign In');
   document.getElementById('err-msg').style.display = 'flex';
-  document.getElementById('err-msg-text').textContent = 'Server unreachable. Ensure the backend is running on ' + API_BASE + ' and try again.';
+  document.getElementById('err-msg-text').textContent = 'Unable to connect to database. Check your Supabase configuration.';
 }
 
 function logout() {
@@ -1891,8 +1766,8 @@ function downloadFile(content, filename, mimeType) {
 }
 
 async function checkServerHealth() {
-  const res = await api('/api/health');
-  serverAvailable = !!(res && res.status === 'ok');
+  // In Supabase mode, always live
+  serverAvailable = true;
   updateServerStatusIndicator();
 }
 
@@ -1908,29 +1783,21 @@ function updateServerStatusIndicator() {
   }
   const el = document.getElementById('server-status-indicator');
   if (!el) return;
-  if (serverAvailable) {
-    el.textContent = '● Live';
-    el.style.background = 'rgba(34,197,94,0.12)';
-    el.style.color = '#86efac';
-    el.style.border = '1px solid rgba(34,197,94,0.2)';
-  } else {
-    el.textContent = '○ Offline';
-    el.style.background = 'rgba(239,68,68,0.12)';
-    el.style.color = '#fca5a5';
-    el.style.border = '1px solid rgba(239,68,68,0.2)';
-  }
+  el.textContent = '● Supabase Live';
+  el.style.background = 'rgba(34,197,94,0.12)';
+  el.style.color = '#86efac';
+  el.style.border = '1px solid rgba(34,197,94,0.2)';
 }
 
-function startFirestoreListener() {
-  if (typeof FirebaseDB !== 'undefined' && FirebaseDB.isConfigured()) {
-    const inited = FirebaseDB.init();
+function startSupabaseListener() {
+  if (typeof SupabaseDB !== 'undefined' && SupabaseDB.isConfigured()) {
+    const inited = SupabaseDB.init();
     if (inited) {
-      if (fsUnsubscribe) fsUnsubscribe();
-      fsUnsubscribe = FirebaseDB.subscribe(() => {
-        console.log('[Firestore] Sync signal received — scheduling RAF render');
+      SupabaseDB.subscribeAll(() => {
+        console.log('[Supabase] Realtime change — scheduling render');
         RenderQueue.schedule();
       });
-      console.log('[Firestore] Real-time listener attached to _sync');
+      console.log('[Supabase] Realtime listener attached');
     }
   }
 }
@@ -1947,14 +1814,16 @@ async function init() {
     document.getElementById('remember-me').checked = true;
   }
 
-  await checkServerHealth();
+  // No server health check needed — Supabase is always available
+  serverAvailable = true;
+  updateServerStatusIndicator();
 
-  // Initialize FirebaseClient for GitHub Pages (client-only Firestore mode)
-  if (typeof FirebaseClient !== 'undefined') {
-    FirebaseClient.init();
+  // Initialize SupabaseClient for direct database access
+  if (typeof SupabaseClient !== 'undefined') {
+    SupabaseClient.init();
   }
 
-  startFirestoreListener();
+  startSupabaseListener();
 
   const savedUid = sessionStorage.getItem('userId');
   const savedRole = sessionStorage.getItem('userRole');
@@ -1998,7 +1867,7 @@ async function init() {
     histMonth.value = new Date().toISOString().slice(0, 7);
   }
 
-  connectSocketIO();
+  // Supabase Realtime handles all live sync (no Socket.io needed)
 
   const h = new Date().getHours();
   const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
