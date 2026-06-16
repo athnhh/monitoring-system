@@ -278,7 +278,7 @@
 
   async function _saveAttendance(body) {
     const { id, date } = body;
-    if (!id || !date) return { success: false };
+    if (!id || !date) return { success: false, error: 'Missing id or date.' };
     const hr = new Date().getHours();
     if (body.in && !body.out && hr >= 18) {
       return { success: false, error: 'Sign-in blocked after 6:00 PM IST.' };
@@ -289,7 +289,8 @@
       else if (hr > 9 || (hr === 9 && new Date().getMinutes() > 15)) status = 'Late';
     }
     body.status = status;
-    await db.upsert('attendance', body, 'id,date');
+    const result = await db.upsert('attendance', body, 'id,date');
+    if (!result) return { success: false, error: 'Failed to save attendance — database error.' };
     return { success: true };
   }
 

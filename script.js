@@ -815,7 +815,8 @@ function empPunchIn() {
     if (h >= 14) status = 'Half-Day';
     else if (h > 9 || (h === 9 && m > 15)) status = 'Late';
     const rec = { id: emp.id, name: emp.name, dept: emp.dept, date: dateStr, in: inTimeStr, out: '', hours: 0, status: status };
-    api('/api/attendance', { method: 'POST', body: rec }).then(() => {
+    api('/api/attendance', { method: 'POST', body: rec }).then(res => {
+      if (res && !res.success) showNotifBar('error', res.error || 'Failed to save sign-in.', '❌');
       RenderQueue.schedule();
     });
   }
@@ -838,7 +839,8 @@ function empPunchOut() {
     const m = now.getMinutes();
     const outTimeStr = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
     const rec = { id: emp.id, name: emp.name, dept: emp.dept, date: dateStr, in: '', out: outTimeStr, hours: 0, status: 'Present' };
-    api('/api/attendance', { method: 'POST', body: rec }).then(() => {
+    api('/api/attendance', { method: 'POST', body: rec }).then(res => {
+      if (res && !res.success) showNotifBar('error', res.error || 'Failed to save sign-out.', '❌');
       RenderQueue.schedule();
     });
   }
