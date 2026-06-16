@@ -1727,7 +1727,12 @@ async function init() {
     document.getElementById('remember-me').checked = true;
   }
 
-  checkServerHealth();
+  await checkServerHealth();
+
+  // Initialize FirebaseClient for GitHub Pages (client-only Firestore mode)
+  if (typeof FirebaseClient !== 'undefined') {
+    FirebaseClient.init();
+  }
 
   startFirestoreListener();
 
