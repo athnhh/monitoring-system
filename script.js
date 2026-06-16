@@ -1176,13 +1176,13 @@ async function doLogin() {
   if (res) {
     setButtonLoading(loginBtn, false, 'Sign In');
     document.getElementById('err-msg').style.display = 'flex';
-    document.getElementById('err-msg-text').textContent = res.message || 'Invalid credentials. Please try again.';
+    document.getElementById('err-msg-text').textContent = res.message || res.error || 'Invalid credentials. Please try again.';
     return;
   }
 
   setButtonLoading(loginBtn, false, 'Sign In');
   document.getElementById('err-msg').style.display = 'flex';
-  document.getElementById('err-msg-text').textContent = 'Server unreachable. Please ensure the backend is running and try again.';
+  document.getElementById('err-msg-text').textContent = 'Server unreachable. Ensure the backend is running on ' + API_BASE + ' and try again.';
 }
 
 function logout() {

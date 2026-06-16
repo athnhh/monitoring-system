@@ -36,22 +36,32 @@ async function connectDB() {
     dbConnected = true;
     console.log('Firebase Firestore connected successfully');
 
-    const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
+    let adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
+    if (!adminUser) {
+      adminUser = await Admin.findOne({ email: ADMIN_EMAIL });
+    }
+    if (!adminUser) {
+      const allAdmins = await Admin.find({});
+      adminUser = allAdmins.find(a => a.username === ADMIN_USERNAME || a.email === ADMIN_EMAIL);
+    }
     if (adminUser) {
       if (adminUser.password !== ADMIN_PASSWORD) {
         adminUser.password = ADMIN_PASSWORD;
         await adminUser.save();
-        console.log('Admin password reset to default');
+        console.log('Admin password reset to default: ' + ADMIN_USERNAME + ' / ' + ADMIN_PASSWORD);
       }
     } else {
       await Admin.create({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD, email: ADMIN_EMAIL });
-      console.log('Default admin auto-seeded: quemahtech / quemah123');
+      console.log('Default admin auto-seeded: ' + ADMIN_USERNAME + ' / ' + ADMIN_PASSWORD);
     }
 
-    const adminByEmail = await Admin.findOne({ email: ADMIN_EMAIL });
-    if (!adminByEmail && adminUser) {
-    } else if (!adminByEmail && !adminUser) {
-      await Admin.create({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD, email: ADMIN_EMAIL });
+    const verifyAdmin = await Admin.findOne({ username: ADMIN_USERNAME });
+    if (!verifyAdmin || verifyAdmin.password !== ADMIN_PASSWORD) {
+      console.warn('Admin seed verification failed — forcing direct write');
+      const db2 = admin.firestore();
+      await db2.collection('admins').doc(ADMIN_USERNAME).set({
+        username: ADMIN_USERNAME, password: ADMIN_PASSWORD, email: ADMIN_EMAIL
+      }, { merge: true });
     }
 
     const defaultEmps = [
@@ -227,10 +237,13 @@ authRouter.post('/login', async (req, res) => {
       if (!adminUser) {
         adminUser = await Admin.findOne({ email: ADMIN_EMAIL });
       }
-      if (adminUser && adminUser.password === pwd) {
-        return res.json({ success: true, role: 'admin', user: { id: ADMIN_USERNAME, name: 'Administrator' } });
+      if (adminUser) {
+        if (adminUser.password === pwd) {
+          return res.json({ success: true, role: 'admin', user: { id: ADMIN_USERNAME, name: 'Administrator' } });
+        }
+        return res.json({ success: false, message: 'Incorrect admin password.' });
       }
-      return res.json({ success: false });
+      return res.json({ success: false, message: 'Admin account not found in database. Server may not have seeded correctly.' });
     }
 
     const hr = getISTHour();
