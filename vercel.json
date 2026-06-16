@@ -1,13 +1,11 @@
 {
   "version": 2,
   "builds": [
-    { "src": "server.js", "use": "@vercel/node" }
+    { "src": "server.js", "use": "@vercel/node" },
+    { "src": "dist/**/*", "use": "@vercel/static" }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "server.js" },
-    { "src": "/(.*)", "dest": "index.html" }
-  ],
-  "env": {
-    "FIREBASE_SERVICE_ACCOUNT_PATH": "firebase-service-account.json"
-  }
+    { "src": "/(.*)", "dest": "/index.html", "check": true }
+  ]
 }

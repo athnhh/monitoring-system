@@ -10,20 +10,40 @@ const admin = require('firebase-admin');
 const path = require('path');
 
 // ── Initialize Firebase Admin SDK ──
-const SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
-  ? path.resolve(__dirname, '..', process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
-  : path.join(__dirname, '..', 'firebase-service-account.json');
+//
+// Supports two methods:
+//   1. Environment variable FIREBASE_SERVICE_ACCOUNT (raw JSON string) — preferred for Vercel
+//   2. File path from FIREBASE_SERVICE_ACCOUNT_PATH env var, or default 'firebase-service-account.json'
+
+function loadServiceAccount() {
+  // Method 1: Raw JSON string from env var (Vercel-friendly)
+  const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (rawJson) {
+    try {
+      return JSON.parse(rawJson);
+    } catch (e) {
+      console.error('FIREBASE_SERVICE_ACCOUNT env var is not valid JSON:', e.message);
+    }
+  }
+
+  // Method 2: File path from env var, or default path
+  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
+    ? path.resolve(__dirname, '..', process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
+    : path.join(__dirname, '..', 'firebase-service-account.json');
+
+  return require(serviceAccountPath);
+}
 
 if (!admin.apps.length) {
   try {
-    const serviceAccount = require(SERVICE_ACCOUNT_PATH);
+    const serviceAccount = loadServiceAccount();
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount)
     });
     console.log('Firebase Admin SDK initialized successfully');
   } catch (e) {
     console.error('Firebase Admin SDK init error:', e.message);
-    console.error('Expected service account at:', SERVICE_ACCOUNT_PATH);
+    console.error('Set FIREBASE_SERVICE_ACCOUNT as an env var (raw JSON) or place firebase-service-account.json in the project root.');
   }
 }
 

@@ -26,6 +26,47 @@ const server = http.createServer(app);
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 app.use(express.json({ limit: '10mb' }));
 
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.originalUrl}`);
+  const originalJson = res.json.bind(res);
+  res.json = function (body) {
+    console.log(`  → ${res.statusCode}`, JSON.stringify(body).slice(0, 200));
+    return originalJson(body);
+  };
+  const originalSend = res.send.bind(res);
+  res.send = function (body) {
+    if (typeof body === 'string') console.log(`  → ${res.statusCode} ${body.slice(0, 100)}`);
+    return originalSend(body);
+  };
+  const originalStatus = res.status.bind(res);
+  res.status = function (code) {
+    if (code === 405) {
+      console.log(`  ⚠ INTERCEPTED 405 via status() for ${req.method} ${req.originalUrl}`);
+      code = 404;
+    }
+    return originalStatus(code);
+  };
+  const originalEnd = res.end.bind(res);
+  res.end = function (chunk, encoding) {
+    if (res.statusCode === 405) {
+      console.log(`  ⚠ INTERCEPTED 405 via end() for ${req.method} ${req.originalUrl}`);
+      res.statusCode = 404;
+    }
+    return originalEnd(chunk, encoding);
+  };
+  next();
+});
+
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    return res.status(204).end();
+  }
+  next();
+});
+
 let dbConnected = false;
 
 async function connectDB() {
