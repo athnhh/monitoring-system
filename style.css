@@ -248,6 +248,48 @@ input,select,textarea{font-family:var(--font);}
   color:rgba(255,255,255,0.8);
 }
 
+/* ── Navigation notification badges ── */
+.nav-badge{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:18px;
+  height:18px;
+  padding:0 5px;
+  border-radius:9px;
+  background:#ef4444;
+  color:#fff;
+  font-size:10px;
+  font-weight:700;
+  line-height:1;
+  margin-left:4px;
+  vertical-align:middle;
+  box-shadow:0 0 0 1.5px var(--primary);
+  animation:badgePop 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes badgePop{
+  0%{transform:scale(0);opacity:0;}
+  70%{transform:scale(1.15);}
+  100%{transform:scale(1);opacity:1;}
+}
+.nav-badge-dot{
+  display:inline-block;
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:#ef4444;
+  margin-left:4px;
+  vertical-align:middle;
+  animation:dotPulse 2s ease-in-out infinite;
+  box-shadow:0 0 0 1.5px var(--primary);
+}
+@keyframes dotPulse{
+  0%,100%{opacity:1;}
+  50%{opacity:0.4;}
+}
+.nav-badge.hidden,.nav-badge-dot.hidden{display:none;}
+
 /* NOTIFICATION BAR */
 .notif-bar{
   position:fixed;

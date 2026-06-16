@@ -379,14 +379,14 @@ body.dark-mode .skel-act-row {
     </div>
   </div>
   <div class="nav">
-    <button class="nav-btn active" onclick="adminTab('dashboard',this)">📊 Dashboard</button>
+    <button class="nav-btn active" onclick="adminTab('dashboard',this)">📊 Dashboard<span class="nav-badge hidden" id="nav-badge-dash"></span></button>
     <button class="nav-btn" onclick="adminTab('records',this)">📋 Records</button>
-    <button class="nav-btn" onclick="adminTab('employees',this)">👥 Employees</button>
-    <button class="nav-btn" onclick="adminTab('leaves',this)">📅 Leave Mgmt</button>
+    <button class="nav-btn" onclick="adminTab('employees',this)">👥 Employees<span class="nav-badge hidden" id="nav-badge-emps"></span></button>
+    <button class="nav-btn" onclick="adminTab('leaves',this)">📅 Leave Mgmt<span class="nav-badge hidden" id="nav-badge-leaves"></span></button>
     <button class="nav-btn" onclick="adminTab('calendar',this)">🗓 Calendar</button>
     <button class="nav-btn" onclick="adminTab('reports',this)">📈 Reports</button>
     <button class="nav-btn" onclick="adminTab('departments',this)">🏬 Departments</button>
-    <button class="nav-btn" onclick="adminTab('announcements',this)">📢 Announce</button>
+    <button class="nav-btn" onclick="adminTab('announcements',this)">📢 Announce<span class="nav-badge hidden" id="nav-badge-ann"></span></button>
     <button class="nav-btn" onclick="adminTab('settings',this)">⚙️ Settings</button>
   </div>
   <div class="content">
@@ -841,7 +841,7 @@ body.dark-mode .skel-act-row {
   <div class="nav">
     <button class="nav-btn active" onclick="empTab('dashboard',this)">🏠 My Dashboard</button>
     <button class="nav-btn" onclick="empTab('history',this)">📋 History</button>
-    <button class="nav-btn" onclick="empTab('leaves',this)">📅 My Leaves</button>
+    <button class="nav-btn" onclick="empTab('leaves',this)">📅 My Leaves<span class="nav-badge hidden" id="nav-badge-emp-leaves"></span></button>
     <button class="nav-btn" onclick="empTab('calendar',this)">🗓 Calendar</button>
     <button class="nav-btn" onclick="empTab('settings',this)">⚙️ Settings</button>
   </div>
