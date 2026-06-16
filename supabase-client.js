@@ -73,11 +73,13 @@
     if (unarchiveMatch && method === 'POST')
       return () => _unarchiveEmployee(decodeURIComponent(unarchiveMatch[1]));
 
-    // ── Attendance ──
-    if (path === '/api/attendance' && method === 'GET')
-      return () => db.getAll('attendance');
-    if (path === '/api/attendance' && method === 'POST')
-      return () => _saveAttendance(body);
+    // ── Attendance (Multi-Session Punch Ledger) ──
+    if (path === '/api/attendance/logs' && method === 'GET')
+      return () => _getAttendanceLogs();
+    if (path === '/api/attendance/login' && method === 'POST')
+      return () => _loginSession(body);
+    if (path === '/api/attendance/logout' && method === 'POST')
+      return () => _logoutSession(body);
 
     // ── Leave requests ──
     if (path === '/api/leave-requests' && method === 'GET')
@@ -112,9 +114,17 @@
     if (path === '/api/notifications/mark-read' && method === 'POST')
       return () => _markNotificationsRead(body.userId);
 
-    // ── Calendar (no-op on static) ──
-    if (path.startsWith('/api/calendar') || path.startsWith('/api/calendar-config'))
-      return () => ({ success: true, enabled: false });
+    // ── Calendar — delegate to local server ──
+    if (path === '/api/calendar-config' && method === 'GET')
+      return () => _calendarConfig();
+    if (path === '/api/calendar-config' && method === 'POST')
+      return () => _saveCalendarConfig(body);
+    if (path === '/api/calendar/birthday' && method === 'POST')
+      return () => _createBirthdayEvent(body.name, body.birthday);
+    if (path === '/api/calendar/sync-birthdays' && method === 'POST')
+      return () => _syncAllBirthdays(body.employees || []);
+    if (path.startsWith('/api/calendar'))
+      return () => _calendarConfig();
 
     // ── Save ──
     if (path === '/api/save' && method === 'POST')
@@ -196,10 +206,14 @@
   // ── State ──
 
   async function _getState() {
-    const [employees, attendance, leaveRequests, announcements, depts, archived, notifications] =
+    const [employees, attendanceLogs, leaveRequests, announcements, depts, archived, notifications] =
       await Promise.all([
-        db.getAll('employees'), db.getAll('attendance'), db.getAll('leave_requests'),
-        db.getAll('announcements'), db.getAll('departments'), db.getAll('archived_employees'),
+        db.getAll('employees'),
+        db.getAll('attendance_logs'),
+        db.getAll('leave_requests'),
+        db.getAll('announcements'),
+        db.getAll('departments'),
+        db.getAll('archived_employees'),
         db.getAll('notifications')
       ]);
     return {
@@ -208,7 +222,17 @@
         id: a.id || a.original_id, name: a.name, dept: a.dept,
         status: a.status, joining: a.joining, exit: a.exit
       })),
-      attendanceRecords: attendance || [],
+      attendanceLogs: (attendanceLogs || []).map(l => ({
+        id: l.id, emp_id: l.emp_id, emp_name: l.emp_name,
+        department: l.department,
+        login_time: l.login_time,
+        logout_time: l.logout_time,
+        working_hours: l.working_hours || 0,
+        status: l.status || 'Active',
+        computer_name: l.computer_name || '',
+        login_date: l.login_date,
+        event: l.event || 'LOGIN'
+      })),
       leaveRequests: (leaveRequests || []).map(l => ({
         id: l.id, empId: l.emp_id, empName: l.emp_name, dept: l.dept,
         type: l.type, from: l.from_date, to: l.to_date,
@@ -241,6 +265,25 @@
         time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         unread: true, target: 'admin', user_id: ''
       });
+
+      // ── Auto-create Google Calendar birthday event ──
+      if (data.bday) {
+        try {
+          const calResult = await _createBirthdayEvent(data.name, data.bday);
+          if (calResult && calResult.success && calResult.eventId) {
+            // Store the calendar event ID on the employee record for future updates
+            await db.supabase.from('employees').update({
+              calendar_event_id: calResult.eventId
+            }).eq('id', data.id);
+            console.log('[Calendar] Birthday event created for', data.name, '— ID:', calResult.eventId);
+          } else if (calResult && calResult.error) {
+            console.warn('[Calendar] Failed to create birthday event for', data.name, ':', calResult.error);
+          }
+        } catch (e) {
+          // Calendar failure must NOT block employee creation
+          console.warn('[Calendar] Birthday event creation skipped for', data.name, ':', e.message);
+        }
+      }
     }
     return emp ? { success: true, employee: emp } : { error: 'Failed to create employee' };
   }
@@ -254,6 +297,9 @@
     const { data: emp } = await db.supabase
       .from('employees').select('*').eq('id', id).limit(1);
     if (!emp || emp.length === 0) return { error: 'Not found' };
+    // Cascade: delete attendance_logs, then attendance, then employee
+    await db.supabase.from('attendance_logs').delete().eq('emp_id', id);
+    await db.supabase.from('attendance').delete().eq('id', id);
     await db.supabase.from('employees').delete().eq('id', id);
     await db.insert('archived_employees', {
       id, original_id: id, name: emp[0].name, dept: emp[0].dept,
@@ -294,24 +340,89 @@
     return { success: true };
   }
 
-  // ── Attendance ──
+  // ── Attendance (Multi-Session Punch Ledger) ──
 
-  async function _saveAttendance(body) {
-    const { id, date } = body;
-    if (!id || !date) return { success: false, error: 'Missing id or date.' };
+  async function _getAttendanceLogs() {
+    const { data, error } = await db.supabase
+      .from('attendance_logs')
+      .select('*')
+      .order('login_time', { ascending: false });
+    if (error) return [];
+    return data || [];
+  }
+
+  async function _loginSession(body) {
+    const { empId, empName, department, computerName } = body;
+    if (!empId) return { success: false, error: 'Missing employee ID.' };
     const hr = new Date().getHours();
-    if (body.in && !body.out && hr >= 18) {
+    if (hr >= 18) {
       return { success: false, error: 'Sign-in blocked after 6:00 PM IST.' };
     }
-    let status = body.status || 'Present';
-    if (body.in && !body.out) {
-      if (hr >= 14) status = 'Half-Day';
-      else if (hr > 9 || (hr === 9 && new Date().getMinutes() > 15)) status = 'Late';
+    // Check for existing active session
+    const { data: active } = await db.supabase
+      .from('attendance_logs')
+      .select('id')
+      .eq('emp_id', empId)
+      .is('logout_time', null)
+      .limit(1);
+    if (active && active.length > 0) {
+      return { success: false, error: 'Already signed in. Please sign out first.' };
     }
-    body.status = status;
-    const result = await db.upsert('attendance', body, 'id,date');
-    if (!result) return { success: false, error: 'Failed to save attendance — database error.' };
-    return { success: true };
+    const now = new Date();
+    const m = now.getMinutes();
+    let status = 'Present';
+    if (hr >= 14) status = 'Half-Day';
+    else if (hr > 9 || (hr === 9 && m > 15)) status = 'Late';
+    const loginDate = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    const { data, error } = await db.supabase
+      .from('attendance_logs')
+      .insert({
+        emp_id: empId,
+        emp_name: empName,
+        department: department || '',
+        login_time: now.toISOString(),
+        logout_time: null,
+        working_hours: 0,
+        status,
+        computer_name: computerName || 'Web Browser',
+        login_date: loginDate,
+        event: 'LOGIN'
+      })
+      .select()
+      .single();
+    if (error) return { success: false, error: error.message };
+    return { success: true, log: data };
+  }
+
+  async function _logoutSession(body) {
+    const { empId } = body;
+    if (!empId) return { success: false, error: 'Missing employee ID.' };
+    // Find the active session for this employee
+    const { data: active, error: findErr } = await db.supabase
+      .from('attendance_logs')
+      .select('*')
+      .eq('emp_id', empId)
+      .is('logout_time', null)
+      .limit(1);
+    if (findErr) return { success: false, error: findErr.message };
+    if (!active || active.length === 0) {
+      return { success: false, error: 'No active session found. Please sign in first.' };
+    }
+    const session = active[0];
+    const now = new Date();
+    const loginTime = new Date(session.login_time);
+    const workingHours = Math.max(0, (now - loginTime) / (1000 * 60 * 60));
+    const { data, error } = await db.supabase
+      .from('attendance_logs')
+      .update({
+        logout_time: now.toISOString(),
+        working_hours: Math.round(workingHours * 100) / 100
+      })
+      .eq('id', session.id)
+      .select()
+      .single();
+    if (error) return { success: false, error: error.message };
+    return { success: true, log: data };
   }
 
   // ── Leave Requests ──
@@ -443,6 +554,52 @@
       }
     }
     return { success: true, count, message: count + ' employees credited (CL +1.0, SL +0.5)' };
+  }
+
+  // ── Calendar helpers (call local server) ──
+
+  async function _calendarFetch(path, opts) {
+    const port = window.location.port || '3000';
+    const base = window.location.protocol + '//' + window.location.hostname + ':' + port;
+    try {
+      const res = await fetch(base + path, {
+        method: opts?.method || 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        body: opts?.body ? JSON.stringify(opts.body) : undefined,
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      console.warn('[Calendar] Server unreachable:', e.message);
+      return null;
+    }
+  }
+
+  async function _calendarConfig() {
+    return await _calendarFetch('/api/calendar-config');
+  }
+
+  async function _saveCalendarConfig(body) {
+    return await _calendarFetch('/api/calendar-config', { method: 'POST', body });
+  }
+
+  async function _createBirthdayEvent(name, birthday) {
+    return await _calendarFetch('/api/calendar/birthday', {
+      method: 'POST',
+      body: { name, birthday },
+    });
+  }
+
+  async function _syncAllBirthdays(employees) {
+    // If no employees passed, fetch all active employees with birthdays from DB
+    if (!employees || employees.length === 0) {
+      const emps = await db.getAll('employees');
+      employees = (emps || []).filter(e => e.active !== false && e.bday);
+    }
+    return await _calendarFetch('/api/calendar/sync-birthdays', {
+      method: 'POST',
+      body: { employees },
+    });
   }
 
   // ── Public API ──

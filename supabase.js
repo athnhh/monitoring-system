@@ -53,7 +53,7 @@
     if (!ready || !supabase) return;
     unsubscribeAll();
 
-    const tables = ['employees', 'attendance', 'leave_requests', 'announcements',
+    const tables = ['employees', 'attendance', 'attendance_logs', 'leave_requests', 'announcements',
                     'departments', 'notifications', 'archived_employees', 'admin'];
     let debounceTimer = null;
 

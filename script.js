@@ -13,6 +13,7 @@ let selectedLeaveManageIdx = null;
 let archiveTargetId = null;
 let removeTargetId = null;
 let pendingUndoArchiveId = null;
+let pendingUndoArchiveName = null;
 let pendingUndoTimeout = null;
 let annSelectedRecipient = 'all';
 let annSelectedPriority = 'normal';
@@ -281,15 +282,26 @@ function adminTab(tabName, btnElement) {
 function updateDashboardStats() {
   if (!appState) return;
   const today = new Date().toISOString().split('T')[0];
-  const todayRecs = (appState.attendanceRecords || []).filter(r => r.date === today);
-  const present = todayRecs.filter(r => r.status === 'Present' || r.status === 'Late' || r.status === 'Half-Day').length;
-  const absent = todayRecs.filter(r => r.status === 'Absent').length;
-  const late = todayRecs.filter(r => r.status === 'Late').length;
-  const total = (appState.employees || []).filter(e => e.active).length;
+  const logs = appState.attendanceLogs || [];
+  const activeEmployees = (appState.employees || []).filter(e => e.active);
+  const todayLogs = logs.filter(l => getDateFromISO(l.login_time) === today);
+  // Unique employees with any session today
+  const presentSet = new Set();
+  const lateSet = new Set();
+  todayLogs.forEach(l => {
+    if (l.status === 'Present' || l.status === 'Late' || l.status === 'Half-Day' || l.status === 'Active') {
+      presentSet.add(l.emp_id);
+      if (l.status === 'Late') lateSet.add(l.emp_id);
+    }
+  });
+  const present = presentSet.size;
+  const late = lateSet.size;
+  const absent = activeEmployees.length - present;
+  const total = activeEmployees.length;
   const rate = total > 0 ? Math.round(present / total * 100) : 0;
   setText('stat-total-emp', total);
   setText('stat-present-today', present);
-  setText('stat-absent-today', absent);
+  setText('stat-absent-today', Math.max(0, absent));
   setText('stat-late-today', late);
   setText('stat-present-rate', rate + '% attendance');
 }
@@ -299,19 +311,28 @@ function renderDashboardCards() {
   updateDashboardStats();
   const today = new Date().toISOString().split('T')[0];
   const employees = appState.employees || [];
-  const attendanceRecords = appState.attendanceRecords || [];
+  const logs = appState.attendanceLogs || [];
   const leaveRequests = appState.leaveRequests || [];
-  const todayRecs = attendanceRecords.filter(r => r.date === today);
-  const presentEmps = todayRecs.filter(r => ['Present', 'Late', 'Half-Day'].includes(r.status));
-  const absentEmps = todayRecs.filter(r => r.status === 'Absent');
+  const todayLogs = logs.filter(l => getDateFromISO(l.login_time) === today);
+  // Group today logs by employee — pick latest session per emp
+  const empLatest = {};
+  todayLogs.forEach(l => {
+    if (!empLatest[l.emp_id] || new Date(l.login_time) > new Date(empLatest[l.emp_id].login_time)) {
+      empLatest[l.emp_id] = l;
+    }
+  });
+  const latestTodayLogs = Object.values(empLatest);
+  const presentLogs = latestTodayLogs.filter(l => ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status));
+  const absentEmpIds = employees.filter(e => e.active).map(e => e.id).filter(id => !empLatest[id]);
+  const absentEmps = absentEmpIds.map(id => employees.find(e => e.id === id)).filter(Boolean);
   const pEl = document.getElementById('a-present');
   const aEl = document.getElementById('a-absent');
-  setText('title-present-count', 'Present (' + presentEmps.length + ')');
+  setText('title-present-count', 'Present (' + presentLogs.length + ')');
   setText('title-absent-count', 'Absent / On Leave (' + absentEmps.length + ')');
-  // Smart sync for present list — no flicker
+  // Smart sync for present list
   if (pEl) {
-    if (presentEmps.length) {
-      smartListSync(pEl, presentEmps, r => actRow(r, employees), r => r.id);
+    if (presentLogs.length) {
+      smartListSync(pEl, presentLogs, l => actRowEmp(l, employees), l => l.emp_id);
     } else {
       pEl.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No one present yet.</p>';
     }
@@ -319,7 +340,7 @@ function renderDashboardCards() {
   // Smart sync for absent list
   if (aEl) {
     if (absentEmps.length) {
-      smartListSync(aEl, absentEmps, r => actRow(r, employees), r => r.id);
+      smartListSync(aEl, absentEmps, e => absentRow(e), e => e.id);
     } else {
       aEl.innerHTML = '<p style="color:var(--subtle);font-size:13px;">All present!</p>';
     }
@@ -331,8 +352,7 @@ function renderDashboardCards() {
     employees.filter(e => e.active).forEach(emp => {
       if (!deptData[emp.dept]) deptData[emp.dept] = { total: 0, present: 0 };
       deptData[emp.dept].total++;
-      const rec = todayRecs.find(r => r.id === emp.id && ['Present', 'Late', 'Half-Day'].includes(r.status));
-      if (rec) deptData[emp.dept].present++;
+      if (empLatest[emp.id]) deptData[emp.dept].present++;
     });
     smartListSync(barsEl, Object.entries(deptData), ([d, v]) => {
       const pct = v.total > 0 ? Math.round(v.present / v.total * 100) : 0;
@@ -344,25 +364,47 @@ function renderDashboardCards() {
   // Smart sync for attendance log table
   const logEl = document.getElementById('a-log');
   if (logEl) {
-    smartTableSync(logEl, todayRecs, r =>
-      '<tr>' +
+    smartTableSync(logEl, latestTodayLogs, l =>
+      '<tr data-log-id="' + l.id + '" class="session-row">' +
       '<td><div style="display:flex;align-items:center;gap:10px;">' +
-        '<div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '" style="flex-shrink:0;">' + r.name.charAt(0) + '</div>' +
+        '<div class="av ' + AV_COLORS[employees.findIndex(e => e.id === l.emp_id) % AV_COLORS.length] + '" style="flex-shrink:0;">' + l.emp_name.charAt(0) + '</div>' +
         '<div style="display:flex;flex-direction:column;">' +
-          '<span style="font-weight:600;font-size:14px;color:var(--text);">' + r.name + '</span>' +
-          '<span style="font-size:11px;color:var(--subtle);">' + r.id + '</span>' +
+          '<span style="font-weight:600;font-size:14px;color:var(--text);">' + l.emp_name + '</span>' +
+          '<span style="font-size:11px;color:var(--subtle);">' + l.emp_id + '</span>' +
         '</div>' +
       '</div></td>' +
-      '<td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td>' +
-      '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.in || '—') + '</span></td>' +
-      '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.out || '—') + '</span></td>' +
-      '<td><strong style="font-size:14px;">' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
-      '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>',
-      r => r.id + '-' + r.date
+      '<td><span class="chip ' + (DEPT_COLORS[l.department] || 'c-eng') + '">' + l.department + '</span></td>' +
+      '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#16a34a;">' + formatTime(l.login_time) + '</span></td>' +
+      '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + (l.logout_time ? formatTime(l.logout_time) : '<span style="color:#d97706;font-weight:600;">Active Now</span>') + '</span></td>' +
+      '<td><strong style="font-size:14px;">' + (l.working_hours > 0 ? l.working_hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
+      '<td><span class="tag t-' + l.status.toLowerCase().replace(/[-\s]/g, '') + '">' + l.status + '</span></td></tr>',
+      l => l.emp_id
     );
   }
 
   renderDashPendingLeaves(leaveRequests);
+}
+
+function actRowEmp(l, employees) {
+  const emps = employees || (appState ? appState.employees : []) || [];
+  const idx = emps.findIndex(e => e.id === l.emp_id);
+  return '<div class="act-row">' +
+    '<div class="av ' + AV_COLORS[Math.max(0, idx) % AV_COLORS.length] + '" style="flex-shrink:0;">' + l.emp_name.charAt(0) + '</div>' +
+    '<div style="flex:1;min-width:0;">' +
+      '<div style="font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + l.emp_name + '</div>' +
+      '<div style="font-size:12px;color:var(--subtle);margin-top:2px;">' + l.department + '</div>' +
+    '</div>' +
+    '<span class="tag t-' + l.status.toLowerCase().replace(/[-\s]/g, '') + '" style="flex-shrink:0;">' + l.status + '</span></div>';
+}
+
+function absentRow(e) {
+  return '<div class="act-row">' +
+    '<div class="av ' + AV_COLORS[0] + '" style="flex-shrink:0;">' + e.name.charAt(0) + '</div>' +
+    '<div style="flex:1;min-width:0;">' +
+      '<div style="font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + e.name + '</div>' +
+      '<div style="font-size:12px;color:var(--subtle);margin-top:2px;">' + e.dept + '</div>' +
+    '</div>' +
+    '<span class="tag t-absent" style="flex-shrink:0;">Absent</span></div>';
 }
 
 function renderDashPendingLeaves(leaveRequests) {
@@ -374,48 +416,36 @@ function renderDashPendingLeaves(leaveRequests) {
   smartListSync(el, pending, l => leaveReqCard(l), l => l.id || l.empId + '-' + l.from);
 }
 
-function actRow(r, employees) {
-  const emps = employees || (appState ? appState.employees : []) || [];
-  const idx = emps.findIndex(e => e.id === r.id);
-  return '<div class="act-row">' +
-    '<div class="av ' + AV_COLORS[Math.max(0, idx) % AV_COLORS.length] + '" style="flex-shrink:0;">' + r.name.charAt(0) + '</div>' +
-    '<div style="flex:1;min-width:0;">' +
-      '<div style="font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + r.name + '</div>' +
-      '<div style="font-size:12px;color:var(--subtle);margin-top:2px;">' + r.dept + '</div>' +
-    '</div>' +
-    '<span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '" style="flex-shrink:0;">' + r.status + '</span></div>';
-}
-
 function renderRecords() {
   if (!appState) return;
-  const attendanceRecords = appState.attendanceRecords || [];
+  const logs = appState.attendanceLogs || [];
   const dateF = document.getElementById('rec-date')?.value || '';
   const deptF = document.getElementById('rec-dept')?.value || '';
   const statusF = document.getElementById('rec-status')?.value || '';
   const tbody = document.getElementById('a-records');
   if (!tbody) return;
-  let recs = attendanceRecords.slice();
-  if (dateF) recs = recs.filter(r => r.date === dateF);
-  if (deptF) recs = recs.filter(r => r.dept === deptF);
-  if (statusF) recs = recs.filter(r => r.status === statusF);
+  let recs = logs.slice();
+  if (dateF) recs = recs.filter(l => getDateFromISO(l.login_time) === dateF);
+  if (deptF) recs = recs.filter(l => l.department === deptF);
+  if (statusF) recs = recs.filter(l => l.status === statusF);
   const employees = appState.employees || [];
-  smartTableSync(tbody, recs, r =>
-    '<tr>' +
-    '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--text);font-weight:600;">' + r.id + '</span></td>' +
+  smartTableSync(tbody, recs, l =>
+    '<tr data-log-id="' + l.id + '">' +
+    '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--text);font-weight:600;">' + l.emp_id + '</span></td>' +
     '<td><div style="display:flex;align-items:center;gap:10px;">' +
-      '<div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '" style="flex-shrink:0;width:32px;height:32px;font-size:12px;">' + r.name.charAt(0) + '</div>' +
+      '<div class="av ' + AV_COLORS[employees.findIndex(e => e.id === l.emp_id) % AV_COLORS.length] + '" style="flex-shrink:0;width:32px;height:32px;font-size:12px;">' + l.emp_name.charAt(0) + '</div>' +
       '<div style="display:flex;flex-direction:column;">' +
-        '<span style="font-weight:600;font-size:14px;color:var(--text);">' + r.name + '</span>' +
+        '<span style="font-weight:600;font-size:14px;color:var(--text);">' + l.emp_name + '</span>' +
       '</div>' +
     '</div></td>' +
-    '<td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td>' +
-    '<td>' + formatDate(r.date) + '</td>' +
-    '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.in || '—') + '</span></td>' +
-    '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.out || '—') + '</span></td>' +
-    '<td><strong style="font-size:14px;">' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
-    '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td>' +
-    '<td style="font-size:12px;color:var(--subtle);">' + (r.status === 'Half-Day' ? 'Late login>14:00' : '') + '</td></tr>',
-    r => r.id + '-' + r.date
+    '<td><span class="chip ' + (DEPT_COLORS[l.department] || 'c-eng') + '">' + l.department + '</span></td>' +
+    '<td>' + formatDate(getDateFromISO(l.login_time)) + '</td>' +
+    '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#16a34a;">' + formatTime(l.login_time) + '</span></td>' +
+    '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + (l.logout_time ? formatTime(l.logout_time) : '<span style="color:#d97706;font-weight:600;">Active</span>') + '</span></td>' +
+    '<td><strong style="font-size:14px;">' + (l.working_hours > 0 ? l.working_hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
+    '<td><span class="tag t-' + l.status.toLowerCase().replace(/[-\s]/g, '') + '">' + l.status + '</span></td>' +
+    '<td style="font-size:12px;color:var(--subtle);">' + (l.status === 'Half-Day' ? 'Login after 14:00' : '') + '</td></tr>',
+    l => l.emp_id + '-' + l.id
   );
 }
 
@@ -492,11 +522,13 @@ async function confirmArchiveEmployee() {
   await refreshStateAndRender();
   if (res && res.success) {
     pendingUndoArchiveId = archiveTargetId;
+    pendingUndoArchiveName = emp.name;
     const empName = emp.name;
     // Clear any previous undo timer
     if (pendingUndoTimeout) clearTimeout(pendingUndoTimeout);
     pendingUndoTimeout = setTimeout(() => {
       pendingUndoArchiveId = null;
+      pendingUndoArchiveName = null;
       pendingUndoTimeout = null;
     }, 5000);
     showNotifBar('info', empName + ' has been archived.', '📦', {
@@ -514,7 +546,24 @@ async function confirmArchiveEmployee() {
 async function deleteEmployee(employeeId) {
   if (typeof SupabaseDB === 'undefined' || !SupabaseDB.supabase) return { error: 'Database not connected.' };
   const sb = SupabaseDB.supabase;
+  // Save to archived_employees BEFORE deleting (so data is preserved for history)
+  const { data: emp } = await sb.from('employees').select('*').eq('id', employeeId).limit(1);
+  if (emp && emp.length > 0) {
+    try {
+      await sb.from('archived_employees').insert({
+        id: employeeId,
+        original_id: employeeId,
+        name: emp[0].name,
+        dept: emp[0].dept,
+        status: 'Deleted',
+        joining: emp[0].joining || '',
+        exit: new Date().toISOString().split('T')[0],
+        employee_data: emp[0]
+      });
+    } catch (_) { /* archived_employees insert is best-effort */ }
+  }
   // Delete child records first; silently skip errors (tables may be empty or unlinked)
+  try { await sb.from('attendance_logs').delete().eq('emp_id', employeeId); } catch (_) {}
   try { await sb.from('attendance').delete().eq('id', employeeId); } catch (_) {}
   try { await sb.from('leave_requests').delete().eq('emp_id', employeeId); } catch (_) {}
   // Delete the employee record
@@ -575,6 +624,7 @@ async function undoArchive(empName) {
     pendingUndoTimeout = null;
   }
   pendingUndoArchiveId = null;
+  pendingUndoArchiveName = null;
   showNotifBar('info', 'Restoring ' + empName + '…', '⏳');
   const res = await api('/api/employees/' + id + '/unarchive', { method: 'POST' });
   await refreshStateAndRender();
@@ -787,61 +837,67 @@ function saveLeaveBalance() {
 
 function setReport(type, btn) {
   if (!appState) return;
-  const attendanceRecords = appState.attendanceRecords || [];
+  const logs = appState.attendanceLogs || [];
   document.querySelectorAll('.rtab').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   const today = new Date().toISOString().split('T')[0];
   let recs = [];
   let title = '';
-  if (type === 'daily') { recs = attendanceRecords.filter(r => r.date === today); title = 'Daily Report — ' + formatDate(today); }
-  else if (type === 'weekly') { const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); recs = attendanceRecords.filter(r => new Date(r.date) >= weekStart); title = 'Weekly Report — Current Week'; }
-  else { const mn = today.slice(0, 7); recs = attendanceRecords.filter(r => r.date.startsWith(mn)); title = 'Monthly Report — ' + new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
+  if (type === 'daily') { recs = logs.filter(l => getDateFromISO(l.login_time) === today); title = 'Daily Report — ' + formatDate(today); }
+  else if (type === 'weekly') { const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); const ws = weekStart.toISOString().split('T')[0]; recs = logs.filter(l => getDateFromISO(l.login_time) >= ws); title = 'Weekly Report — Current Week'; }
+  else { const mn = today.slice(0, 7); recs = logs.filter(l => getDateFromISO(l.login_time).startsWith(mn)); title = 'Monthly Report — ' + new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
 
   setText('rpt-title', title);
-  setText('rpt-table-title', 'Detailed Records (' + recs.length + ')');
-  const present = recs.filter(r => ['Present', 'Late', 'Half-Day'].includes(r.status)).length;
-  const absent = recs.filter(r => r.status === 'Absent').length;
-  const late = recs.filter(r => r.status === 'Late').length;
-  const avgHrs = recs.length ? (recs.reduce((a, r) => a + r.hours, 0) / recs.length).toFixed(1) : 0;
+  setText('rpt-table-title', 'Session Records (' + recs.length + ')');
+  // Unique employee-level stats
+  const empStatus = {};
+  recs.forEach(l => {
+    if (!empStatus[l.emp_id]) empStatus[l.emp_id] = { present: false, late: false, status: l.status };
+    if (['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)) empStatus[l.emp_id].present = true;
+    if (l.status === 'Late') empStatus[l.emp_id].late = true;
+  });
+  const present = Object.values(empStatus).filter(s => s.present).length;
+  const late = Object.values(empStatus).filter(s => s.late).length;
+  const avgHrs = recs.length ? (recs.reduce((a, l) => a + (l.working_hours || 0), 0) / recs.length).toFixed(1) : 0;
   const sumEl = document.getElementById('rpt-summary');
-  if (sumEl) sumEl.innerHTML = '<div class="sum-item"><span>Total Records</span><strong>' + recs.length + '</strong></div><div class="sum-item"><span>Present</span><strong class="green-v">' + present + '</strong></div><div class="sum-item"><span>Absent</span><strong class="red-v">' + absent + '</strong></div><div class="sum-item"><span>Late</span><strong class="amber-v">' + late + '</strong></div><div class="sum-item"><span>Avg Hours</span><strong>' + avgHrs + 'h</strong></div>';
+  if (sumEl) sumEl.innerHTML = '<div class="sum-item"><span>Sessions</span><strong>' + recs.length + '</strong></div><div class="sum-item"><span>Present</span><strong class="green-v">' + present + '</strong></div><div class="sum-item"><span>Late</span><strong class="amber-v">' + late + '</strong></div><div class="sum-item"><span>Avg Hours</span><strong>' + avgHrs + 'h</strong></div>';
 
-  const depts = [...new Set(recs.map(r => r.dept))];
+  const depts = [...new Set(recs.map(l => l.department).filter(Boolean))];
   const colors = ['bf-blue', 'bf-green', 'bf-amber', 'bf-red', 'bf-purple', 'bf-green'];
   const attEl = document.getElementById('rpt-att-bars');
   const hrEl = document.getElementById('rpt-hr-bars');
   if (attEl) attEl.innerHTML = depts.map((d, i) => {
-    const dr = recs.filter(r => r.dept === d);
-    const pr = dr.filter(r => ['Present', 'Late', 'Half-Day'].includes(r.status)).length;
+    const dr = recs.filter(l => l.department === d);
+    const pr = dr.filter(l => ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)).length;
     const pct = dr.length ? Math.round(pr / dr.length * 100) : 0;
     return '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + colors[i % colors.length] + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + pct + '%</span></div>';
   }).join('');
   if (hrEl) hrEl.innerHTML = depts.map((d, i) => {
-    const dr = recs.filter(r => r.dept === d && r.hours > 0);
-    const avg = dr.length ? (dr.reduce((a, r) => a + r.hours, 0) / dr.length).toFixed(1) : 0;
+    const dr = recs.filter(l => l.department === d && l.working_hours > 0);
+    const avg = dr.length ? (dr.reduce((a, l) => a + (l.working_hours || 0), 0) / dr.length).toFixed(1) : 0;
     const pct = Math.min(Math.round(parseFloat(avg) / 10 * 100), 100);
     return '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + colors[i % colors.length] + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + avg + 'h</span></div>';
   }).join('');
   const thead = document.getElementById('rpt-thead');
   const tbody = document.getElementById('rpt-table');
-  if (thead) thead.innerHTML = '<th>ID</th><th>Employee</th><th>Dept</th><th>Date</th><th>In</th><th>Out</th><th>Hours</th><th>Status</th>';
+  if (thead) thead.innerHTML = '<th>ID</th><th>Employee</th><th>Dept</th><th>Date</th><th>Login</th><th>Logout</th><th>Duration</th><th>Status</th>';
   if (tbody) {
-    smartTableSync(tbody, recs, r =>
-      '<tr>' +
-      '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:600;">' + r.id + '</span></td>' +
+    smartTableSync(tbody, recs, l =>
+      '<tr data-log-id="' + l.id + '" class="session-row">' +
+      '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:600;">' + l.emp_id + '</span></td>' +
       '<td>' +
         '<div style="display:flex;align-items:center;gap:10px;">' +
-          '<div class="av ' + AV_COLORS[0] + '" style="flex-shrink:0;">' + r.name.charAt(0) + '</div>' +
-          '<span style="font-weight:600;font-size:14px;color:var(--text);">' + r.name + '</span>' +
+          '<div class="av ' + AV_COLORS[0] + '" style="flex-shrink:0;">' + l.emp_name.charAt(0) + '</div>' +
+          '<span style="font-weight:600;font-size:14px;color:var(--text);">' + l.emp_name + '</span>' +
         '</div>' +
       '</td>' +
-      '<td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td>' +
-      '<td>' + formatDate(r.date) + '</td>' +
-      '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.in || '—') + '</span></td>' +
-      '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.out || '—') + '</span></td>' +
-      '<td><strong style="font-size:14px;">' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
-      '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>',
-      r => r.id + '-' + r.date
+      '<td><span class="chip ' + (DEPT_COLORS[l.department] || 'c-eng') + '">' + l.department + '</span></td>' +
+      '<td>' + formatDate(getDateFromISO(l.login_time)) + '</td>' +
+      '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#16a34a;">' + formatTime(l.login_time) + '</span></td>' +
+      '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + (l.logout_time ? formatTime(l.logout_time) : '<span style="color:#d97706;font-weight:600;">Active</span>') + '</span></td>' +
+      '<td><strong style="font-size:14px;">' + (l.working_hours > 0 ? l.working_hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
+      '<td><span class="tag t-' + l.status.toLowerCase().replace(/[-\s]/g, '') + '">' + l.status + '</span></td></tr>',
+      l => l.emp_id + '-' + l.id
     );
   }
 }
@@ -881,20 +937,27 @@ function empTab(tabName, btnElement) {
 
 function renderEmpDashboard(emp) {
   if (!appState) return;
-  const attendanceRecords = appState.attendanceRecords || [];
+  const logs = appState.attendanceLogs || [];
   const announcements = appState.announcements || [];
-  const myRecs = attendanceRecords.filter(r => r.id === emp.id);
+  const myLogs = logs.filter(l => l.emp_id === emp.id);
   const now = new Date();
   const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-  const thisMonth = myRecs.filter(r => r.date.startsWith(monthStr));
-  const present = thisMonth.filter(r => ['Present', 'Late', 'Half-Day'].includes(r.status)).length;
-  const absent = thisMonth.filter(r => r.status === 'Absent').length;
-  const hours = thisMonth.reduce((a, r) => a + r.hours, 0);
-  const late = thisMonth.filter(r => r.status === 'Late').length;
-  setText('ms-present', present);
-  setText('ms-absent', absent);
+  const thisMonth = myLogs.filter(l => getDateFromISO(l.login_time).startsWith(monthStr));
+  // Count unique days present
+  const presentDays = new Set();
+  const lateDays = new Set();
+  thisMonth.forEach(l => {
+    const d = getDateFromISO(l.login_time);
+    if (['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)) {
+      presentDays.add(d);
+      if (l.status === 'Late') lateDays.add(d);
+    }
+  });
+  const hours = thisMonth.reduce((a, l) => a + (l.working_hours || 0), 0);
+  setText('ms-present', presentDays.size);
+  setText('ms-absent', Math.max(0, 22 - presentDays.size));
   setText('ms-hours', hours.toFixed(1) + 'h');
-  setText('ms-late', late);
+  setText('ms-late', lateDays.size);
 
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
   const colors = ['bf-blue', 'bf-green', 'bf-amber', 'bf-red', 'bf-purple'];
@@ -907,10 +970,19 @@ function renderEmpDashboard(emp) {
 
   const logEl = document.getElementById('emp-log');
   if (logEl) {
-    smartTableSync(logEl, myRecs.slice(0, 7), r => {
-      const dateObj = new Date(r.date);
-      return '<tr><td style="font-weight:500;">' + formatDate(r.date) + '</td><td style="color:var(--muted);font-size:13px;">' + DAYS[dateObj.getDay()] + '</td><td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.out || '—') + '</span></td><td style="color:var(--subtle);">—</td><td><strong style="font-size:14px;">' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>';
-    }, r => r.id + '-' + r.date);
+    const mySessions = myLogs.slice(0, 20);
+    smartTableSync(logEl, mySessions, l => {
+      const d = getDateFromISO(l.login_time);
+      const dateObj = new Date(d + 'T00:00:00');
+      return '<tr data-log-id="' + l.id + '" class="session-row">' +
+        '<td style="font-weight:500;">' + formatDate(d) + '</td>' +
+        '<td style="color:var(--muted);font-size:13px;">' + DAYS[dateObj.getDay()] + '</td>' +
+        '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#16a34a;">' + formatTime(l.login_time) + '</span></td>' +
+        '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + (l.logout_time ? formatTime(l.logout_time) : '<span style="color:#d97706;font-weight:600;">Active</span>') + '</span></td>' +
+        '<td style="color:var(--subtle);">—</td>' +
+        '<td><strong style="font-size:14px;">' + (l.working_hours > 0 ? l.working_hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
+        '<td><span class="tag t-' + l.status.toLowerCase().replace(/[-\s]/g, '') + '">' + l.status + '</span></td></tr>';
+    }, l => 'session-' + l.id);
   }
 
   renderMyLeaveHistory(emp);
@@ -919,82 +991,91 @@ function renderEmpDashboard(emp) {
 
 function renderEmpHistory() {
   if (!appState) return;
-  const attendanceRecords = appState.attendanceRecords || [];
+  const logs = appState.attendanceLogs || [];
   const employees = appState.employees || [];
   const monthInp = document.getElementById('hist-month');
   const monthStr = monthInp?.value || new Date().toISOString().slice(0, 7);
   const uid = sessionStorage.getItem('userId');
   const emp = employees.find(e => e.id === uid) || employees[0];
   if (!emp) return;
-  const recs = attendanceRecords.filter(r => r.id === emp.id && r.date.startsWith(monthStr));
-  const present = recs.filter(r => ['Present', 'Late', 'Half-Day'].includes(r.status)).length;
-  const hours = recs.reduce((a, r) => a + r.hours, 0);
+  const myLogs = logs.filter(l => l.emp_id === emp.id && getDateFromISO(l.login_time).startsWith(monthStr));
+  const presentDays = new Set();
+  myLogs.forEach(l => {
+    if (['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)) {
+      presentDays.add(getDateFromISO(l.login_time));
+    }
+  });
+  const totalHrs = myLogs.reduce((a, l) => a + (l.working_hours || 0), 0);
   const summEl = document.getElementById('hist-summary');
-  if (summEl) summEl.innerHTML = '<div class="sum-item"><span>Working Days</span><strong>' + recs.length + '</strong></div><div class="sum-item"><span>Present</span><strong class="green-v">' + present + '</strong></div><div class="sum-item"><span>Total Hours</span><strong>' + hours.toFixed(1) + 'h</strong></div>';
+  if (summEl) summEl.innerHTML = '<div class="sum-item"><span>Sessions</span><strong>' + myLogs.length + '</strong></div><div class="sum-item"><span>Present Days</span><strong class="green-v">' + presentDays.size + '</strong></div><div class="sum-item"><span>Total Hours</span><strong>' + totalHrs.toFixed(1) + 'h</strong></div>';
   const tbody = document.getElementById('hist-table');
   if (tbody) {
-    smartTableSync(tbody, recs, r => {
-      const dateObj = new Date(r.date);
-      return '<tr><td style="font-weight:500;">' + formatDate(r.date) + '</td><td style="color:var(--muted);font-size:13px;">' + DAYS[dateObj.getDay()] + '</td><td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.out || '—') + '</span></td><td style="color:var(--subtle);">—</td><td><strong style="font-size:14px;">' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>';
-    }, r => r.id + '-' + r.date);
+    smartTableSync(tbody, myLogs, l => {
+      const d = getDateFromISO(l.login_time);
+      const dateObj = new Date(d + 'T00:00:00');
+      return '<tr data-log-id="' + l.id + '" class="session-row">' +
+        '<td style="font-weight:500;">' + formatDate(d) + '</td>' +
+        '<td style="color:var(--muted);font-size:13px;">' + DAYS[dateObj.getDay()] + '</td>' +
+        '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#16a34a;">' + formatTime(l.login_time) + '</span></td>' +
+        '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + (l.logout_time ? formatTime(l.logout_time) : '<span style="color:#d97706;font-weight:600;">Active</span>') + '</span></td>' +
+        '<td style="color:var(--subtle);">—</td>' +
+        '<td><strong style="font-size:14px;">' + (l.working_hours > 0 ? l.working_hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
+        '<td><span class="tag t-' + l.status.toLowerCase().replace(/[-\s]/g, '') + '">' + l.status + '</span></td></tr>';
+    }, l => 'session-' + l.id);
   }
 }
 
 function empPunchIn() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
-  const dateStr = now.toISOString().split('T')[0];
   const h = now.getHours();
-  const m = now.getMinutes();
-
   if (h >= 18) {
     showNotifBar('error', 'Cannot sign in after 6:00 PM. Contact admin if you need a correction.', '⛔');
     return;
   }
-
-  const pill = document.getElementById('emp-pill');
-  if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
-  showNotifBar('success', 'Punched In at ' + timeStr, '✓');
-  appendTimeline('in', 'Signed In', timeStr);
-  if (h >= 14) showNotifBar('warning', 'First login after 2:00 PM — this day will be flagged as Half-Day.', '⚠️');
   if (!appState) return;
   const uid = sessionStorage.getItem('userId');
   const emp = (appState.employees || []).find(e => e.id === uid);
-  if (emp) {
-    const inTimeStr = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-    let status = 'Present';
-    if (h >= 14) status = 'Half-Day';
-    else if (h > 9 || (h === 9 && m > 15)) status = 'Late';
-    const rec = { id: emp.id, name: emp.name, dept: emp.dept, date: dateStr, in: inTimeStr, out: '', hours: 0, status: status };
-    api('/api/attendance', { method: 'POST', body: rec }).then(async res => {
-      if (res && !res.success) showNotifBar('error', res.error || 'Failed to save sign-in.', '❌');
-      await refreshStateAndRender();
-    });
-  }
+  if (!emp) return;
+  api('/api/attendance/login', {
+    method: 'POST',
+    body: { empId: emp.id, empName: emp.name, department: emp.dept, computerName: navigator.platform || 'Web Browser' }
+  }).then(async res => {
+    if (res && res.success) {
+      const pill = document.getElementById('emp-pill');
+      if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
+      showNotifBar('success', 'Signed In at ' + timeStr, '✓');
+      appendTimeline('in', 'Signed In', timeStr);
+      if (h >= 14) showNotifBar('warning', 'Login after 2:00 PM — this session is flagged as Half-Day.', '⚠️');
+    } else {
+      showNotifBar('error', (res && res.error) || 'Failed to sign in.', '❌');
+    }
+    await refreshStateAndRender();
+  });
 }
 
 function empPunchOut() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
-  const dateStr = now.toISOString().split('T')[0];
-  const pill = document.getElementById('emp-pill');
-  if (pill) { pill.className = 'status-pill sp-out'; pill.innerHTML = '<div class="status-dot sd-r"></div>Not signed in'; }
-  if (breakInterval) { clearInterval(breakInterval); breakInterval = null; document.getElementById('break-btn').innerText = '☕ Start Break'; document.getElementById('break-timer-wrap').style.display = 'none'; }
-  showNotifBar('info', 'Punched Out at ' + timeStr, '←');
-  appendTimeline('out', 'Signed Out', timeStr);
   if (!appState) return;
   const uid = sessionStorage.getItem('userId');
   const emp = (appState.employees || []).find(e => e.id === uid);
-  if (emp) {
-    const h = now.getHours();
-    const m = now.getMinutes();
-    const outTimeStr = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-    const rec = { id: emp.id, name: emp.name, dept: emp.dept, date: dateStr, in: '', out: outTimeStr, hours: 0, status: 'Present' };
-    api('/api/attendance', { method: 'POST', body: rec }).then(async res => {
-      if (res && !res.success) showNotifBar('error', res.error || 'Failed to save sign-out.', '❌');
-      await refreshStateAndRender();
-    });
-  }
+  if (!emp) return;
+  api('/api/attendance/logout', {
+    method: 'POST',
+    body: { empId: emp.id }
+  }).then(async res => {
+    if (res && res.success) {
+      const pill = document.getElementById('emp-pill');
+      if (pill) { pill.className = 'status-pill sp-out'; pill.innerHTML = '<div class="status-dot sd-r"></div>Signed Out'; }
+      if (breakInterval) { clearInterval(breakInterval); breakInterval = null; document.getElementById('break-btn').innerText = '☕ Start Break'; document.getElementById('break-timer-wrap').style.display = 'none'; }
+      showNotifBar('info', 'Signed Out at ' + timeStr, '←');
+      appendTimeline('out', 'Signed Out', timeStr);
+    } else {
+      showNotifBar('error', (res && res.error) || 'Failed to sign out.', '❌');
+    }
+    await refreshStateAndRender();
+  });
 }
 
 function toggleBreak() {
@@ -1042,16 +1123,17 @@ function appendTimeline(type, text, time) {
 }
 
 function autoAttendancePunchIn(emp) {
-  const today = new Date().toISOString().split('T')[0];
-  const attendanceRecords = appState ? appState.attendanceRecords || [] : [];
-  const existingRec = attendanceRecords.find(r => r.id === emp.id && r.date === today);
-  if (!existingRec || !existingRec.in) {
-    setTimeout(() => empPunchIn(), 700);
-  } else {
+  // Check for an active session
+  const logs = appState ? appState.attendanceLogs || [] : [];
+  const activeLogs = logs.filter(l => l.emp_id === emp.id && !l.logout_time);
+  if (activeLogs.length > 0) {
     const pill = document.getElementById('emp-pill');
-    if (pill && existingRec.in) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
+    if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
+    // Auto-logout if past 18:00
+    if (new Date().getHours() >= 18) {
+      setTimeout(() => empPunchOut(), 1200);
+    }
   }
-  if (new Date().getHours() >= 18) { setTimeout(() => empPunchOut(), 1200); }
 }
 
 function selectLeaveType(btn, type) {
@@ -1421,6 +1503,17 @@ function formatDate(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+function formatTime(isoStr) {
+  if (!isoStr) return '—';
+  const d = new Date(isoStr);
+  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+function getDateFromISO(isoStr) {
+  if (!isoStr) return '';
+  return isoStr.slice(0, 10);
 }
 
 function checkPwdStrength(inputId, barId) {
@@ -1907,12 +2000,28 @@ async function saveCalendarConfig() {
 }
 
 async function syncBirthdaysToCalendar() {
+  const btn = document.querySelector('button[onclick="syncBirthdaysToCalendar()"]');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading-spinner-sm" style="margin-right:6px;vertical-align:middle;"></span> Syncing...';
+  }
   showNotifBar('info', 'Syncing birthdays to calendar…', '📅');
   const res = await api('/api/calendar/sync-birthdays', { method: 'POST' });
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '📅 Sync All Birthdays';
+  }
   if (res && res.success) {
-    showNotifBar('success', res.results.length + ' birthdays synced to calendar!', '📅');
+    let msg = res.created + ' birthday event(s) created!';
+    if (res.errors && res.errors.length > 0) {
+      msg += ' ⚠️ ' + res.errors.length + ' error(s)';
+    }
+    showNotifBar(res.errors && res.errors.length > 0 ? 'warning' : 'success', msg, '📅');
+    if (res.errors && res.errors.length > 0) {
+      console.warn('[Calendar] Sync errors:', res.errors);
+    }
   } else {
-    showNotifBar('error', 'Calendar sync failed: ' + (res?.error || 'unknown'), '❌');
+    showNotifBar('error', 'Calendar sync failed: ' + (res?.error || 'server unreachable'), '❌');
   }
 }
 
@@ -1928,25 +2037,25 @@ async function testCalendarConnection() {
 
 function exportCSV() {
   if (!appState) return;
-  const attendanceRecords = appState.attendanceRecords || [];
-  const rows = [['ID','Name','Dept','Date','In','Out','Hours','Status']];
-  attendanceRecords.forEach(r => rows.push([r.id, r.name, r.dept, r.date, r.in, r.out, r.hours, r.status]));
+  const logs = appState.attendanceLogs || [];
+  const rows = [['ID','Name','Dept','Date','Login','Logout','Hours','Status']];
+  logs.forEach(l => rows.push([l.emp_id, l.emp_name, l.department, getDateFromISO(l.login_time), formatTime(l.login_time), l.logout_time ? formatTime(l.logout_time) : '', l.working_hours || 0, l.status]));
   const csv = rows.map(r => r.join(',')).join('\n');
-  downloadFile(csv, 'attendance_records.csv', 'text/csv');
+  downloadFile(csv, 'attendance_logs.csv', 'text/csv');
 }
 
 function exportExcel(type) {
   if (typeof XLSX === 'undefined') { showNotifBar('warning', 'XLSX library not loaded.', '⚠️'); return; }
   if (!appState) return;
-  const attendanceRecords = appState.attendanceRecords || [];
+  const logs = appState.attendanceLogs || [];
   const employees = appState.employees || [];
   try {
     if (type === 'records') {
-      const data = attendanceRecords.map(r => ({ ID: r.id, Name: r.name, Dept: r.dept, Date: r.date, In: r.in, Out: r.out, Hours: r.hours, Status: r.status }));
+      const data = logs.map(l => ({ ID: l.emp_id, Name: l.emp_name, Dept: l.department, Date: getDateFromISO(l.login_time), Login: formatTime(l.login_time), Logout: l.logout_time ? formatTime(l.logout_time) : 'Active', Hours: l.working_hours || 0, Status: l.status }));
       const ws = XLSX.utils.json_to_sheet(data);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
-      XLSX.writeFile(wb, 'attendance_records.xlsx');
+      XLSX.utils.book_append_sheet(wb, ws, 'Attendance Logs');
+      XLSX.writeFile(wb, 'attendance_logs.xlsx');
     } else if (type === 'employees') {
       const data = employees.filter(e => e.active).map(e => ({ ID: e.id, Name: e.name, Dept: e.dept, Email: e.email, Phone: e.phone, Designation: e.designation, CL: e.cl, SL: e.sl, UL: e.ul || 0 }));
       const ws = XLSX.utils.json_to_sheet(data);
@@ -1962,16 +2071,17 @@ function exportExcel(type) {
 
 function exportEmpCSV() {
   if (!appState) return;
-  const attendanceRecords = appState.attendanceRecords || [];
+  const logs = appState.attendanceLogs || [];
   const uid = sessionStorage.getItem('userId');
-  const myRecs = attendanceRecords.filter(r => r.id === uid);
-  const rows = [['Date','Day','In','Out','Hours','Status']];
-  myRecs.forEach(r => {
-    const d = new Date(r.date + 'T00:00:00');
-    rows.push([r.date, DAYS[d.getDay()], r.in, r.out, r.hours, r.status]);
+  const myLogs = logs.filter(l => l.emp_id === uid);
+  const rows = [['Date','Day','Login','Logout','Hours','Status']];
+  myLogs.forEach(l => {
+    const d = getDateFromISO(l.login_time);
+    const dateObj = new Date(d + 'T00:00:00');
+    rows.push([d, DAYS[dateObj.getDay()], formatTime(l.login_time), l.logout_time ? formatTime(l.logout_time) : '', l.working_hours || 0, l.status]);
   });
   const csv = rows.map(r => r.join(',')).join('\n');
-  downloadFile(csv, 'my_attendance.csv', 'text/csv');
+  downloadFile(csv, 'my_attendance_sessions.csv', 'text/csv');
   showNotifBar('success', 'CSV exported!', '📄');
 }
 
@@ -2100,6 +2210,17 @@ async function init() {
   if (todayEl2) todayEl2.textContent = today.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
   renderBirthdayModule();
+
+  // ── Keyboard shortcut: Ctrl+Z / Cmd+Z to undo archive ──
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && pendingUndoArchiveId && pendingUndoArchiveName) {
+      // Don't intercept Ctrl+Z when user is typing in a form field
+      const tag = (document.activeElement?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      undoArchive(pendingUndoArchiveName);
+    }
+  });
 }
 
 document.addEventListener('DOMContentLoaded', init);

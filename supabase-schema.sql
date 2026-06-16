@@ -36,7 +36,33 @@ CREATE TABLE IF NOT EXISTS employees (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Attendance table
+-- 3. Attendance logs table (Multi-Session Punch Ledger)
+-- Each row = one login/logout session pair. Never overwritten.
+CREATE TABLE IF NOT EXISTS attendance_logs (
+  id BIGSERIAL PRIMARY KEY,
+  emp_id TEXT NOT NULL,
+  emp_name TEXT NOT NULL,
+  department TEXT,
+  login_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  logout_time TIMESTAMPTZ,
+  working_hours REAL DEFAULT 0,
+  status TEXT DEFAULT 'Active',
+  computer_name TEXT DEFAULT '',
+  login_date TEXT,
+  event TEXT DEFAULT 'LOGIN',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for fast active-session lookup per employee
+CREATE INDEX IF NOT EXISTS idx_attendance_logs_active
+  ON attendance_logs (emp_id, logout_time)
+  WHERE logout_time IS NULL;
+
+-- Index for daily queries
+CREATE INDEX IF NOT EXISTS idx_attendance_logs_date
+  ON attendance_logs (login_date);
+
+-- 3b. Old attendance table (keep for data migration / backward compat)
 CREATE TABLE IF NOT EXISTS attendance (
   id TEXT,
   name TEXT,
@@ -129,6 +155,7 @@ CREATE TABLE IF NOT EXISTS archived_employees (
 -- Or run:
 -- ALTER PUBLICATION supabase_realtime ADD TABLE admin;
 -- ALTER PUBLICATION supabase_realtime ADD TABLE employees;
+-- ALTER PUBLICATION supabase_realtime ADD TABLE attendance_logs;
 -- ALTER PUBLICATION supabase_realtime ADD TABLE attendance;
 -- ALTER PUBLICATION supabase_realtime ADD TABLE leave_requests;
 -- ALTER PUBLICATION supabase_realtime ADD TABLE announcements;
