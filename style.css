@@ -1393,7 +1393,7 @@ body.dark-mode .ann-empty-sub{color:var(--subtle);}
   display:flex;
   align-items:center;
   justify-content:center;
-  background:var(--bg);
+  background:#f0f4f8;
   position:relative;
 }
 .login-card{
