@@ -469,6 +469,11 @@ function openAddEmpModal() {
   document.getElementById('f-cl').value = '7.5';
   document.getElementById('f-sl').value = '3.0';
   renderDepartments();
+  // Auto-focus the first field for fast entry
+  setTimeout(() => {
+    const nameField = document.getElementById('f-name');
+    if (nameField) nameField.focus();
+  }, 100);
 }
 
 function openEditEmpModal(empId) {
@@ -1365,17 +1370,11 @@ function toggleDarkMode() {
 function switchTab(pageId, prefix, tabName, btnElement, onShow) {
   const tabClass = prefix === 'admin' ? 'atab' : 'etab';
   const tabs = document.querySelectorAll(pageId + ' .' + tabClass);
-  tabs.forEach(t => {
-    t.classList.remove('show');
-    t.classList.add('tab-leaving');
-    setTimeout(() => t.classList.remove('tab-leaving'), 200);
-  });
+  tabs.forEach(t => t.classList.remove('show'));
   const target = document.getElementById(prefix + '-' + tabName);
   if (target) {
-    setTimeout(() => {
-      target.classList.add('show');
-      if (onShow) onShow();
-    }, 100);
+    target.classList.add('show');
+    if (onShow) onShow();
   }
   document.querySelectorAll(pageId + ' .nav-btn').forEach(b => b.classList.remove('active'));
   if (btnElement) btnElement.classList.add('active');
@@ -1399,17 +1398,6 @@ function renderAll() {
   updateEmpNotifBadge();
   renderAdminNotifPanel();
   renderEmpNotifPanel();
-  const lastTab = sessionStorage.getItem('adminLastTab') || 'dashboard';
-  const tabBtns = document.querySelectorAll('#page-admin .nav-btn');
-  tabBtns.forEach(b => {
-    if (b.textContent.includes('Dashboard') && lastTab === 'dashboard') b.click();
-    else if (b.textContent.includes('Records') && lastTab === 'records') b.click();
-    else if (b.textContent.includes('Employees') && lastTab === 'employees') b.click();
-    else if (b.textContent.includes('Reports') && lastTab === 'reports') b.click();
-    else if (b.textContent.includes('Departments') && lastTab === 'departments') b.click();
-    else if (b.textContent.includes('Announce') && lastTab === 'announcements') b.click();
-    else if (b.textContent.includes('Settings') && lastTab === 'settings') b.click();
-  });
 }
 
 async function refreshStateAndRender() {

@@ -340,14 +340,9 @@ input,select,textarea{font-family:var(--font);}
 /* TABS */
 .atab,.etab{display:none;}
 .atab.show,.etab.show{display:block;animation:tabEnter 0.3s cubic-bezier(0.22,1,0.36,1);}
-.atab.tab-leaving,.etab.tab-leaving{display:block;animation:tabExit 0.18s cubic-bezier(0.55,0,1,0.25) forwards;pointer-events:none;}
 @keyframes tabEnter{
   0%{opacity:0;transform:translateY(12px) scale(0.98);}
   100%{opacity:1;transform:translateY(0) scale(1);}
-}
-@keyframes tabExit{
-  0%{opacity:1;transform:translateY(0) scale(1);}
-  100%{opacity:0;transform:translateY(-8px) scale(0.97);}
 }
 
 /* SMART SYNC ENTER/EXIT ANIMATIONS — GPU-accelerated for zero flicker */
@@ -369,17 +364,9 @@ input,select,textarea{font-family:var(--font);}
   50%{box-shadow:0 0 0 4px rgba(59,130,246,0.15);}
 }
 
-/* NOTIFICATION LIST ITEM ENTRANCE */
-.notif-item{animation:notifItemIn 0.3s cubic-bezier(0.22,1,0.36,1) both;}
-.notif-item:nth-child(1){animation-delay:0s;}
-.notif-item:nth-child(2){animation-delay:0.04s;}
-.notif-item:nth-child(3){animation-delay:0.08s;}
-.notif-item:nth-child(4){animation-delay:0.12s;}
-.notif-item:nth-child(5){animation-delay:0.16s;}
-@keyframes notifItemIn{
-  0%{opacity:0;transform:translateX(-8px);}
-  100%{opacity:1;transform:translateX(0);}
-}
+/* NOTIFICATION LIST ITEM — no entrance animation on class (smartListSync adds enter-fade-slide for new items only) */
+.notif-item{transition:background 0.2s ease;}
+.notif-item.unread{background:var(--accent-glow);}
 
 /* CARD */
 .card{
