@@ -1100,20 +1100,15 @@ body.dark-mode .skel-act-row {
   </div>
 </div>
 
-<!-- DELETE EMPLOYEE CONFIRMATION MODAL -->
+<!-- ARCHIVE EMPLOYEE MODAL (also used for delete confirm) -->
 <div id="delete-emp-modal" class="modal-overlay" style="display:none;">
   <div class="modal-box" style="max-width:400px;">
     <div class="modal-header">
-      <h3>🗑 Remove Employee</h3>
+      <h3>📦 Archive Employee</h3>
       <button class="close-modal-btn" onclick="closeDeleteEmpModal()">×</button>
     </div>
     <div class="modal-body" style="text-align:center;">
-      <p style="font-size:16px;margin-bottom:8px;">Are you sure you want to permanently remove <strong id="delete-emp-name">—</strong>?</p>
-      <p style="font-size:13px;color:var(--red);margin-bottom:16px;">⚠️ This action <strong>cannot</strong> be undone. The employee will be moved to the archived list.</p>
-      <div style="display:flex;gap:10px;justify-content:center;">
-        <button class="btn" onclick="closeDeleteEmpModal()" style="flex:1;">Cancel</button>
-        <button class="btn btn-danger" onclick="confirmDeleteEmployee()" style="flex:1;">🗑 Remove Permanently</button>
-      </div>
+      <!-- dynamically populated by archiveEmployee() -->
     </div>
   </div>
 </div>

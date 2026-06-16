@@ -10,7 +10,7 @@ let empNotifPanelOpen = false;
 let breakInterval = null;
 let breakSeconds = 0;
 let selectedLeaveManageIdx = null;
-let deleteTargetId = null;
+let archiveTargetId = null;
 let annSelectedRecipient = 'all';
 let annSelectedPriority = 'normal';
 let serverAvailable = false;
@@ -67,7 +67,7 @@ function smartTableSync(tbody, items, rowHtmlFn, getIdFn) {
     }
     setTimeout(() => {
       tbody.replaceChildren(frag);
-    }, 280);
+    }, 400);
   } else {
     // No orphans — swap immediately (no flicker)
     tbody.replaceChildren(frag);
@@ -114,7 +114,7 @@ function smartListSync(container, items, htmlFn, getIdFn) {
     }
     setTimeout(() => {
       container.replaceChildren(frag);
-    }, 280);
+    }, 400);
   } else {
     container.replaceChildren(frag);
   }
@@ -444,7 +444,7 @@ function renderEmpTable() {
     '<td style="font-size:13px;">' + (emp.bday ? formatDate(emp.bday) : '—') + '</td>' +
     '<td><button class="btn btn-sm" onclick="openEditEmpModal(\'' + emp.id + '\')" title="Edit">✏️</button> ' +
     '<button class="btn btn-sm" onclick="archiveEmployee(\'' + emp.id + '\')" title="Archive">📦</button> ' +
-    '<button class="btn btn-sm btn-danger" onclick="openDeleteEmpModal(\'' + emp.id + '\')" title="Remove">🗑</button></td></tr>',
+    '<button class="btn btn-sm btn-danger remove-employee-btn" data-id="' + emp.id + '" title="Remove">🗑</button></td></tr>',
     emp => emp.id
   );
 }
@@ -453,32 +453,61 @@ function archiveEmployee(empId) {
   if (!appState) return;
   const emp = (appState.employees || []).find(e => e.id === empId);
   if (!emp) return;
-  if (!confirm('Archive ' + emp.name + '? They will be moved to the archived employees section.')) return;
-  api('/api/employees/' + emp.id + '/archive', { method: 'POST' }).then(() => refreshStateAndRender());
-  showNotifBar('info', emp.name + ' has been archived.', '📦');
-}
-
-function openDeleteEmpModal(id) {
-  if (!appState) return;
-  deleteTargetId = id;
-  const emp = (appState.employees || []).find(e => e.id === id);
-  if (emp) document.getElementById('delete-emp-name').innerText = emp.name + ' (' + emp.id + ')';
+  // Use the delete modal with archive messaging
+  archiveTargetId = empId;
+  document.getElementById('delete-emp-modal').dataset.mode = 'archive';
+  document.getElementById('delete-emp-name').innerText = emp.name + ' (' + emp.id + ')';
+  const modalBody = document.querySelector('#delete-emp-modal .modal-body');
+  if (modalBody) {
+    modalBody.innerHTML = '' +
+      '<p style="font-size:16px;margin-bottom:8px;">Archive <strong>' + emp.name + '</strong>?</p>' +
+      '<p style="font-size:13px;color:var(--amber-text, #92400e);margin-bottom:16px;">📦 They will be moved to the archived employees section. Data preserved for compliance.</p>' +
+      '<div style="display:flex;gap:10px;justify-content:center;">' +
+        '<button class="btn" onclick="closeDeleteEmpModal()" style="flex:1;">Cancel</button>' +
+        '<button class="btn btn-primary" id="archive-confirm-btn" onclick="confirmArchiveEmployee()" style="flex:1;">📦 Archive Employee</button>' +
+      '</div>';
+  }
   document.getElementById('delete-emp-modal').style.display = 'flex';
 }
 
-function closeDeleteEmpModal() {
-  document.getElementById('delete-emp-modal').style.display = 'none';
-  deleteTargetId = null;
+async function confirmArchiveEmployee() {
+  if (!archiveTargetId || !appState) return;
+  const emp = (appState.employees || []).find(e => e.id === archiveTargetId);
+  if (!emp) { showNotifBar('error', 'Employee not found.', '❌'); closeDeleteEmpModal(); return; }
+  const confirmBtn = document.getElementById('archive-confirm-btn');
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="loading-spinner-sm" style="margin-right:6px;vertical-align:middle;"></span> Archiving...';
+  }
+  const res = await api('/api/employees/' + archiveTargetId + '/archive', { method: 'POST' });
+  closeDeleteEmpModal();
+  await refreshStateAndRender();
+  if (res && res.success) {
+    showNotifBar('info', emp.name + ' has been archived.', '📦');
+  } else {
+    showNotifBar('error', 'Failed to archive ' + emp.name + '.', '❌');
+  }
+  archiveTargetId = null;
 }
 
-async function confirmDeleteEmployee() {
-  if (!deleteTargetId || !appState) return;
-  const emp = (appState.employees || []).find(e => e.id === deleteTargetId);
-  if (!emp) { showNotifBar('error', 'Employee not found.', '❌'); closeDeleteEmpModal(); return; }
-  closeDeleteEmpModal();
-  showNotifBar('info', emp.name + ' has been removed.', '🗑');
-  await api('/api/employees/' + deleteTargetId, { method: 'DELETE' });
-  await refreshStateAndRender();
+async function deleteEmployee(employeeId) {
+  if (typeof SupabaseDB === 'undefined' || !SupabaseDB.supabase) return { error: 'Database not connected.' };
+  const sb = SupabaseDB.supabase;
+  try {
+    await sb.from('attendance').delete().eq('id', employeeId);
+    await sb.from('leave_requests').delete().eq('emp_id', employeeId);
+    await sb.from('employees').delete().eq('id', employeeId);
+    return { success: true };
+  } catch (e) {
+    console.error('[Delete]', e);
+    return { error: e.message || 'Failed to delete employee.' };
+  }
+}
+
+function closeDeleteEmpModal() {
+  const modal = document.getElementById('delete-emp-modal');
+  if (modal) { modal.style.display = 'none'; modal.dataset.mode = ''; }
+  archiveTargetId = null;
 }
 
 function openAddEmpModal() {
@@ -1969,6 +1998,24 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ── Event delegation: Remove Employee ──
+document.getElementById('emp-table-body').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.remove-employee-btn');
+  if (!btn) return;
+  const employeeId = btn.getAttribute('data-id');
+  if (!employeeId) return;
+  if (!confirm('Are you sure you want to permanently remove employee ' + employeeId + '? This will delete all their attendance records and leave requests.')) return;
+  btn.disabled = true;
+  btn.innerHTML = '⏳';
+  const res = await deleteEmployee(employeeId);
+  await refreshStateAndRender();
+  if (res && res.success) {
+    showNotifBar('info', 'Employee ' + employeeId + ' has been removed.', '🗑');
+  } else {
+    showNotifBar('error', (res && res.error) || 'Failed to remove employee.', '❌');
+  }
+});
 
 // ── Seed Test Employee (one-shot) ──
 (async function seedTestEmployee() {
