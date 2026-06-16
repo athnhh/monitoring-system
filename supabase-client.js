@@ -47,6 +47,8 @@
       return () => _changePassword(body.userId, body.currentPwd, body.newPwd || body.newPassword);
     if (path === '/api/auth/forgot-password' && method === 'POST')
       return () => _forgotPassword(body.uid);
+    if (path === '/api/auth/reset-password' && method === 'POST')
+      return () => _resetPassword(body.newPassword);
 
     // ── Health / State ──
     if (path === '/api/health' && method === 'GET')
@@ -197,10 +199,31 @@
     const normalized = (uid || '').toLowerCase().trim();
     if (normalized !== 'quemahtech' && normalized !== 'atharvashishn@gmail.com')
       return { error: 'Unauthorized. Only admin can reset password.' };
+
+    // 1. Try Supabase Auth password reset email (works if user exists in Auth)
+    let emailSent = false;
+    try {
+      const redirectUrl = window.location.origin + window.location.pathname;
+      const { error } = await db.supabase.auth.resetPasswordForEmail('atharvashishn@gmail.com', {
+        redirectTo: redirectUrl
+      });
+      if (!error) emailSent = true;
+    } catch (_) {}
+
+    // 2. Always generate a temp password as fallback
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
     const tempPwd = Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     await db.supabase.from('admin').update({ password: tempPwd }).eq('username', 'quemahtech');
+
+    if (emailSent) {
+      return { success: true, message: '📧 Password reset email sent to atharvashishn@gmail.com. Also showing temporary password below.', tempPassword: tempPwd };
+    }
     return { success: true, message: 'Temporary password generated.', tempPassword: tempPwd };
+  }
+
+  async function _resetPassword(newPwd) {
+    await db.supabase.from('admin').update({ password: newPwd }).eq('username', 'quemahtech');
+    return { success: true };
   }
 
   // ── State ──
@@ -220,7 +243,8 @@
       employees: employees.map(e => { const { password, ...rest } = e; return rest; }),
       archivedEmployees: (archived || []).map(a => ({
         id: a.id || a.original_id, name: a.name, dept: a.dept,
-        status: a.status, joining: a.joining, exit: a.exit
+        status: a.status, joining: a.joining, exit: a.exit,
+        employee_data: a.employee_data || null
       })),
       attendanceLogs: (attendanceLogs || []).map(l => ({
         id: l.id, emp_id: l.emp_id, emp_name: l.emp_name,

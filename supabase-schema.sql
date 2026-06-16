@@ -53,7 +53,12 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Index for fast active-session lookup per employee
+-- Partial unique index: at most one active session per employee (DB-level duplicate prevention)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_logs_active_unique
+  ON attendance_logs (emp_id)
+  WHERE logout_time IS NULL;
+
+-- Non-unique index for fast active-session lookup (kept for broader queries)
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_active
   ON attendance_logs (emp_id, logout_time)
   WHERE logout_time IS NULL;
@@ -137,17 +142,24 @@ CREATE TABLE IF NOT EXISTS archived_employees (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 9. Enable Row Level Security (optional but recommended)
--- For internal team tools, RLS can be disabled completely.
--- If enabled, add permissive policies for the anon key.
--- ALTER TABLE admin ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE leave_requests ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE departments ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE archived_employees ENABLE ROW LEVEL SECURITY;
+-- 9. Row Level Security (RLS)
+-- ⚠️ Supabase enables RLS by default on new tables via the dashboard.
+-- When RLS is ON but no policy exists, ALL operations are blocked.
+-- To fix the "violates row-level security policy" error, run:
+--
+--   ALTER TABLE attendance_logs DISABLE ROW LEVEL SECURITY;
+--   ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
+--   ALTER TABLE leave_requests DISABLE ROW LEVEL SECURITY;
+--   ALTER TABLE notifications DISABLE ROW LEVEL SECURITY;
+--   ALTER TABLE announcements DISABLE ROW LEVEL SECURITY;
+--   ALTER TABLE departments DISABLE ROW LEVEL SECURITY;
+--   ALTER TABLE archived_employees DISABLE ROW LEVEL SECURITY;
+--   ALTER TABLE admin DISABLE ROW LEVEL SECURITY;
+--   ALTER TABLE attendance DISABLE ROW LEVEL SECURITY;
+--
+-- Or grant permissive policies (example for attendance_logs):
+--   CREATE POLICY "anon_all" ON attendance_logs FOR ALL
+--     TO anon USING (true) WITH CHECK (true);
 
 -- 10. Enable Realtime for all tables
 -- Go to Supabase Dashboard → Database → Replication

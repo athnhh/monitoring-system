@@ -21,6 +21,29 @@ let serverAvailable = false;
 
 let appState = null;
 
+// ══ HTML Template Validation (dev-only) ══
+// Catches unclosed tags in template strings before they break the DOM
+const __DEBUG_HTML = window.location.hostname === 'localhost' || window.location.search.includes('debug');
+const __VOID_TAGS = new Set(['br','hr','img','input','meta','link','area','base','col','embed','source','track','wbr']);
+
+function __checkHTMLTemplate(html, label) {
+  if (!__DEBUG_HTML || !html || html.length < 10) return true;
+  const openings = [...html.matchAll(/<([a-zA-Z]\w*)(?:\s[^>]*)?>/g)].map(m => m[1].toLowerCase()).filter(t => !__VOID_TAGS.has(t));
+  const closings = [...html.matchAll(/<\/([a-zA-Z]\w*)>/g)].map(m => m[1].toLowerCase());
+  const oCount = {}; openings.forEach(t => oCount[t] = (oCount[t] || 0) + 1);
+  const cCount = {}; closings.forEach(t => cCount[t] = (cCount[t] || 0) + 1);
+  const allTags = new Set([...Object.keys(oCount), ...Object.keys(cCount)]);
+  let valid = true;
+  for (const tag of allTags) {
+    if (oCount[tag] !== cCount[tag]) {
+      console.warn('⚠️ [HTML Validation] Tag mismatch in "' + label + '": <' + tag + '> opened ' + (oCount[tag] || 0) + '×, closed ' + (cCount[tag] || 0) + '×');
+      console.warn('   Context: ' + html.substring(0, 300));
+      valid = false;
+    }
+  }
+  return valid;
+}
+
 // ── Smart DOM Sync Utilities ──
 // Eliminate flicker by matching elements via data-id instead of full innerHTML rebuilds
 
@@ -43,7 +66,9 @@ function smartTableSync(tbody, items, rowHtmlFn, getIdFn) {
       // Update existing row cells in-place — no flicker
       const row = rowMap.get(id);
       const tmp = document.createElement('tbody');
-      tmp.innerHTML = rowHtmlFn(item, idx);
+      const _rowHtml = rowHtmlFn(item, idx);
+      __checkHTMLTemplate(_rowHtml, 'table');
+      tmp.innerHTML = _rowHtml;
       const innerRow = tmp.querySelector('tr');
       const newCells = innerRow ? innerRow.children : [];
       for (let c = 0; c < newCells.length; c++) {
@@ -53,7 +78,9 @@ function smartTableSync(tbody, items, rowHtmlFn, getIdFn) {
     } else {
       // Create new row with entrance animation
       const tmp = document.createElement('tbody');
-      tmp.innerHTML = rowHtmlFn(item, idx);
+      const _rowHtml = rowHtmlFn(item, idx);
+      __checkHTMLTemplate(_rowHtml, 'table');
+      tmp.innerHTML = _rowHtml;
       const row = tmp.querySelector('tr');
       if (row) {
         row.setAttribute('data-id', id);
@@ -95,15 +122,19 @@ function smartListSync(container, items, htmlFn, getIdFn) {
     if (elMap.has(id)) {
       // Replace existing element with updated HTML (preserves data-id)
       const el = elMap.get(id);
+      const _listHtml = htmlFn(item, idx);
+      __checkHTMLTemplate(_listHtml, 'list');
       // Safer injection: match opening tag to add data-id
-      el.outerHTML = htmlFn(item, idx).replace(/^<(\w+)/, `<$1 data-id="${id}"`);
+      el.outerHTML = _listHtml.replace(/^<(\w+)/, `<$1 data-id="${id}"`);
       // Re-query the replaced element
       const updated = container.querySelector(`[data-id="${id}"]`);
       if (updated) frag.appendChild(updated);
     } else {
       // New element with entrance animation
       const wrapper = document.createElement('div');
-      wrapper.innerHTML = htmlFn(item, idx);
+      const _listHtml = htmlFn(item, idx);
+      __checkHTMLTemplate(_listHtml, 'list');
+      wrapper.innerHTML = _listHtml;
       const child = wrapper.children[0] || wrapper;
       child.setAttribute('data-id', id);
       child.classList.add('enter-fade-slide');
@@ -271,7 +302,9 @@ console.log('[EMS] Supabase mode');
 
 function adminTab(tabName, btnElement) {
   sessionStorage.setItem('adminLastTab', tabName);
-  switchTab('#page-admin', 'admin', tabName, btnElement, () => {
+  switchTab('#page-admin', 'admin', tabName, btnElement, async () => {
+    // Refresh state on tab switch so all views show latest data
+    await refreshStateAndRender();
     if (tabName === 'records') renderRecords();
     if (tabName === 'reports') setReport('daily', document.querySelector('.rtab.active'));
     if (tabName === 'settings') { loadCalendarConfig(); }
@@ -370,8 +403,8 @@ function renderDashboardCards() {
       '<td><div style="display:flex;align-items:center;gap:10px;">' +
         '<div class="av ' + AV_COLORS[employees.findIndex(e => e.id === l.emp_id) % AV_COLORS.length] + '" style="flex-shrink:0;">' + l.emp_name.charAt(0) + '</div>' +
         '<div style="display:flex;flex-direction:column;">' +
-          '<span style="font-weight:600;font-size:14px;color:var(--text);">' + l.emp_name + '</span>' +
-          '<span style="font-size:11px;color:var(--subtle);">' + l.emp_id + '</span>' +
+          '<span style="font-weight:600;font-size:14px;color:var(--text);display:flex;align-items:center;gap:6px;">' + (l.logout_time ? '' : '<span class="pulse-dot"style="width:8px;height:8px;"></span>') + '<span>' + l.emp_name + '</span></span>' +
+      '<span style="font-size:11px;color:var(--subtle);">' + l.emp_id + '</span>' +
         '</div>' +
       '</div></td>' +
       '<td><span class="chip ' + (DEPT_COLORS[l.department] || 'c-eng') + '">' + l.department + '</span></td>' +
@@ -404,7 +437,11 @@ function calcActiveDuration(loginTime) {
 function renderActiveNow(todayLogs, employees) {
   const emps = employees || (appState ? appState.employees : []) || [];
   const logs = todayLogs || (appState ? (appState.attendanceLogs || []).filter(l => getDateFromISO(l.login_time) === new Date().toISOString().split('T')[0]) : []);
-  const activeLogs = logs.filter(l => ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status) && !l.logout_time);
+  const deptFilter = document.getElementById('active-now-dept-filter')?.value || '';
+  let activeLogs = logs.filter(l => ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status) && !l.logout_time);
+  if (deptFilter) {
+    activeLogs = activeLogs.filter(l => (l.department || '') === deptFilter);
+  }
   const card = document.getElementById('active-now-card');
   const list = document.getElementById('active-now-list');
   const countEl = document.getElementById('active-now-count');
@@ -489,7 +526,7 @@ function renderRecords() {
     '<td><div style="display:flex;align-items:center;gap:10px;">' +
       '<div class="av ' + AV_COLORS[employees.findIndex(e => e.id === l.emp_id) % AV_COLORS.length] + '" style="flex-shrink:0;width:32px;height:32px;font-size:12px;">' + l.emp_name.charAt(0) + '</div>' +
       '<div style="display:flex;flex-direction:column;">' +
-        '<span style="font-weight:600;font-size:14px;color:var(--text);">' + l.emp_name + '</span>' +
+        '<span style="font-weight:600;font-size:14px;color:var(--text);display:flex;align-items:center;gap:6px;">' + (l.logout_time ? '' : '<span class="pulse-dot" style="width:8px;height:8px;"></span>') + '<span>' + l.emp_name + '</span></span>' +
       '</div>' +
     '</div></td>' +
     '<td><span class="chip ' + (DEPT_COLORS[l.department] || 'c-eng') + '">' + l.department + '</span></td>' +
@@ -944,7 +981,7 @@ function setReport(type, btn) {
       '<td>' +
         '<div style="display:flex;align-items:center;gap:10px;">' +
           '<div class="av ' + AV_COLORS[0] + '" style="flex-shrink:0;">' + l.emp_name.charAt(0) + '</div>' +
-          '<span style="font-weight:600;font-size:14px;color:var(--text);">' + l.emp_name + '</span>' +
+          '<span style="font-weight:600;font-size:14px;color:var(--text);display:flex;align-items:center;gap:6px;">' + (l.logout_time ? '' : '<span class="pulse-dot" style="width:8px;height:8px;"></span>') + '<span>' + l.emp_name + '</span></span>' +
         '</div>' +
       '</td>' +
       '<td><span class="chip ' + (DEPT_COLORS[l.department] || 'c-eng') + '">' + l.department + '</span></td>' +
@@ -1089,10 +1126,11 @@ function empPunchIn() {
     showNotifBar('error', 'Cannot sign in after 6:00 PM. Contact admin if you need a correction.', '⛔');
     return;
   }
-  if (!appState) return;
+  if (!appState) { showNotifBar('error', 'App data not loaded. Please refresh the page.', '❌'); return; }
   const uid = sessionStorage.getItem('userId');
+  if (!uid) { showNotifBar('error', 'Session expired. Please log in again.', '❌'); return; }
   const emp = (appState.employees || []).find(e => e.id === uid);
-  if (!emp) return;
+  if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.', '❌'); return; }
   api('/api/attendance/login', {
     method: 'POST',
     body: { empId: emp.id, empName: emp.name, department: emp.dept, computerName: navigator.platform || 'Web Browser' }
@@ -1113,10 +1151,11 @@ function empPunchIn() {
 function empPunchOut() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
-  if (!appState) return;
+  if (!appState) { showNotifBar('error', 'App data not loaded. Please refresh the page.', '❌'); return; }
   const uid = sessionStorage.getItem('userId');
+  if (!uid) { showNotifBar('error', 'Session expired. Please log in again.', '❌'); return; }
   const emp = (appState.employees || []).find(e => e.id === uid);
-  if (!emp) return;
+  if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.', '❌'); return; }
   api('/api/attendance/logout', {
     method: 'POST',
     body: { empId: emp.id }
@@ -1314,7 +1353,7 @@ async function sendAdminReset() {
     if (res && res.success && res.tempPassword) {
       const statusEl = document.getElementById('fp-status-message');
       if (statusEl) {
-        statusEl.innerHTML = '✅ <strong>Temporary password generated. Use it to log in, then change it in Settings.</strong>';
+        statusEl.innerHTML = '✅ <strong>' + (res.message || 'Temporary password generated. Use it to log in.') + '</strong>';
         statusEl.style.display = 'block';
         statusEl.style.color = 'var(--green-text, #166534)';
         statusEl.style.background = 'var(--green-bg, #dcfce7)';
@@ -1488,9 +1527,30 @@ function renderAdminNotifPanel() {
     return;
   }
   smartListSync(body, notifs, n =>
-    '<div class="notif-item' + (n.unread ? ' unread' : '') + '"><div>' + n.text + '</div><div class="notif-item-time">' + (n.time || '') + '</div></div>',
-    n => n._id || n.text + (n.time || '')
+    '<div class="notif-item' + (n.unread ? ' unread' : '') + '" onclick="dismissAdminNotif(\'' + (n._id || n.id || n.text) + '\')">' +
+      '<div style="flex:1">' + n.text + '</div>' +
+      '<div class="notif-item-time">' + (n.time || '') + '</div>' +
+      '<span class="notif-dismiss" title="Dismiss">&times;</span>' +
+    '</div>',
+    n => n._id || n.id || n.text + (n.time || '')
   );
+  // Auto-dismiss if panel is already open
+  if (document.getElementById('notif-panel')?.classList.contains('open')) {
+    markAdminNotifsRead();
+  }
+}
+
+function dismissAdminNotif(key) {
+  const notifs = appState?.adminNotifications || [];
+  const idx = notifs.findIndex(n => (n._id || n.id || n.text) === key);
+  if (idx !== -1) {
+    if (notifs[idx].unread !== false) {
+      notifs[idx].unread = false;
+      api('/api/notifications/mark-read', { method: 'POST', body: { userId: ADMIN_EMAIL } });
+    }
+  }
+  updateAdminNotifBadge();
+  renderAdminNotifPanel();
 }
 
 function renderEmpNotifPanel() {
@@ -1504,9 +1564,30 @@ function renderEmpNotifPanel() {
     return;
   }
   smartListSync(body, notifs, n =>
-    '<div class="notif-item' + (n.unread ? ' unread' : '') + '"><div>' + n.text + '</div><div class="notif-item-time">' + (n.time || '') + '</div></div>',
-    n => n._id || n.text + (n.time || '')
+    '<div class="notif-item' + (n.unread ? ' unread' : '') + '" onclick="dismissEmpNotif(\'' + (n._id || n.id || n.text) + '\')">' +
+      '<div style="flex:1">' + n.text + '</div>' +
+      '<div class="notif-item-time">' + (n.time || '') + '</div>' +
+      '<span class="notif-dismiss" title="Dismiss">&times;</span>' +
+    '</div>',
+    n => n._id || n.id || n.text + (n.time || '')
   );
+  if (document.getElementById('emp-notif-panel')?.classList.contains('open')) {
+    markEmpNotifsRead();
+  }
+}
+
+function dismissEmpNotif(key) {
+  const allNotifs = appState?.empNotifications || [];
+  const idx = allNotifs.findIndex(n => (n._id || n.id || n.text) === key);
+  if (idx !== -1) {
+    if (allNotifs[idx].unread !== false) {
+      allNotifs[idx].unread = false;
+      const uid = sessionStorage.getItem('userId');
+      api('/api/notifications/mark-read', { method: 'POST', body: { userId: uid } });
+    }
+  }
+  updateEmpNotifBadge();
+  renderEmpNotifPanel();
 }
 
 function showNotifBar(type, msg, icon, actionBtn) {
@@ -1705,6 +1786,7 @@ async function showAdminPage() {
   document.getElementById('page-login').classList.remove('active');
   document.getElementById('page-admin').classList.add('active');
   initClock('admin-clock');
+  markAdminNotifsRead();
   renderAll();
 }
 
@@ -1745,14 +1827,14 @@ function toggleDarkMode() {
   document.querySelectorAll('.dark-toggle-btn').forEach(b => b.textContent = isDark ? '☀️' : '🌙');
 }
 
-function switchTab(pageId, prefix, tabName, btnElement, onShow) {
+async function switchTab(pageId, prefix, tabName, btnElement, onShow) {
   const tabClass = prefix === 'admin' ? 'atab' : 'etab';
   const tabs = document.querySelectorAll(pageId + ' .' + tabClass);
   tabs.forEach(t => t.classList.remove('show'));
   const target = document.getElementById(prefix + '-' + tabName);
   if (target) {
     target.classList.add('show');
-    if (onShow) onShow();
+    if (onShow) await onShow();
   }
   document.querySelectorAll(pageId + ' .nav-btn').forEach(b => b.classList.remove('active'));
   if (btnElement) btnElement.classList.add('active');
@@ -1807,9 +1889,80 @@ function renderArchivedTable() {
     '<td><span class="tag t-' + (a.status === 'Archived' ? 'leave' : 'absent') + '">' + a.status + '</span></td>' +
     '<td style="font-size:13px;">' + (a.joining ? formatDate(a.joining) : '—') + '</td>' +
     '<td style="font-size:13px;">' + (a.exit ? formatDate(a.exit) : '—') + '</td>' +
-    '<td><button class="btn btn-sm" onclick="showNotifBar(&quot;info&quot;,&quot;Archived employee data is read-only.&quot;,&quot;ℹ️&quot;)">👁 View</button></td></tr>',
+    '<td><button class="btn btn-sm" onclick="viewArchivedEmployee(\'' + (a.id || '') + '\')">👁 View</button></td></tr>',
     a => a.id || a.name
   );
+}
+
+function viewArchivedEmployee(archivedId) {
+  if (!appState) return;
+  const archived = (appState.archivedEmployees || []).find(a => a.id === archivedId);
+  if (!archived) { showNotifBar('error', 'Archived employee not found.', '❌'); return; }
+  const ed = archived.employee_data || {};
+  // Use the add-emp-modal in read-only view mode
+  const modal = document.getElementById('add-emp-modal');
+  modal.dataset.mode = 'view';
+  modal.dataset.editId = '';
+  document.getElementById('add-emp-title').innerText = '📋 Archived Employee — ' + archived.name;
+  document.getElementById('add-emp-save-btn').innerText = '🔒 Read-Only';
+  document.getElementById('add-emp-save-btn').disabled = true;
+  modal.style.display = 'flex';
+  // Populate all fields with archived data
+  document.getElementById('f-name').value = archived.name || '';
+  document.getElementById('f-name').disabled = true;
+  document.getElementById('f-id').value = archived.id || '';
+  document.getElementById('f-id').disabled = true;
+  document.getElementById('f-email').value = ed.email || '';
+  document.getElementById('f-email').disabled = true;
+  document.getElementById('f-phone').value = ed.phone || '';
+  document.getElementById('f-phone').disabled = true;
+  document.getElementById('f-birthday').value = ed.bday || '';
+  document.getElementById('f-birthday').disabled = true;
+  document.getElementById('f-joining').value = archived.joining || ed.joining || '';
+  document.getElementById('f-joining').disabled = true;
+  document.getElementById('f-designation').value = ed.designation || '';
+  document.getElementById('f-designation').disabled = true;
+  document.getElementById('f-pwd').value = '';
+  document.getElementById('f-pwd').placeholder = '🔒 Data archived — password hidden';
+  document.getElementById('f-pwd').disabled = true;
+  document.getElementById('f-cl').value = ed.cl || 0;
+  document.getElementById('f-cl').disabled = true;
+  document.getElementById('f-sl').value = ed.sl || 0;
+  document.getElementById('f-sl').disabled = true;
+  // Departments
+  renderDepartments();
+  const deptSelect = document.getElementById('f-dept');
+  if (deptSelect) {
+    deptSelect.value = archived.dept || '';
+    deptSelect.disabled = true;
+  }
+  // Show archive metadata banner
+  const modalBody = modal.querySelector('.modal-body');
+  const existingBanner = document.getElementById('archived-view-banner');
+  if (!existingBanner) {
+    const banner = document.createElement('div');
+    banner.id = 'archived-view-banner';
+    banner.style.cssText = 'background:var(--amber-bg, #fef3c7);border:1px solid var(--amber-border, #fde68a);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--amber-text, #92400e);line-height:1.6;';
+    banner.innerHTML = '⚠️ <strong>Archived / Past Employee</strong> — This data is read-only for compliance and audit purposes. ' +
+      'Archived on: <strong>' + (archived.exit ? formatDate(archived.exit) : '—') + '</strong> | ' +
+      'Status: <strong>' + (archived.status || 'Archived') + '</strong>';
+    modalBody.insertBefore(banner, modalBody.firstChild);
+  }
+}
+
+function closeAddEmpModal() {
+  document.getElementById('add-emp-modal').style.display = 'none';
+  document.getElementById('f-id').disabled = false;
+  // Re-enable all fields (for next use)
+  ['f-name','f-id','f-email','f-phone','f-birthday','f-joining','f-designation','f-pwd','f-cl','f-sl','f-dept'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = false;
+  });
+  document.getElementById('f-pwd').placeholder = 'Default: emp123';
+  document.getElementById('add-emp-save-btn').disabled = false;
+  // Remove the archived view banner
+  const banner = document.getElementById('archived-view-banner');
+  if (banner) banner.remove();
 }
 
 function toggleArchived() {
@@ -1837,7 +1990,7 @@ function renderDeptHeadcount() {
 function renderDepartments() {
   if (!appState) return;
   const departments = appState.departments || [];
-  const selects = ['f-dept', 'rec-dept', 'emp-dept-filter'];
+  const selects = ['f-dept', 'rec-dept', 'emp-dept-filter', 'active-now-dept-filter'];
   selects.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -2185,23 +2338,196 @@ function startSupabaseListener() {
   if (typeof SupabaseDB !== 'undefined' && SupabaseDB.isConfigured()) {
     const inited = SupabaseDB.init();
     if (inited) {
-      SupabaseDB.subscribeAll((info) => {
-        console.log('[Supabase] Realtime change — scheduling render', info?.table, info?.event);
-        RenderQueue.schedule();
-        // Show admin toast for employee sign-in/out events
-        if (info?.table === 'attendance_logs' && document.getElementById('page-admin')?.classList.contains('active')) {
-          if (info.event === 'INSERT' && info.new?.emp_name) {
-            const time = formatTime(info.new.login_time);
-            showNotifBar('info', '✅ ' + info.new.emp_name + ' signed in at ' + time, '🟢');
-          } else if (info.event === 'UPDATE' && info.new?.logout_time && !info.old?.logout_time) {
-            const time = formatTime(info.new.logout_time);
-            showNotifBar('info', '🔴 ' + (info.new.emp_name || 'Employee') + ' signed out at ' + time, '🟤');
-          }
-        }
-      });
+      SupabaseDB.subscribeAll(handleRealtimeEvent);
       console.log('[Supabase] Realtime listener attached');
     }
   }
+}
+
+function handleRealtimeEvent(info) {
+  if (!info || !info.table || !info.event) return;
+  const { table, event, new: newData, old: oldData } = info;
+  const isAdmin = document.getElementById('page-admin')?.classList.contains('active');
+  const isEmp = document.getElementById('page-employee')?.classList.contains('active');
+
+  // ── attendance_logs: sign-in/out live updates ──
+  if (table === 'attendance_logs') {
+    if (!appState) { RenderQueue.schedule(); return; }
+
+    if (event === 'INSERT' && newData) {
+      appState.attendanceLogs = [...(appState.attendanceLogs || []), newData];
+      if (isAdmin) {
+        const time = formatTime(newData.login_time);
+        showNotifBar('info', '✅ ' + (newData.emp_name || 'Employee') + ' signed in at ' + time, '🟢');
+        updateDashboardStats();
+        renderDashboardCards();
+        if (document.getElementById('tab-records')?.classList.contains('active')) renderRecords();
+      }
+      if (isEmp && newData.emp_id === sessionStorage.getItem('userId')) {
+        updateDashboardStats();
+        const emp = appState.employees?.find(e => e.id === newData.emp_id);
+        if (emp) renderEmpDashboard(emp);
+        const pill = document.getElementById('emp-pill');
+        if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
+      }
+    } else if (event === 'UPDATE' && newData) {
+      const logs = appState?.attendanceLogs || [];
+      const idx = logs.findIndex(l => l.id === newData.id);
+      if (idx !== -1) { appState.attendanceLogs[idx] = { ...logs[idx], ...newData }; }
+      if (isAdmin && newData.logout_time && (!oldData?.logout_time)) {
+        const time = formatTime(newData.logout_time);
+        showNotifBar('info', '🔴 ' + (newData.emp_name || 'Employee') + ' signed out at ' + time, '🟤');
+        updateDashboardStats();
+        renderDashboardCards();
+        if (document.getElementById('tab-records')?.classList.contains('active')) renderRecords();
+      }
+      if (isEmp && newData.emp_id === sessionStorage.getItem('userId') && newData.logout_time) {
+        updateDashboardStats();
+        const emp = appState.employees?.find(e => e.id === newData.emp_id);
+        if (emp) renderEmpDashboard(emp);
+        const pill = document.getElementById('emp-pill');
+        if (pill) { pill.className = 'status-pill sp-out'; pill.innerHTML = '<div class="status-dot sd-r"></div>Signed Out'; }
+      }
+    } else if (event === 'DELETE') {
+      RenderQueue.schedule();
+    }
+    return;
+  }
+
+  // ── leave_requests: live toast + UI update ──
+  if (table === 'leave_requests') {
+    if (!appState) { RenderQueue.schedule(); return; }
+
+    if (event === 'INSERT' && newData) {
+      const lr = {
+        id: newData.id, empId: newData.emp_id, empName: newData.emp_name,
+        dept: newData.dept, type: newData.type, from: newData.from_date,
+        to: newData.to_date, days: newData.days, reason: newData.reason,
+        status: newData.status || 'Pending'
+      };
+      appState.leaveRequests = [...(appState.leaveRequests || []), lr];
+      if (isAdmin) {
+        showNotifBar('info', '📋 New leave request from ' + (lr.empName || 'Employee'), '📩');
+        renderLeaveRequests();
+        renderLeaveHistory();
+        updateNavBadges();
+      }
+      if (isEmp && lr.empId === sessionStorage.getItem('userId')) {
+        showNotifBar('info', 'Your leave request has been submitted. Waiting for approval.', '📋');
+      }
+    } else if (event === 'UPDATE' && newData) {
+      const reqs = appState.leaveRequests || [];
+      const idx = reqs.findIndex(l => String(l.id) === String(newData.id));
+      const wasPending = idx !== -1 ? reqs[idx].status === 'Pending' : false;
+      if (idx !== -1) {
+        appState.leaveRequests[idx] = { ...reqs[idx], status: newData.status || reqs[idx].status };
+      }
+      if (isAdmin) {
+        renderLeaveRequests();
+        renderLeaveHistory();
+        updateNavBadges();
+      }
+      if (isEmp && idx !== -1 && wasPending && reqs[idx].empId === sessionStorage.getItem('userId')) {
+        showNotifBar('info', 'Your leave was ' + (newData.status || 'updated') + '.', '📋');
+      }
+    } else if (event === 'DELETE') {
+      RenderQueue.schedule();
+    }
+    return;
+  }
+
+  // ── notifications: update badge + panel ──
+  if (table === 'notifications' && event === 'INSERT' && newData) {
+    if (isAdmin && newData.target === 'admin') {
+      appState.adminNotifications = [...(appState.adminNotifications || []), newData];
+      updateAdminNotifBadge();
+      renderAdminNotifPanel();
+    }
+    if (isEmp && (newData.target === 'emp' || newData.user_id === sessionStorage.getItem('userId'))) {
+      appState.empNotifications = [...(appState.empNotifications || []), newData];
+      updateEmpNotifBadge();
+      renderEmpNotifPanel();
+    }
+    return;
+  }
+
+  // ── employees: update list + table ──
+  if (table === 'employees' && appState) {
+    if (event === 'INSERT' && newData) {
+      const { password, ...safe } = newData;
+      appState.employees = [...(appState.employees || []), safe];
+    } else if (event === 'UPDATE' && newData) {
+      const { password, ...safe } = newData;
+      const idx = (appState.employees || []).findIndex(e => e.id === safe.id);
+      if (idx !== -1) appState.employees[idx] = { ...appState.employees[idx], ...safe };
+    } else if (event === 'DELETE' && oldData) {
+      appState.employees = (appState.employees || []).filter(e => e.id !== oldData.id);
+    }
+    if (isAdmin) { renderEmpTable(); renderLeaveBalances(); updateNavBadges(); }
+    return;
+  }
+
+  // ── Fallback: full refresh for anything else ──
+  RenderQueue.schedule();
+}
+
+// ── Password Recovery via Supabase Auth ──
+async function setupPasswordRecovery() {
+  if (typeof SupabaseDB === 'undefined' || !SupabaseDB.isReady()) return;
+  const supabase = SupabaseDB.supabase;
+  if (!supabase?.auth) return;
+
+  // Check URL hash for recovery redirect
+  if (window.location.hash && window.location.hash.includes('type=recovery')) {
+    document.getElementById('recovery-modal').style.display = 'flex';
+  }
+
+  // Listen for recovery events (catches cases where hash was already processed)
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      document.getElementById('recovery-modal').style.display = 'flex';
+    }
+  });
+}
+
+async function setNewPassword() {
+  const newPwd = document.getElementById('rp-new-pwd').value.trim();
+  const confirmPwd = document.getElementById('rp-confirm-pwd').value.trim();
+  const statusEl = document.getElementById('rp-status');
+  if (!newPwd || newPwd.length < 6) {
+    statusEl.textContent = 'Password must be at least 6 characters.';
+    statusEl.style.display = 'block'; return;
+  }
+  if (newPwd !== confirmPwd) {
+    statusEl.textContent = 'Passwords do not match.';
+    statusEl.style.display = 'block'; return;
+  }
+  statusEl.style.display = 'none';
+  const btn = document.querySelector('#recovery-modal .btn-primary');
+  btn.disabled = true; btn.textContent = '⏳ Saving...';
+  try {
+    // Update Supabase Auth password
+    const supabase = SupabaseDB.supabase;
+    if (supabase?.auth) {
+      const { error } = await supabase.auth.updateUser({ password: newPwd });
+      if (error) { showNotifBar('error', 'Auth update failed: ' + error.message, '❌'); btn.disabled = false; btn.textContent = '🔑 Set New Password'; return; }
+    }
+    // Update admin table password
+    await dbUpdateAdminPassword(newPwd);
+    showNotifBar('success', 'Password changed successfully. Please log in with your new password.', '✅');
+    document.getElementById('recovery-modal').style.display = 'none';
+    document.getElementById('rp-new-pwd').value = '';
+    document.getElementById('rp-confirm-pwd').value = '';
+    document.getElementById('forgot-modal').style.display = 'none';
+    window.location.hash = '';
+  } catch (e) {
+    showNotifBar('error', 'Error: ' + e.message, '❌');
+  }
+  btn.disabled = false; btn.textContent = '🔑 Set New Password';
+}
+
+async function dbUpdateAdminPassword(newPwd) {
+  await api('/api/auth/reset-password', { method: 'POST', body: { newPassword: newPwd } });
 }
 
 async function init() {
@@ -2226,6 +2552,7 @@ async function init() {
   }
 
   startSupabaseListener();
+  setupPasswordRecovery();
 
   const savedUid = sessionStorage.getItem('userId');
   const savedRole = sessionStorage.getItem('userRole');
@@ -2311,3 +2638,237 @@ document.addEventListener('DOMContentLoaded', init);
   const res = await api('/api/employees', { method: 'POST', body: { id: 'EMP-7429', name: 'Alex Mercer', dept: 'Quality Assurance', bday: '1996-08-24', password: 'testpassword123', cl: 7.5, sl: 3.0, joining: new Date().toISOString().split('T')[0] } });
   if (res && res.success) { console.log('[Seed] EMP-7429 Alex Mercer created'); localStorage.setItem('seed_emp7429', '1'); }
 })();
+
+// ══ Schema SQL (fallback embedded copy for Run SQL Setup) ══
+const __SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS admin (
+  username TEXT PRIMARY KEY,
+  password TEXT NOT NULL,
+  email TEXT
+);
+
+INSERT INTO admin (username, password, email)
+VALUES ('quemahtech', 'quemah123', 'atharvashishn@gmail.com')
+ON CONFLICT (username) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS employees (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  dept TEXT, email TEXT, phone TEXT, bday TEXT, joining TEXT,
+  designation TEXT, password TEXT DEFAULT 'emp123',
+  cl REAL DEFAULT 7.5, sl REAL DEFAULT 3.0, ul REAL DEFAULT 0,
+  active BOOLEAN DEFAULT true, calendar_event_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS attendance_logs (
+  id BIGSERIAL PRIMARY KEY,
+  emp_id TEXT NOT NULL, emp_name TEXT NOT NULL, department TEXT,
+  login_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  logout_time TIMESTAMPTZ, working_hours REAL DEFAULT 0,
+  status TEXT DEFAULT 'Active', computer_name TEXT DEFAULT '',
+  login_date TEXT, event TEXT DEFAULT 'LOGIN',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Partial unique index: at most one active session per employee (DB-level duplicate prevention)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_logs_active_unique
+  ON attendance_logs (emp_id)
+  WHERE logout_time IS NULL;
+
+-- Non-unique index for fast active-session lookup (kept for broader queries)
+CREATE INDEX IF NOT EXISTS idx_attendance_logs_active
+  ON attendance_logs (emp_id, logout_time) WHERE logout_time IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_attendance_logs_date
+  ON attendance_logs (login_date);
+
+CREATE TABLE IF NOT EXISTS attendance (
+  id TEXT, name TEXT, dept TEXT, date TEXT,
+  "in" TEXT, "out" TEXT, hours REAL DEFAULT 0,
+  status TEXT DEFAULT 'Present', notes TEXT DEFAULT '',
+  PRIMARY KEY (id, date)
+);
+
+CREATE TABLE IF NOT EXISTS leave_requests (
+  id BIGSERIAL PRIMARY KEY, emp_id TEXT, emp_name TEXT, dept TEXT,
+  type TEXT, from_date TEXT, to_date TEXT, days INTEGER,
+  reason TEXT, status TEXT DEFAULT 'Pending',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS announcements (
+  id BIGSERIAL PRIMARY KEY, date TEXT, subject TEXT, body TEXT,
+  "by" TEXT DEFAULT 'Admin', priority TEXT DEFAULT 'normal',
+  recipient TEXT DEFAULT 'All Employees',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS departments (name TEXT PRIMARY KEY);
+
+INSERT INTO departments (name) VALUES
+  ('Engineering'), ('HR'), ('IT'), ('Marketing'), ('Finance'), ('Operations')
+ON CONFLICT (name) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id BIGSERIAL PRIMARY KEY, text TEXT, time TEXT,
+  unread BOOLEAN DEFAULT true, target TEXT DEFAULT 'admin',
+  user_id TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS archived_employees (
+  id TEXT PRIMARY KEY, original_id TEXT, name TEXT, dept TEXT,
+  status TEXT, joining TEXT, exit TEXT, employee_data JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE attendance_logs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
+ALTER TABLE leave_requests DISABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications DISABLE ROW LEVEL SECURITY;
+ALTER TABLE announcements DISABLE ROW LEVEL SECURITY;
+ALTER TABLE departments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE archived_employees DISABLE ROW LEVEL SECURITY;
+ALTER TABLE admin DISABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance DISABLE ROW LEVEL SECURITY;
+`;
+
+// ══ Run SQL Setup — executes the schema SQL via Supabase RPC ══
+async function runSqlSetup() {
+  const btn = document.getElementById('run-sql-setup-btn');
+  const logEl = document.getElementById('sql-setup-log');
+  const statusEl = document.getElementById('sql-setup-status');
+  if (!btn || !logEl) return;
+
+  setButtonLoading(btn, true);
+  logEl.innerHTML = '';
+
+  function log(msg, type) {
+    const color = type === 'error' ? '#ef4444' : type === 'success' ? '#16a34a' : 'var(--muted)';
+    logEl.innerHTML += '<div style="padding:3px 0;font-size:12px;line-height:1.5;color:' + color + '">' + msg + '</div>';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  if (statusEl) statusEl.textContent = 'Connecting...';
+
+  if (typeof SupabaseDB === 'undefined' || !SupabaseDB.supabase) {
+    log('❌ Supabase client not initialized. Check your configuration.', 'error');
+    if (statusEl) statusEl.textContent = 'Failed — not connected';
+    setButtonLoading(btn, false);
+    return;
+  }
+
+  const sb = SupabaseDB.supabase;
+
+  log('🔍 Checking for exec_sql RPC function...', 'info');
+  let execSqlExists = false;
+  try {
+    const { error } = await sb.rpc('exec_sql', { query: 'SELECT 1' });
+    if (!error) {
+      execSqlExists = true;
+      log('✅ exec_sql function found!', 'success');
+    } else if (error.message && error.message.includes('function') && (error.message.includes('not found') || error.message.includes('does not exist'))) {
+      execSqlExists = false;
+      log('ℹ️ exec_sql function not found.', 'info');
+    } else {
+      execSqlExists = true;
+      log('⚠️ exec_sql RPC responded (continuing)...', 'info');
+    }
+  } catch (e) {
+    execSqlExists = false;
+    log('ℹ️ exec_sql not available: ' + e.message.substring(0, 80), 'info');
+  }
+
+  if (!execSqlExists) {
+    log('', 'info');
+    log('📋 First, create the exec_sql Postgres function. Copy and run this in Supabase SQL Editor:', 'info');
+    const createFn = `CREATE OR REPLACE FUNCTION exec_sql(query text)
+RETURNS void AS $$
+BEGIN
+  EXECUTE query;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;`;
+    logEl.innerHTML += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin:6px 0;font-family:var(--font-mono);font-size:11px;white-space:pre-wrap;color:var(--text);line-height:1.7;">' + createFn + '</div>';
+    log('Then click "Run SQL Setup" again.', 'info');
+    logEl.innerHTML += '<div style="margin-top:6px;"><button class="btn btn-sm" onclick="window.open(\'https://supabase.com/dashboard/project/jrdfxkyhoutwzdbieefq/sql/new\',\'_blank\')">🔗 Open SQL Editor</button>' +
+      ' <button class="btn btn-sm" onclick="runSqlSetup()">🔄 Retry</button></div>';
+    if (statusEl) statusEl.textContent = 'Requires exec_sql';
+    setButtonLoading(btn, false);
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = 'Loading schema...';
+  log('📄 Loading schema SQL...', 'info');
+
+  let sqlText = '';
+  try {
+    const res = await fetch('supabase-schema.sql');
+    if (res.ok) {
+      sqlText = await res.text();
+      log('✅ Loaded from supabase-schema.sql (' + (sqlText.length / 1024).toFixed(1) + ' KB)', 'success');
+    } else {
+      throw new Error('HTTP ' + res.status);
+    }
+  } catch (e) {
+    log('⚠️ Using embedded fallback schema (' + e.message.substring(0, 60) + ')', 'info');
+    sqlText = __SCHEMA_SQL;
+  }
+
+  const statements = sqlText
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => s && s.length > 6 && !s.startsWith('--'));
+
+  log('📋 Found ' + statements.length + ' executable statements', 'info');
+  if (statusEl) statusEl.textContent = 'Running ' + statements.length + ' statements...';
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (let i = 0; i < statements.length; i++) {
+    const stmt = statements[i];
+    const preview = stmt.substring(0, 65).replace(/\n/g, ' ').trim();
+    log((i + 1) + '/' + statements.length + ' ⏳ ' + preview + '...', 'info');
+
+    try {
+      const { error } = await sb.rpc('exec_sql', { query: stmt + ';' });
+      if (error) {
+        const msg = error.message || '';
+        if (msg.includes('already exists') || msg.includes('duplicate key') || msg.includes('unique constraint')) {
+          log('   ⚠️ Already exists (skipped)', 'info');
+          successCount++;
+        } else {
+          log('   ❌ ' + msg.substring(0, 120), 'error');
+          failCount++;
+        }
+      } else {
+        log('   ✅ Done', 'success');
+        successCount++;
+      }
+    } catch (e) {
+      log('   ❌ ' + e.message.substring(0, 100), 'error');
+      failCount++;
+    }
+
+    if (statusEl) statusEl.textContent = 'Progress: ' + (i + 1) + '/' + statements.length;
+  }
+
+  log('', 'info');
+  log('═══════════════════════════════', 'info');
+  const summaryMsg = '📊 Complete: ✅ ' + successCount + ' OK, ❌ ' + failCount + ' errors';
+  log(summaryMsg, failCount > 0 ? 'error' : 'success');
+
+  if (failCount === 0) {
+    log('🎉 All statements executed successfully!', 'success');
+    if (statusEl) statusEl.textContent = '✅ Complete — ' + successCount + ' OK';
+    log('🔄 Refreshing application state...', 'info');
+    await refreshStateAndRender();
+    log('✅ State refreshed!', 'success');
+  } else {
+    if (statusEl) statusEl.textContent = '⚠️ ' + successCount + ' OK, ' + failCount + ' errors';
+  }
+
+  setButtonLoading(btn, false, '⚡ Run SQL Setup');
+}
+

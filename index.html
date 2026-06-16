@@ -455,7 +455,7 @@ body.dark-mode .skel-act-row {
         </div>
         <div class="field">
           <label>Username or Employee ID</label>
-          <input type="text" id="uid" placeholder="e.g. atharvashishn@gmail.com or EMP001" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()">
+          <input type="text" id="uid" placeholder="Admin name or emp 001" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()">
         </div>
         <div class="field">
           <label>Password</label>
@@ -558,7 +558,12 @@ body.dark-mode .skel-act-row {
       <div class="card" id="active-now-card" style="display:none;">
         <div class="card-header" style="padding-bottom:10px;">
           <div class="sec-title" style="margin:0;">🟢 Active Now</div>
-          <span class="live-indicator" id="active-now-count">0 signed in</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <select id="active-now-dept-filter" onchange="renderActiveNow()" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);outline:none;height:28px;font-family:var(--font);">
+              <option value="">All Depts</option>
+            </select>
+            <span class="live-indicator" id="active-now-count">0 signed in</span>
+          </div>
         </div>
         <div id="active-now-list" class="active-now-grid"></div>
       </div>
@@ -948,6 +953,21 @@ body.dark-mode .skel-act-row {
           </div>
         </details>
       </div>
+      <div class="settings-section">
+        <div class="sec-title">🗄️ Database Setup</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:10px;">Run the schema SQL to create or repair all required Supabase tables (idempotent — safe to re-run). Requires the <code>exec_sql</code> Postgres function to be created first.</p>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:13px;color:var(--muted);">📊 Status</span>
+            <span id="sql-setup-status" style="font-size:13px;font-weight:600;font-family:var(--font-mono);">Ready</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary" id="run-sql-setup-btn" onclick="runSqlSetup()">⚡ Run SQL Setup</button>
+          <button class="btn" onclick="window.open('https://supabase.com/dashboard/project/jrdfxkyhoutwzdbieefq/sql/new','_blank')">🔗 Open Supabase SQL Editor</button>
+        </div>
+        <div id="sql-setup-log" style="margin-top:14px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;max-height:300px;overflow-y:auto;font-family:var(--font-mono);font-size:11px;line-height:1.6;"></div>
+      </div>
     </div>
 
   </div><!-- /content -->
@@ -1212,7 +1232,7 @@ body.dark-mode .skel-act-row {
   </div>
 </div>
 
-<!-- FORGOT PASSWORD MODAL — EMAIL-TRIGGERED REAL-TIME IN-APP DELIVERY (Admin only) -->
+<!-- FORGOT PASSWORD MODAL — Email reset + temp password fallback (Admin only) -->
 <div id="forgot-modal" class="modal-overlay" style="display:none;">
   <div class="modal-box" style="max-width:480px;">
     <div class="modal-header">
@@ -1220,7 +1240,7 @@ body.dark-mode .skel-act-row {
       <button class="close-modal-btn" onclick="document.getElementById('forgot-modal').style.display='none'">×</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your admin email or username to generate a temporary password. <strong>Admin only.</strong> Employees please contact your administrator.</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your admin email to receive a password reset link, or generate a temporary password below. <strong>Admin only.</strong></p>
       <div class="field"><label>Admin Email / Username</label>
         <input type="text" id="forgot-uid" placeholder="e.g. atharvashishn@gmail.com">
       </div>
@@ -1229,8 +1249,29 @@ body.dark-mode .skel-act-row {
 
       <div id="fp-temp-password" style="display:none;font-size:22px;font-weight:700;color:#0f2744;text-align:center;padding:18px;background:#f0f4f8;border:2px dashed #f59e0b;border-radius:10px;letter-spacing:3px;font-family:monospace;margin:12px 0 16px;word-break:break-all;"></div>
 
-      <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="sendAdminReset()">🔑 Generate Temp Password</button>
-      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">Copy the temporary password above and use it to log in. Change it in Settings after logging in.</p>
+      <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="sendAdminReset()">🔑 Generate &amp; Email Reset</button>
+      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">If you have a Supabase Auth account, a reset link is also sent to your email. Use the temp password above to log in immediately.</p>
+    </div>
+  </div>
+</div>
+
+<!-- SET NEW PASSWORD MODAL (shown after clicking reset link from email) -->
+<div id="recovery-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <h3>🔐 Set New Password</h3>
+      <button class="close-modal-btn" onclick="document.getElementById('recovery-modal').style.display='none'">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">You came from a password reset email. Choose a new password for your admin account.</p>
+      <div class="field"><label>New Password</label>
+        <input type="password" id="rp-new-pwd" placeholder="Min 6 characters">
+      </div>
+      <div class="field"><label>Confirm Password</label>
+        <input type="password" id="rp-confirm-pwd" placeholder="Re-enter new password">
+      </div>
+      <div id="rp-status" style="display:none;font-size:13px;color:#dc2626;margin-bottom:10px;"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="setNewPassword()">🔑 Set New Password</button>
     </div>
   </div>
 </div>

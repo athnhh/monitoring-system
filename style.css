@@ -770,9 +770,16 @@ tbody tr{
   margin-bottom:8px;
   font-size:13.5px;
   line-height:1.5;
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  cursor:pointer;
+  position:relative;
 }
 .notif-item.unread{background:#eff6ff;border-color:#bfdbfe;}
-.notif-item-time{font-size:12px;color:var(--subtle);margin-top:4px;}
+.notif-item-time{font-size:12px;color:var(--subtle);margin-top:0;white-space:nowrap;}
+.notif-dismiss{font-size:18px;color:var(--subtle);cursor:pointer;line-height:1;padding:0 2px;flex-shrink:0;}
+.notif-dismiss:hover{color:#dc2626;}
 
 /* TIMELINE */
 .timeline{padding:0;list-style:none;}
