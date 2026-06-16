@@ -1494,7 +1494,8 @@ function renderDepartments() {
   selects.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.innerHTML = departments.map(d => '<option value="' + d + '">' + d + '</option>').join('');
+    const allOption = id !== 'f-dept' ? '<option value="">All Departments</option>' : '';
+    el.innerHTML = allOption + departments.map(d => '<option value="' + d + '">' + d + '</option>').join('');
   });
   const tagList = document.getElementById('dept-tag-list');
   if (tagList) {
