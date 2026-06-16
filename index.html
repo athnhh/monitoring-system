@@ -1239,11 +1239,13 @@ body.dark-mode .skel-act-row {
       <h3>🔑 Forgot Password</h3>
       <button class="close-modal-btn" onclick="document.getElementById('forgot-modal').style.display='none'">×</button>
     </div>
-    <div class="modal-body">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your admin email to receive a password reset link, or generate a temporary password below. <strong>Admin only.</strong></p>
-      <div class="field"><label>Admin Email / Username</label>
-        <input type="text" id="forgot-uid" placeholder="e.g. atharvashishn@gmail.com">
-      </div>
+    <div class="modal-body">          <div style="background:var(--amber-bg, #fef3c7);border:1px solid var(--amber-border, #fde68a);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--amber-text, #92400e);line-height:1.6;">
+            ⚠️ <strong>Your current password will be overwritten</strong> — a random temporary password will replace it. The original password will no longer work. Copy the new password immediately.
+          </div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your admin email to receive a password reset link, or generate a temporary password below. <strong>Admin only.</strong></p>
+          <div class="field"><label>Admin Email / Username</label>
+            <input type="text" id="forgot-uid" placeholder="e.g. atharvashishn@gmail.com">
+          </div>
 
       <div id="fp-status-message" style="display:none;font-size:13px;font-weight:600;margin-bottom:12px;padding:14px 16px;border-radius:8px;"></div>
 

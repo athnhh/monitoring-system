@@ -157,7 +157,7 @@ function smartListSync(container, items, htmlFn, getIdFn) {
 
 // ── RAF-Batched Render Scheduler ──
 // Coalesces multiple real-time events into a single frame-accurate re-render.
-// Prevents flicker when rapid socket events or Firestore syncs arrive.
+// Prevents flicker when rapid realtime events arrive.
 const RenderQueue = {
   _rafId: null,
   _pending: false,
