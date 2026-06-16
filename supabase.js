@@ -66,7 +66,7 @@
             console.log('[Supabase] Realtime:', table, payload.eventType);
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
-              if (refreshCallback) refreshCallback({ table, event: payload.eventType });
+              if (refreshCallback) refreshCallback({ table, event: payload.eventType, new: payload.new, old: payload.old });
             }, 300);
           }
         )

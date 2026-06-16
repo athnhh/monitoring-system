@@ -209,7 +209,7 @@
     const [employees, attendanceLogs, leaveRequests, announcements, depts, archived, notifications] =
       await Promise.all([
         db.getAll('employees'),
-        db.getAll('attendance_logs'),
+        _getAllAttendanceLogs(),
         db.getAll('leave_requests'),
         db.getAll('announcements'),
         db.getAll('departments'),
@@ -342,6 +342,20 @@
 
   // ── Attendance (Multi-Session Punch Ledger) ──
 
+  async function _getAllAttendanceLogs() {
+    try {
+      const { data, error } = await db.supabase
+        .from('attendance_logs')
+        .select('*')
+        .order('login_time', { ascending: false });
+      if (error) return [];
+      return data || [];
+    } catch (e) {
+      console.warn('[SBClient] attendance_logs table not available yet:', e.message);
+      return [];
+    }
+  }
+
   async function _getAttendanceLogs() {
     const { data, error } = await db.supabase
       .from('attendance_logs')
@@ -359,14 +373,18 @@
       return { success: false, error: 'Sign-in blocked after 6:00 PM IST.' };
     }
     // Check for existing active session
-    const { data: active } = await db.supabase
-      .from('attendance_logs')
-      .select('id')
-      .eq('emp_id', empId)
-      .is('logout_time', null)
-      .limit(1);
-    if (active && active.length > 0) {
-      return { success: false, error: 'Already signed in. Please sign out first.' };
+    try {
+      const { data: active } = await db.supabase
+        .from('attendance_logs')
+        .select('id')
+        .eq('emp_id', empId)
+        .is('logout_time', null)
+        .limit(1);
+      if (active && active.length > 0) {
+        return { success: false, error: 'Already signed in. Please sign out first.' };
+      }
+    } catch (e) {
+      return { success: false, error: 'Attendance system not ready. Contact admin.' };
     }
     const now = new Date();
     const m = now.getMinutes();
@@ -398,12 +416,18 @@
     const { empId } = body;
     if (!empId) return { success: false, error: 'Missing employee ID.' };
     // Find the active session for this employee
-    const { data: active, error: findErr } = await db.supabase
-      .from('attendance_logs')
-      .select('*')
-      .eq('emp_id', empId)
-      .is('logout_time', null)
-      .limit(1);
+    let active, findErr;
+    try {
+      const res = await db.supabase
+        .from('attendance_logs')
+        .select('*')
+        .eq('emp_id', empId)
+        .is('logout_time', null)
+        .limit(1);
+      active = res.data; findErr = res.error;
+    } catch (e) {
+      return { success: false, error: 'Attendance system not ready. Contact admin.' };
+    }
     if (findErr) return { success: false, error: findErr.message };
     if (!active || active.length === 0) {
       return { success: false, error: 'No active session found. Please sign in first.' };

@@ -325,9 +325,10 @@ function renderDashboardCards() {
   const presentLogs = latestTodayLogs.filter(l => ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status));
   const absentEmpIds = employees.filter(e => e.active).map(e => e.id).filter(id => !empLatest[id]);
   const absentEmps = absentEmpIds.map(id => employees.find(e => e.id === id)).filter(Boolean);
+  const activeNowCount = presentLogs.filter(l => !l.logout_time).length;
   const pEl = document.getElementById('a-present');
   const aEl = document.getElementById('a-absent');
-  setText('title-present-count', 'Present (' + presentLogs.length + ')');
+  setText('title-present-count', 'Present (' + presentLogs.length + ')' + (activeNowCount > 0 ? '  •  🟢 ' + activeNowCount + ' Active Now' : ''));
   setText('title-absent-count', 'Absent / On Leave (' + absentEmps.length + ')');
   // Smart sync for present list
   if (pEl) {
@@ -382,16 +383,69 @@ function renderDashboardCards() {
     );
   }
 
+  // Render Active Now dedicated card
+  renderActiveNow(latestTodayLogs, employees);
+
   renderDashPendingLeaves(leaveRequests);
+}
+
+function calcActiveDuration(loginTime) {
+  if (!loginTime) return '';
+  const start = new Date(loginTime);
+  const now = new Date();
+  const diffMs = now - start;
+  if (diffMs < 0) return '—';
+  const hrs = Math.floor(diffMs / 3600000);
+  const mins = Math.floor((diffMs % 3600000) / 60000);
+  if (hrs > 0) return hrs + 'h ' + mins + 'm';
+  return mins + 'm';
+}
+
+function renderActiveNow(todayLogs, employees) {
+  const emps = employees || (appState ? appState.employees : []) || [];
+  const logs = todayLogs || (appState ? (appState.attendanceLogs || []).filter(l => getDateFromISO(l.login_time) === new Date().toISOString().split('T')[0]) : []);
+  const activeLogs = logs.filter(l => ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status) && !l.logout_time);
+  const card = document.getElementById('active-now-card');
+  const list = document.getElementById('active-now-list');
+  const countEl = document.getElementById('active-now-count');
+  if (!card || !list) return;
+  if (activeLogs.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+  if (countEl) countEl.textContent = activeLogs.length + ' signed in';
+  // Use smartListSync for flicker-free updates
+  smartListSync(list, activeLogs, l => {
+    const idx = emps.findIndex(e => e.id === l.emp_id);
+    const avColor = AV_COLORS[Math.max(0, idx) % AV_COLORS.length];
+    return '<div class="active-now-item">' +
+      '<span class="active-now-pulse"></span>' +
+      '<div class="active-now-av ' + avColor + '">' + l.emp_name.charAt(0) + '</div>' +
+      '<div class="active-now-body">' +
+        '<div class="active-now-name">' + l.emp_name + '</div>' +
+        '<div class="active-now-dept">' + (l.department || emps[idx]?.dept || '') + '</div>' +
+      '</div>' +
+      '<div class="active-now-meta">' +
+        '<div class="active-now-time">' + formatTime(l.login_time) + '</div>' +
+        '<div class="active-now-duration">⏱ ' + calcActiveDuration(l.login_time) + '</div>' +
+      '</div>' +
+    '</div>';
+  }, l => l.emp_id);
 }
 
 function actRowEmp(l, employees) {
   const emps = employees || (appState ? appState.employees : []) || [];
   const idx = emps.findIndex(e => e.id === l.emp_id);
+  const isActive = !l.logout_time;
   return '<div class="act-row">' +
     '<div class="av ' + AV_COLORS[Math.max(0, idx) % AV_COLORS.length] + '" style="flex-shrink:0;">' + l.emp_name.charAt(0) + '</div>' +
     '<div style="flex:1;min-width:0;">' +
-      '<div style="font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + l.emp_name + '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
+        (isActive ? '<span class="pulse-dot"></span>' : '') +
+        '<span>' + l.emp_name + '</span>' +
+        (isActive ? '<span class="tag t-present" style="font-size:10px;padding:2px 8px;font-weight:600;">Active Now</span>' : '') +
+      '</div>' +
       '<div style="font-size:12px;color:var(--subtle);margin-top:2px;">' + l.department + '</div>' +
     '</div>' +
     '<span class="tag t-' + l.status.toLowerCase().replace(/[-\s]/g, '') + '" style="flex-shrink:0;">' + l.status + '</span></div>';
@@ -768,8 +822,10 @@ function handleLeave(idxOrId, decision) {
       if (res && res.warning) showNotifBar('warning', res.warning, '⚠️');
       showNotifBar('success', 'Leave for ' + req.empName + ' Approved!', '✓');
       addAdminNotif('Leave request from ' + req.empName + ' has been Approved.');
+      addEmpNotif('Your ' + req.type + ' leave request has been ✅ Approved!', req.empId);
     } else {
       showNotifBar('info', 'Leave for ' + req.empName + ' Rejected.', 'ℹ');
+      addEmpNotif('Your ' + req.type + ' leave request has been ❌ Rejected.', req.empId);
     }
   });
 }
@@ -1338,6 +1394,7 @@ function updateNavBadges() {
     const myPendingLeaves = (appState.leaveRequests || [])
       .filter(l => l.empId === uid && l.status === 'Pending').length;
     updateBadge('nav-badge-emp-leaves', myPendingLeaves);
+    updateEmpNotifBadge();
   }
 }
 
@@ -1732,6 +1789,8 @@ async function refreshStateAndRender() {
       const emp = (appState.employees || []).find(e => e.id === uid);
       if (emp) renderEmpDashboard(emp);
       updateNavBadges();
+      updateEmpNotifBadge();
+      renderEmpNotifPanel();
     }
   }
 }
@@ -1837,6 +1896,10 @@ function sendAnnouncement() {
     document.getElementById('ann-body').value = '';
     document.getElementById('ann-charcount').textContent = '0';
     showNotifBar('success', 'Announcement sent!', '📢');
+    // Broadcast announcement notification to all employees (single notification, no per-emp loop)
+    api('/api/notifications', { method: 'POST', body: { text: '📢 New announcement: ' + subject, target: 'emp', userId: '' } }).then(async () => {
+      await refreshStateAndRender();
+    });
   });
 }
 
@@ -2122,9 +2185,19 @@ function startSupabaseListener() {
   if (typeof SupabaseDB !== 'undefined' && SupabaseDB.isConfigured()) {
     const inited = SupabaseDB.init();
     if (inited) {
-      SupabaseDB.subscribeAll(() => {
-        console.log('[Supabase] Realtime change — scheduling render');
+      SupabaseDB.subscribeAll((info) => {
+        console.log('[Supabase] Realtime change — scheduling render', info?.table, info?.event);
         RenderQueue.schedule();
+        // Show admin toast for employee sign-in/out events
+        if (info?.table === 'attendance_logs' && document.getElementById('page-admin')?.classList.contains('active')) {
+          if (info.event === 'INSERT' && info.new?.emp_name) {
+            const time = formatTime(info.new.login_time);
+            showNotifBar('info', '✅ ' + info.new.emp_name + ' signed in at ' + time, '🟢');
+          } else if (info.event === 'UPDATE' && info.new?.logout_time && !info.old?.logout_time) {
+            const time = formatTime(info.new.logout_time);
+            showNotifBar('info', '🔴 ' + (info.new.emp_name || 'Employee') + ' signed out at ' + time, '🟤');
+          }
+        }
       });
       console.log('[Supabase] Realtime listener attached');
     }
