@@ -12,6 +12,8 @@ let breakSeconds = 0;
 let selectedLeaveManageIdx = null;
 let archiveTargetId = null;
 let removeTargetId = null;
+let pendingUndoArchiveId = null;
+let pendingUndoTimeout = null;
 let annSelectedRecipient = 'all';
 let annSelectedPriority = 'normal';
 let serverAvailable = false;
@@ -489,7 +491,20 @@ async function confirmArchiveEmployee() {
   closeDeleteEmpModal();
   await refreshStateAndRender();
   if (res && res.success) {
-    showNotifBar('info', emp.name + ' has been archived.', '📦');
+    pendingUndoArchiveId = archiveTargetId;
+    const empName = emp.name;
+    // Clear any previous undo timer
+    if (pendingUndoTimeout) clearTimeout(pendingUndoTimeout);
+    pendingUndoTimeout = setTimeout(() => {
+      pendingUndoArchiveId = null;
+      pendingUndoTimeout = null;
+    }, 5000);
+    showNotifBar('info', empName + ' has been archived.', '📦', {
+      label: '↩ Undo',
+      onClick() {
+        undoArchive(empName);
+      }
+    });
   } else {
     showNotifBar('error', 'Failed to archive ' + emp.name + '.', '❌');
   }
@@ -499,15 +514,13 @@ async function confirmArchiveEmployee() {
 async function deleteEmployee(employeeId) {
   if (typeof SupabaseDB === 'undefined' || !SupabaseDB.supabase) return { error: 'Database not connected.' };
   const sb = SupabaseDB.supabase;
-  try {
-    await sb.from('attendance').delete().eq('id', employeeId);
-    await sb.from('leave_requests').delete().eq('emp_id', employeeId);
-    await sb.from('employees').delete().eq('id', employeeId);
-    return { success: true };
-  } catch (e) {
-    console.error('[Delete]', e);
-    return { error: e.message || 'Failed to delete employee.' };
-  }
+  // Delete child records first; silently skip errors (tables may be empty or unlinked)
+  try { await sb.from('attendance').delete().eq('id', employeeId); } catch (_) {}
+  try { await sb.from('leave_requests').delete().eq('emp_id', employeeId); } catch (_) {}
+  // Delete the employee record
+  const { error } = await sb.from('employees').delete().eq('id', employeeId);
+  if (error) return { error: error.message };
+  return { success: true };
 }
 
 function openRemoveEmpModal(empId) {
@@ -551,6 +564,25 @@ async function confirmRemoveEmployee() {
     showNotifBar('error', (res && res.error) || 'Failed to remove ' + emp.name + '.', '❌');
   }
   removeTargetId = null;
+}
+
+async function undoArchive(empName) {
+  if (!pendingUndoArchiveId) return;
+  const id = pendingUndoArchiveId;
+  // Clear the undo timer
+  if (pendingUndoTimeout) {
+    clearTimeout(pendingUndoTimeout);
+    pendingUndoTimeout = null;
+  }
+  pendingUndoArchiveId = null;
+  showNotifBar('info', 'Restoring ' + empName + '…', '⏳');
+  const res = await api('/api/employees/' + id + '/unarchive', { method: 'POST' });
+  await refreshStateAndRender();
+  if (res && res.success) {
+    showNotifBar('success', empName + ' has been restored.', '↩');
+  } else {
+    showNotifBar('error', 'Failed to restore ' + empName + '.', '❌');
+  }
 }
 
 function closeDeleteEmpModal() {
@@ -1338,7 +1370,7 @@ function renderEmpNotifPanel() {
   );
 }
 
-function showNotifBar(type, msg, icon) {
+function showNotifBar(type, msg, icon, actionBtn) {
   const bar = document.getElementById('notif-bar');
   const iconEl = document.getElementById('notif-icon');
   const textEl = document.getElementById('notif-text');
@@ -1346,6 +1378,29 @@ function showNotifBar(type, msg, icon) {
   bar.className = 'notif-bar ' + type;
   if (iconEl) iconEl.textContent = icon || '✓';
   textEl.textContent = msg;
+  // Add or update action button
+  let actionEl = document.getElementById('notif-action-btn');
+  if (actionBtn) {
+    if (!actionEl) {
+      actionEl = document.createElement('button');
+      actionEl.id = 'notif-action-btn';
+      actionEl.style.cssText = 'background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.25);border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;padding:6px 14px;white-space:nowrap;flex-shrink:0;transition:all 0.15s;';
+      actionEl.addEventListener('mouseenter', () => { actionEl.style.background = 'rgba(255,255,255,0.28)'; });
+      actionEl.addEventListener('mouseleave', () => { actionEl.style.background = 'rgba(255,255,255,0.18)'; });
+      // Insert before the close button
+      const closeBtn = bar.querySelector('.notif-close');
+      bar.insertBefore(actionEl, closeBtn);
+    }
+    actionEl.textContent = actionBtn.label;
+    actionEl.onclick = (e) => {
+      e.stopPropagation();
+      actionBtn.onClick();
+    };
+    actionEl.style.display = 'inline-flex';
+  } else if (actionEl) {
+    actionEl.style.display = 'none';
+    actionEl.onclick = null;
+  }
   bar.style.display = 'flex';
   clearTimeout(bar._hideTimer);
   bar._hideTimer = setTimeout(hideNotifBar, 5000);
