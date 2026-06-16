@@ -121,6 +121,85 @@ function smartListSync(container, items, htmlFn, getIdFn) {
   }
 }
 
+// ── Skeleton Loading Placeholders ──
+// Renders shimmer animated placeholders in data containers while loading
+
+function skeletonTableRows(count, cols) {
+  const c = cols || 7;
+  return Array.from({ length: count }, () =>
+    '<tr class="skel-row enter-fade">' +
+    Array.from({ length: c }, () => '<td><span class="skel" style="width:' + (40 + Math.random() * 40) + '%;height:14px;">&nbsp;</span></td>').join('') +
+    '</tr>'
+  ).join('');
+}
+
+function skeletonActRows(count) {
+  return Array.from({ length: count }, () =>
+    '<div class="skel-act-row enter-fade"><div class="skel skel-av">&nbsp;</div><div class="skel skel-line">&nbsp;</div><div class="skel skel-tag">&nbsp;</div></div>'
+  ).join('');
+}
+
+function skeletonCards(count) {
+  return Array.from({ length: count }, () =>
+    '<div class="skel-card enter-fade"><div class="skel skel-av">&nbsp;</div><div class="skel-body"><div class="skel skel-line">&nbsp;</div><div class="skel skel-line-sm">&nbsp;</div></div></div>'
+  ).join('');
+}
+
+function skeletonBars(count) {
+  const widths = [45, 65, 35, 55, 50, 40, 60, 48];
+  return Array.from({ length: count }, (_, i) =>
+    '<div class="bar-row"><span class="bar-label skel" style="width:60px;height:12px;">&nbsp;</span>' +
+    '<div class="bar-track"><div class="bar-fill skel-pulse" style="width:' + widths[i % widths.length] + '%;height:8px;border-radius:4px;"></div></div>' +
+    '<span class="bar-val skel" style="width:30px;height:12px;">&nbsp;</span></div>'
+  ).join('');
+}
+
+function showSkeletons() {
+  // Present / absent lists
+  const pEl = document.getElementById('a-present');
+  if (pEl && (!pEl.children.length || pEl.textContent.includes('No data'))) {
+    pEl.innerHTML = skeletonActRows(4);
+  }
+  const aEl = document.getElementById('a-absent');
+  if (aEl && (!aEl.children.length || aEl.textContent.includes('No data'))) {
+    aEl.innerHTML = skeletonActRows(3);
+  }
+
+  // Attendance log table
+  const logEl = document.getElementById('a-log');
+  if (logEl && !logEl.children.length) logEl.innerHTML = skeletonTableRows(4, 6);
+
+  // Employee table
+  const empTbody = document.getElementById('emp-table-body');
+  if (empTbody && !empTbody.children.length) empTbody.innerHTML = skeletonTableRows(5, 9);
+
+  // Leave requests
+  const leaveEl = document.getElementById('leave-requests-list');
+  if (leaveEl && (!leaveEl.children.length || leaveEl.textContent.includes('No pending'))) leaveEl.innerHTML = skeletonCards(3);
+  const dashLeaveEl = document.getElementById('dash-pending-leaves');
+  if (dashLeaveEl && (!dashLeaveEl.children.length || dashLeaveEl.textContent.includes('No pending'))) dashLeaveEl.innerHTML = skeletonCards(2);
+
+  // Announcements list
+  const annEl = document.getElementById('announcements-list');
+  if (annEl && (!annEl.children.length || annEl.textContent.includes('No announc'))) annEl.innerHTML = skeletonCards(3);
+
+  // Records table
+  const recTbody = document.getElementById('a-records');
+  if (recTbody && !recTbody.children.length) recTbody.innerHTML = skeletonTableRows(5, 9);
+
+  // Leave balances table
+  const lbTbody = document.getElementById('leave-balances-table');
+  if (lbTbody && !lbTbody.children.length) lbTbody.innerHTML = skeletonTableRows(4, 6);
+
+  // Leave history table
+  const lhTbody = document.getElementById('leave-history-table');
+  if (lhTbody && !lhTbody.children.length) lhTbody.innerHTML = skeletonTableRows(3, 7);
+
+  // Department headcount bars
+  const deptBars = document.getElementById('dept-headcount-bars');
+  if (deptBars && !deptBars.children.length) deptBars.innerHTML = skeletonBars(4);
+}
+
 const DEPT_COLORS = {
   Engineering: 'c-eng', HR: 'c-hr', Marketing: 'c-mkt',
   Finance: 'c-fin', IT: 'c-it', Operations: 'c-ops'
@@ -1292,11 +1371,13 @@ async function doLogin() {
       currentUser = { name: 'Administrator' };
       currentRole = 'admin';
       showLoading('Loading admin panel...', 'Fetching employee data from server');
+      showSkeletons();
       await loadStateFromServer();
       showAdminPage();
       hideLoading();
     } else if (res.role === 'employee') {
       showLoading('Loading employee data...', 'Syncing from server');
+      showSkeletons();
       await loadStateFromServer();
       currentUser = res.user;
       currentRole = 'employee';
@@ -1870,6 +1951,7 @@ async function init() {
   const savedRole = sessionStorage.getItem('userRole');
   if (savedUid && savedRole) {
     showLoading('Restoring your session...', 'Loading data from server');
+    showSkeletons();
     const loaded = await loadStateFromServer();
     if (loaded) {
       if (savedRole === 'admin') {

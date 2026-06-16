@@ -146,6 +146,154 @@ body.dark-mode .content, body.dark-mode td, body.dark-mode th,
 body.dark-mode .tag, body.dark-mode .chip, body.dark-mode .btn, body.dark-mode .badge {
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
+
+/* ── Skeleton Loading Placeholders — shimmer animation ── */
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.skel {
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface2) 40%, var(--surface) 80%);
+  background-size: 200px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+  color: transparent !important;
+  user-select: none;
+  pointer-events: none;
+  display: inline-block;
+  line-height: 1;
+}
+.skel-pulse {
+  animation: skeletonPulse 1.6s ease-in-out infinite;
+  background: var(--surface2);
+  border-radius: 6px;
+  color: transparent !important;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Skeleton table row */
+.skel-row td {
+  border-bottom-color: transparent !important;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.skel-row:hover td {
+  background: transparent !important;
+}
+
+/* Skeleton act-row (present/absent cards) */
+.skel-act-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid transparent;
+}
+.skel-act-row .skel-av {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.skel-act-row .skel-line {
+  flex: 1;
+  height: 14px;
+  max-width: 160px;
+}
+.skel-act-row .skel-tag {
+  width: 60px;
+  height: 24px;
+  border-radius: 20px;
+  flex-shrink: 0;
+}
+
+/* Skeleton stat card */
+.skel-stat {
+  padding: 16px 0;
+}
+.skel-stat .skel-line-sm {
+  height: 12px;
+  width: 60%;
+  margin-bottom: 10px;
+}
+.skel-stat .skel-line-lg {
+  height: 32px;
+  width: 40%;
+  margin-bottom: 6px;
+}
+.skel-stat .skel-line-xs {
+  height: 10px;
+  width: 45%;
+}
+
+/* Skeleton card (leave request, announcement) */
+.skel-card {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.skel-card .skel-av {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.skel-card .skel-body {
+  flex: 1;
+}
+.skel-card .skel-line {
+  height: 14px;
+  width: 70%;
+  margin-bottom: 6px;
+}
+.skel-card .skel-line-sm {
+  height: 12px;
+  width: 50%;
+}
+
+/* Skeleton stat grid */
+.skel-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.skel-stats .skel-stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 26px;
+  border-top: 2px solid transparent;
+}
+
+/* Dark mode skeleton adjustments */
+body.dark-mode .skel {
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface2) 40%, var(--surface) 80%);
+  background-size: 200px 100%;
+}
+body.dark-mode .skel-pulse {
+  background: var(--surface2);
+}
+body.dark-mode .skel-card {
+  border-color: var(--border);
+}
+body.dark-mode .skel-stats .skel-stat-card {
+  background: var(--surface);
+  border-color: var(--border);
+}
+body.dark-mode .skel-act-row {
+  border-bottom-color: transparent;
+}
 </style>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <!-- Firebase SDK for client-side Firestore onSnapshot real-time sync -->

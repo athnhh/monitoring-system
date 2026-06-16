@@ -34,20 +34,20 @@ function loadServiceAccount() {
   return require(serviceAccountPath);
 }
 
-if (!admin.apps.length) {
-  try {
+let db = null;
+try {
+  if (!admin.apps.length) {
     const serviceAccount = loadServiceAccount();
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount)
     });
     console.log('Firebase Admin SDK initialized successfully');
-  } catch (e) {
-    console.error('Firebase Admin SDK init error:', e.message);
-    console.error('Set FIREBASE_SERVICE_ACCOUNT as an env var (raw JSON) or place firebase-service-account.json in the project root.');
   }
+  db = admin.firestore();
+} catch (e) {
+  console.error('Firebase Admin SDK init error:', e.message);
+  console.error('Set FIREBASE_SERVICE_ACCOUNT as an env var (raw JSON) or place firebase-service-account.json in the project root.');
 }
-
-const db = admin.firestore();
 
 // ── Internal Helpers ──
 
@@ -121,7 +121,7 @@ function buildQuery(collectionRef, filter) {
 // ── Factory: create a model-like object for a collection ──
 
 function createModel(collectionName) {
-  const colRef = () => db.collection(collectionName);
+  const colRef = () => db ? db.collection(collectionName) : null;
 
   const model = {
     /** Find documents matching a filter. Returns array. */
@@ -278,13 +278,19 @@ function createModel(collectionName) {
 
     /** Insert multiple documents. */
     async insertMany(docs) {
-      const batch = db.batch();
-      for (const doc of docs) {
-        const ref = colRef().doc(doc.name || doc.id || String(Math.random()));
-        batch.set(ref, doc);
+      try {
+        if (!db) return [];
+        const batch = db.batch();
+        for (const doc of docs) {
+          const ref = colRef()?.doc(doc.name || doc.id || String(Math.random()));
+          if (ref) batch.set(ref, doc);
+        }
+        await batch.commit();
+        return docs;
+      } catch (e) {
+        console.error(`[${collectionName}] insertMany error:`, e.message);
+        return [];
       }
-      await batch.commit();
-      return docs;
     },
 
     /** Delete a single document by filter. */
@@ -306,6 +312,7 @@ function createModel(collectionName) {
     async deleteMany(filter = {}) {
       try {
         const docs = await model.find(filter);
+        if (!db) return { deletedCount: 0 };
         const batch = db.batch();
         for (const doc of docs) {
           if (doc._ref) batch.delete(doc._ref);
