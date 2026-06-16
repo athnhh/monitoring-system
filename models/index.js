@@ -81,19 +81,15 @@ function attachRef(ref, data) {
  */
 function buildQuery(collectionRef, filter) {
   let query = collectionRef;
-  const sort = filter && filter.$sort;
-  if (sort) {
-    delete filter.$sort;
-  }
-  // Apply equality filters
+  const sort = (filter && filter.$sort) ? { ...filter.$sort } : null;
+  const cleanFilter = {};
   if (filter && typeof filter === 'object') {
-    const keys = Object.keys(filter);
-    for (const key of keys) {
-      if (key.startsWith('$')) continue;
+    for (const key of Object.keys(filter)) {
+      if (key === '$sort') continue;
+      cleanFilter[key] = filter[key];
       query = query.where(key, '==', filter[key]);
     }
   }
-  // Apply sort
   if (sort && typeof sort === 'object') {
     const sortKey = Object.keys(sort)[0];
     const sortDir = sort[sortKey] === -1 ? 'desc' : 'asc';
@@ -166,7 +162,7 @@ function createModel(collectionName) {
 
     /** Create a new document. */
     async create(data) {
-      const docId = data.id || data.username || data.idx !== undefined ? String(data.idx) : undefined;
+      const docId = data.id || data.username || undefined;
       const ref = docId ? colRef().doc(docId) : colRef().doc();
       await ref.set(data);
       return attachRef(ref, { ...data });
@@ -269,7 +265,9 @@ function createModel(collectionName) {
       }
       await batch.commit();
       return docs;
-    },      /** Delete a single document by filter. */
+    },
+
+    /** Delete a single document by filter. */
     async deleteOne(filter = {}) {
       try {
         const doc = await model.findOne(filter);

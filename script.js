@@ -1,17 +1,6 @@
-/* ═══════════════════════════════════
-   SCRIPT.JS — Quemahtech Employee Management System
-   All data is served from the MongoDB + Socket.io backend.
-   No localStorage caching — every read/write hits the server.
-═══════════════════════════════════ */
-
-/* ═══════════════════════════════════
-   SHARED JS — Global state, utilities, API, notifications
-═══════════════════════════════════ */
-
 const ADMIN_EMAIL = 'atharvashishn@gmail.com';
 const ADMIN_USERNAME = 'quemahtech';
 
-// ── Global State (loaded from server) ──
 let currentUser = null;
 let currentRole = '';
 let currentLeaveType = 'CL';
@@ -26,16 +15,11 @@ let annSelectedRecipient = 'all';
 let annSelectedPriority = 'normal';
 let serverAvailable = false;
 
-// These are loaded from the server via /api/state — NEVER cached to localStorage
-let employees = [];
-let archivedEmployees = [];
-let attendanceRecords = [];
-let leaveRequests = [];
-let announcements = [];
-let adminNotifications = [];
-let empNotifications = [];
-let departments = ["Engineering", "HR", "IT", "Marketing", "Finance", "Operations"];
+let appState = null;
 let socket = null;
+
+// Firestore snapshot unsubscribe function
+let fsUnsubscribe = null;
 
 const DEPT_COLORS = {
   Engineering: 'c-eng', HR: 'c-hr', Marketing: 'c-mkt',
@@ -45,9 +29,6 @@ const AV_COLORS = ['av-blue', 'av-green', 'av-purple', 'av-amber', 'av-teal', 'a
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-// ═══════════════════════════════════════════════════════════════
-// LOADING SPINNER UTILITIES
-// ═══════════════════════════════════════════════════════════════
 function showLoading(msg, sub) {
   const overlay = document.getElementById('loading-overlay');
   if (!overlay) return;
@@ -79,9 +60,6 @@ function setButtonLoading(btnSelector, isLoading, originalText) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// DYNAMIC API BASE URL
-// ═══════════════════════════════════════════════════════════════
 function resolveApiBase() {
   if (window.APP_CONFIG && window.APP_CONFIG.API_BASE) {
     return window.APP_CONFIG.API_BASE;
@@ -95,7 +73,6 @@ function resolveApiBase() {
 const API_BASE = resolveApiBase();
 console.log('[EMS] API_BASE:', API_BASE);
 
-// ── Socket.io Client ──
 function connectSocketIO() {
   if (typeof io === 'undefined') {
     console.warn('Socket.io library not loaded, real-time updates disabled');
@@ -121,71 +98,44 @@ function connectSocketIO() {
     });
     socket.on('notification', (data) => {
       console.log('Socket notification:', data);
-      const targetList = data.target === 'admin' ? adminNotifications : empNotifications;
-      const exists = targetList.some(n => n.text === data.text && n.time === data.time);
-      if (!exists) {
-        if (data.target === 'admin') {
-          adminNotifications.unshift(data);
-          updateAdminNotifBadge();
-          renderAdminNotifPanel();
-        } else {
-          empNotifications.unshift(data);
-          updateEmpNotifBadge();
-          renderEmpNotifPanel();
-        }
-      }
+      refreshStateAndRender();
     });
     socket.on('leave_request', (data) => {
-      const idx = leaveRequests.findIndex(l => l.idx === data.idx);
-      if (idx === -1) leaveRequests.unshift(data);
-      renderLeaveRequests();
-      renderLeaveHistory();
-      renderDashPendingLeaves();
+      refreshStateAndRender();
     });
     socket.on('leave_update', (data) => {
-      const idx = leaveRequests.findIndex(l => l.idx === data.idx);
-      if (idx !== -1) leaveRequests[idx] = data;
-      renderLeaveRequests();
-      renderLeaveHistory();
-      renderDashPendingLeaves();
+      refreshStateAndRender();
     });
     socket.on('employee_added', (data) => {
-      if (!employees.find(e => e.id === data.id)) {
-        employees.push(data);
-        renderEmpTable();
-        renderLeaveBalances();
-        updateDashboardStats();
-      }
+      console.log('Employee added (remote):', data);
+      refreshStateAndRender();
     });
     socket.on('employee_deleted', (data) => {
-      employees = employees.filter(e => e.id !== data.id);
-      renderEmpTable();
-      renderLeaveBalances();
-      updateDashboardStats();
+      console.log('Employee deleted (remote):', data);
+      refreshStateAndRender();
     });
     socket.on('employee_updated', (data) => {
-      const idx = employees.findIndex(e => e.id === data.id);
-      if (idx !== -1) {
-        employees[idx] = data;
-        renderEmpTable();
-        renderLeaveBalances();
-        updateDashboardStats();
-      }
+      console.log('Employee updated (remote):', data);
+      refreshStateAndRender();
+    });
+    socket.on('employee_archived', (data) => {
+      console.log('Employee archived (remote):', data);
+      refreshStateAndRender();
     });
     socket.on('departments_updated', (data) => {
-      if (data.departments && data.departments.length) {
-        departments = data.departments;
-        renderDepartments();
-        renderDeptHeadcount();
-      }
+      refreshStateAndRender();
+    });
+    socket.on('attendance_update', (data) => {
+      refreshStateAndRender();
+    });
+    socket.on('announcement', (data) => {
+      refreshStateAndRender();
     });
     socket.on('password_changed', () => {
       showNotifBar('info', 'Password was changed in another session.', '🔑');
     });
     socket.on('leave_balance_updated', (data) => {
-      const emp = employees.find(e => e.id === data.id);
-      if (emp) { emp.cl = data.cl; emp.sl = data.sl; emp.ul = data.ul; }
-      renderLeaveBalances();
+      refreshStateAndRender();
     });
     socket.on('password_reset', (data) => {
       console.log('Password reset received via socket:', data);
@@ -208,31 +158,36 @@ function connectSocketIO() {
       }
       showNotifBar('success', '🔑 Temporary password delivered! Check the modal.', '🔑');
     });
+    socket.on('force_logout', (data) => {
+      showNotifBar('warning', data.message || 'Force logged out at 18:00 IST', '⏰');
+      const uid = sessionStorage.getItem('userId');
+      if (uid && uid !== ADMIN_USERNAME) {
+        logout();
+      }
+    });
   } catch (e) {
     console.warn('Socket.io init failed:', e.message);
   }
 }
 
-/* ═══════════════════════════════════
-   ADMIN JS — Admin panel functions
-═══════════════════════════════════ */
-
 function adminTab(tabName, btnElement) {
-  localStorage.setItem('adminLastTab', tabName);
+  sessionStorage.setItem('adminLastTab', tabName);
   switchTab('#page-admin', 'admin', tabName, btnElement, () => {
     if (tabName === 'records') renderRecords();
     if (tabName === 'reports') setReport('daily', document.querySelector('.rtab.active'));
     if (tabName === 'settings') { loadCalendarConfig(); }
+    if (tabName === 'employees') renderAll();
   });
 }
 
 function updateDashboardStats() {
+  if (!appState) return;
   const today = new Date().toISOString().split('T')[0];
-  const todayRecs = attendanceRecords.filter(r => r.date === today);
+  const todayRecs = (appState.attendanceRecords || []).filter(r => r.date === today);
   const present = todayRecs.filter(r => r.status === 'Present' || r.status === 'Late' || r.status === 'Half-Day').length;
   const absent = todayRecs.filter(r => r.status === 'Absent').length;
   const late = todayRecs.filter(r => r.status === 'Late').length;
-  const total = employees.filter(e => e.active).length;
+  const total = (appState.employees || []).filter(e => e.active).length;
   const rate = total > 0 ? Math.round(present / total * 100) : 0;
   setText('stat-total-emp', total);
   setText('stat-present-today', present);
@@ -242,8 +197,12 @@ function updateDashboardStats() {
 }
 
 function renderDashboardCards() {
+  if (!appState) return;
   updateDashboardStats();
   const today = new Date().toISOString().split('T')[0];
+  const employees = appState.employees || [];
+  const attendanceRecords = appState.attendanceRecords || [];
+  const leaveRequests = appState.leaveRequests || [];
   const todayRecs = attendanceRecords.filter(r => r.date === today);
   const presentEmps = todayRecs.filter(r => ['Present', 'Late', 'Half-Day'].includes(r.status));
   const absentEmps = todayRecs.filter(r => r.status === 'Absent');
@@ -251,8 +210,8 @@ function renderDashboardCards() {
   const aEl = document.getElementById('a-absent');
   setText('title-present-count', 'Present (' + presentEmps.length + ')');
   setText('title-absent-count', 'Absent / On Leave (' + absentEmps.length + ')');
-  if (pEl) pEl.innerHTML = presentEmps.length ? presentEmps.map(r => actRow(r)).join('') : '<p style="color:var(--subtle);font-size:13px;">No one present yet.</p>';
-  if (aEl) aEl.innerHTML = absentEmps.length ? absentEmps.map(r => actRow(r)).join('') : '<p style="color:var(--subtle);font-size:13px;">All present!</p>';
+  if (pEl) pEl.innerHTML = presentEmps.length ? presentEmps.map(r => actRow(r, employees)).join('') : '<p style="color:var(--subtle);font-size:13px;">No one present yet.</p>';
+  if (aEl) aEl.innerHTML = absentEmps.length ? absentEmps.map(r => actRow(r, employees)).join('') : '<p style="color:var(--subtle);font-size:13px;">All present!</p>';
 
   const barsEl = document.getElementById('a-bars');
   if (barsEl) {
@@ -277,25 +236,30 @@ function renderDashboardCards() {
     '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td>' +
     '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td>' +
     '<td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
-    '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '') + '">' + r.status + '</span></td></tr>'
+    '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>'
   ).join('');
 
-  renderDashPendingLeaves();
+  renderDashPendingLeaves(leaveRequests);
 }
 
-function renderDashPendingLeaves() {
+function renderDashPendingLeaves(leaveRequests) {
   const el = document.getElementById('dash-pending-leaves');
   if (!el) return;
-  const pending = leaveRequests.filter(l => l.status === 'Pending');
+  const leaveReqs = leaveRequests || (appState ? appState.leaveRequests : []) || [];
+  const pending = leaveReqs.filter(l => l.status === 'Pending');
   if (!pending.length) { el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No pending requests.</p>'; return; }
   el.innerHTML = pending.map(l => leaveReqCard(l)).join('');
 }
 
-function actRow(r) {
-  return '<div class="act-row"><div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '">' + r.name.charAt(0) + '</div><div style="flex:1;"><div style="font-size:13px;font-weight:600;">' + r.name + '</div><div style="font-size:11px;color:var(--muted);">' + r.dept + '</div></div><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></div>';
+function actRow(r, employees) {
+  const emps = employees || (appState ? appState.employees : []) || [];
+  const idx = emps.findIndex(e => e.id === r.id);
+  return '<div class="act-row"><div class="av ' + AV_COLORS[Math.max(0, idx) % AV_COLORS.length] + '">' + r.name.charAt(0) + '</div><div style="flex:1;"><div style="font-size:13px;font-weight:600;">' + r.name + '</div><div style="font-size:11px;color:var(--muted);">' + r.dept + '</div></div><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></div>';
 }
 
 function renderRecords() {
+  if (!appState) return;
+  const attendanceRecords = appState.attendanceRecords || [];
   const dateF = document.getElementById('rec-date')?.value || '';
   const deptF = document.getElementById('rec-dept')?.value || '';
   const statusF = document.getElementById('rec-status')?.value || '';
@@ -305,6 +269,7 @@ function renderRecords() {
   if (dateF) recs = recs.filter(r => r.date === dateF);
   if (deptF) recs = recs.filter(r => r.dept === deptF);
   if (statusF) recs = recs.filter(r => r.status === statusF);
+  const employees = appState.employees || [];
   tbody.innerHTML = recs.map(r =>
     '<tr><td><span style="font-family:var(--font-mono);font-size:11px;color:var(--muted);">' + r.id + '</span></td>' +
     '<td><div style="display:flex;align-items:center;gap:8px;"><div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '">' + r.name.charAt(0) + '</div>' + r.name + '</div></td>' +
@@ -319,6 +284,8 @@ function renderRecords() {
 }
 
 function renderEmpTable() {
+  if (!appState) return;
+  const employees = appState.employees || [];
   const tbody = document.getElementById('emp-table-body');
   if (!tbody) return;
   const search = document.getElementById('emp-search')?.value.toLowerCase() || '';
@@ -336,26 +303,24 @@ function renderEmpTable() {
     '<td style="font-size:12px;">' + (emp.phone || '—') + '</td>' +
     '<td style="font-size:12px;">' + (emp.bday ? formatDate(emp.bday) : '—') + '</td>' +
     '<td><button class="btn btn-sm" onclick="openEditEmpModal(\'' + emp.id + '\')" title="Edit">✏️</button> ' +
-    '<button class="btn btn-sm" onclick="archiveEmployee(' + employees.indexOf(emp) + ')" title="Archive">📦</button> ' +
+    '<button class="btn btn-sm" onclick="archiveEmployee(\'' + emp.id + '\')" title="Archive">📦</button> ' +
     '<button class="btn btn-sm btn-danger" onclick="openDeleteEmpModal(\'' + emp.id + '\')" title="Remove">🗑</button></td></tr>'
   ).join('');
 }
 
-function archiveEmployee(idx) {
-  if (!confirm('Archive ' + employees[idx].name + '? They will be moved to the archived employees section.')) return;
-  const emp = employees[idx];
-  api('/api/employees/' + emp.id + '/archive', { method: 'POST' });
-  archivedEmployees.push({ id: emp.id, name: emp.name, dept: emp.dept, status: 'Archived', joining: emp.joining, exit: new Date().toISOString().split('T')[0] });
-  employees[idx].active = false;
-  renderEmpTable();
-  renderArchivedTable();
-  updateDashboardStats();
+function archiveEmployee(empId) {
+  if (!appState) return;
+  const emp = (appState.employees || []).find(e => e.id === empId);
+  if (!emp) return;
+  if (!confirm('Archive ' + emp.name + '? They will be moved to the archived employees section.')) return;
+  api('/api/employees/' + emp.id + '/archive', { method: 'POST' }).then(() => refreshStateAndRender());
   showNotifBar('info', emp.name + ' has been archived.', '📦');
 }
 
 function openDeleteEmpModal(id) {
+  if (!appState) return;
   deleteTargetId = id;
-  const emp = employees.find(e => e.id === id);
+  const emp = (appState.employees || []).find(e => e.id === id);
   if (emp) document.getElementById('delete-emp-name').innerText = emp.name + ' (' + emp.id + ')';
   document.getElementById('delete-emp-modal').style.display = 'flex';
 }
@@ -366,19 +331,13 @@ function closeDeleteEmpModal() {
 }
 
 async function confirmDeleteEmployee() {
-  if (!deleteTargetId) return;
-  const emp = employees.find(e => e.id === deleteTargetId);
+  if (!deleteTargetId || !appState) return;
+  const emp = (appState.employees || []).find(e => e.id === deleteTargetId);
   if (!emp) { showNotifBar('error', 'Employee not found.', '❌'); closeDeleteEmpModal(); return; }
-  archivedEmployees.push({ id: emp.id, name: emp.name, dept: emp.dept, status: 'Deleted', joining: emp.joining, exit: new Date().toISOString().split('T')[0] });
-  employees = employees.filter(e => e.id !== deleteTargetId);
   closeDeleteEmpModal();
-  renderEmpTable();
-  renderArchivedTable();
-  updateDashboardStats();
-  renderLeaveBalances();
-  renderDeptHeadcount();
   showNotifBar('info', emp.name + ' has been removed.', '🗑');
-  api('/api/employees/' + deleteTargetId, { method: 'DELETE' });
+  await api('/api/employees/' + deleteTargetId, { method: 'DELETE' });
+  refreshStateAndRender();
 }
 
 function openAddEmpModal() {
@@ -401,7 +360,8 @@ function openAddEmpModal() {
 }
 
 function openEditEmpModal(empId) {
-  const emp = employees.find(e => e.id === empId);
+  if (!appState) return;
+  const emp = (appState.employees || []).find(e => e.id === empId);
   if (!emp) return;
   document.getElementById('add-emp-modal').dataset.mode = 'edit';
   document.getElementById('add-emp-modal').dataset.editId = empId;
@@ -445,27 +405,26 @@ function saveEmployee() {
   const sl = parseFloat(document.getElementById('f-sl').value) || 0;
   if (!name || !id || !dept) { showNotifBar('warning', 'Please fill in all required fields (*)', '⚠️'); return; }
   if (mode === 'add') {
-    if (employees.some(e => e.id === id)) { showNotifBar('warning', 'Employee ID already exists.', '⚠️'); return; }
-    const newEmp = { id, name, dept, email, phone, bday, joining, designation, cl, sl, ul: 0, active: true, password: pwd || 'emp123' };
-    employees.push(newEmp);
-    api('/api/employees', { method: 'POST', body: newEmp });
-    closeAddEmpModal();
-    renderEmpTable();
-    renderLeaveBalances();
-    updateDashboardStats();
-    showNotifBar('success', 'Employee ' + name + ' added successfully!', '✓');
+    if (appState && (appState.employees || []).some(e => e.id === id)) { showNotifBar('warning', 'Employee ID already exists.', '⚠️'); return; }
+    api('/api/employees', { method: 'POST', body: { id, name, dept, email, phone, bday, joining, designation, cl, sl, password: pwd || 'emp123' } }).then(res => {
+      if (res && res.success) {
+        closeAddEmpModal();
+        refreshStateAndRender();
+        showNotifBar('success', 'Employee ' + name + ' added successfully!', '✓');
+      } else {
+        showNotifBar('error', (res && res.error) || 'Failed to add employee.', '❌');
+      }
+    });
   } else {
-    const emp = employees.find(e => e.id === editId);
-    if (!emp) { showNotifBar('error', 'Employee not found.', '❌'); return; }
-    emp.name = name; emp.dept = dept; emp.email = email; emp.phone = phone; emp.bday = bday; emp.joining = joining; emp.designation = designation;
-    if (pwd) emp.password = pwd;
-    emp.cl = cl; emp.sl = sl;
-    api('/api/employees/' + editId, { method: 'PUT', body: { name, dept, email, phone, bday, joining, designation, cl, sl, password: pwd || undefined } });
-    closeAddEmpModal();
-    renderEmpTable();
-    renderLeaveBalances();
-    updateDashboardStats();
-    showNotifBar('success', 'Employee ' + name + ' updated successfully!', '✓');
+    api('/api/employees/' + editId, { method: 'PUT', body: { name, dept, email, phone, bday, joining, designation, cl, sl, password: pwd || undefined } }).then(res => {
+      if (res && res.success) {
+        closeAddEmpModal();
+        refreshStateAndRender();
+        showNotifBar('success', 'Employee ' + name + ' updated successfully!', '✓');
+      } else {
+        showNotifBar('error', (res && res.error) || 'Failed to update employee.', '❌');
+      }
+    });
   }
 }
 
@@ -473,7 +432,7 @@ function leaveReqCard(l) {
   const typeColor = l.type === 'CL' ? 'c-eng' : l.type === 'SL' ? 'c-mkt' : 'c-it';
   const statusTag = l.status === 'Pending' ? '<span class="tag t-late">Pending</span>' : l.status === 'Approved' ? '<span class="tag t-present">Approved</span>' : '<span class="tag t-absent">Rejected</span>';
   const actions = l.status === 'Pending'
-    ? '<button class="btn btn-sm btn-success" onclick="handleLeave(' + l.idx + ',\'Approved\')">✓ Approve</button><button class="btn btn-sm btn-danger" onclick="handleLeave(' + l.idx + ',\'Rejected\')">✗ Reject</button>'
+    ? '<button class="btn btn-sm btn-success" onclick="handleLeave(\'' + l.id + '\',\'Approved\')">✓ Approve</button><button class="btn btn-sm btn-danger" onclick="handleLeave(\'' + l.id + '\',\'Rejected\')">✗ Reject</button>'
     : '';
   return '<div class="leave-req-card"><div class="av av-blue">' + l.empName.charAt(0) + '</div><div style="flex:1;">' +
     '<div style="font-size:13px;font-weight:600;">' + l.empName + ' <span class="chip ' + typeColor + '">' + l.type + '</span></div>' +
@@ -482,15 +441,20 @@ function leaveReqCard(l) {
     '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">' + statusTag + '<div class="leave-req-actions">' + actions + '</div></div></div>';
 }
 
-function renderLeaveRequests() {
+function renderLeaveRequests(leaveRequests) {
   const el = document.getElementById('leave-requests-list');
   if (!el) return;
-  const pending = leaveRequests.filter(l => l.status === 'Pending');
+  const leaveReqs = leaveRequests || (appState ? appState.leaveRequests : []) || [];
+  const pending = leaveReqs.filter(l => l.status === 'Pending');
   el.innerHTML = pending.length ? pending.map(l => leaveReqCard(l)).join('') : '<p style="color:var(--subtle);font-size:13px;">No pending requests 🎉</p>';
 }
 
-function handleLeave(idx, decision) {
-  const req = leaveRequests[idx];
+function handleLeave(idxOrId, decision) {
+  if (!appState) return;
+  const leaveRequests = appState.leaveRequests || [];
+  const employees = appState.employees || [];
+  const req = leaveRequests.find(l => l.id === idxOrId || l.idx === parseInt(idxOrId));
+  if (!req) return;
   const emp = employees.find(e => e.id === req.empId);
   if (emp && decision === 'Approved') {
     if (req.type === 'CL') {
@@ -503,17 +467,20 @@ function handleLeave(idx, decision) {
       else { emp.ul += req.days; emp.sl = Math.max(0, emp.sl - slNeeded); showNotifBar('warning', 'SL insufficient. Applied as Unpaid Leave.', '⚠️'); }
     }
   }
-  leaveRequests[idx].status = decision;
-  api('/api/leave-requests/' + idx, { method: 'PUT', body: { status: decision } });
-  renderLeaveRequests();
-  renderLeaveBalances();
-  renderLeaveHistory();
-  renderDashPendingLeaves();
-  if (decision === 'Approved') { showNotifBar('success', 'Leave for ' + req.empName + ' Approved!', '✓'); addAdminNotif('Leave request from ' + req.empName + ' has been ' + decision + '.'); }
-  else { showNotifBar('info', 'Leave for ' + req.empName + ' Rejected.', 'ℹ'); }
+  api('/api/leave-requests/' + (req.id || req.idx), { method: 'PUT', body: { status: decision } }).then(() => {
+    refreshStateAndRender();
+    if (decision === 'Approved') {
+      showNotifBar('success', 'Leave for ' + req.empName + ' Approved!', '✓');
+      addAdminNotif('Leave request from ' + req.empName + ' has been ' + decision + '.');
+    } else {
+      showNotifBar('info', 'Leave for ' + req.empName + ' Rejected.', 'ℹ');
+    }
+  });
 }
 
-function renderLeaveBalances() {
+function renderLeaveBalances(leaveRequests) {
+  if (!appState) return;
+  const employees = appState.employees || [];
   const tbody = document.getElementById('leave-balances-table');
   if (!tbody) return;
   tbody.innerHTML = employees.filter(e => e.active).map((emp, i) =>
@@ -521,42 +488,52 @@ function renderLeaveBalances() {
     '<td><span class="chip ' + (DEPT_COLORS[emp.dept] || 'c-eng') + '">' + emp.dept + '</span></td>' +
     '<td><strong class="blue-v">' + emp.cl + '</strong> days</td>' +
     '<td><strong class="green-v">' + emp.sl + '</strong> days</td>' +
-    '<td><strong class="red-v">' + emp.ul + '</strong> days</td>' +
-    '<td><button class="btn btn-sm" onclick="openLeaveManage(' + employees.indexOf(emp) + ')\">Adjust</button></td></tr>'
+    '<td><strong class="red-v">' + (emp.ul || 0) + '</strong> days</td>' +
+    '<td><button class="btn btn-sm" onclick="openLeaveManage(\'' + emp.id + '\')">Adjust</button></td></tr>'
   ).join('');
 }
 
-function renderLeaveHistory() {
+function renderLeaveHistory(leaveRequests) {
   const tbody = document.getElementById('leave-history-table');
   if (!tbody) return;
-  tbody.innerHTML = leaveRequests.map(l => {
+  const leaveReqs = leaveRequests || (appState ? appState.leaveRequests : []) || [];
+  tbody.innerHTML = leaveReqs.map(l => {
     const typeColor = l.type === 'CL' ? 'c-eng' : l.type === 'SL' ? 'c-mkt' : 'c-it';
-    return '<tr><td>' + l.empName + '</td><td><span class="chip ' + typeColor + '">' + l.type + '</span></td><td>' + formatDate(l.from) + '</td><td>' + formatDate(l.to) + '</td><td>' + l.days + '</td><td><span class="tag t-' + l.status.toLowerCase() + '">' + l.status + '</span></td><td style="font-size:12px;color:var(--muted);">' + l.reason + '</td></tr>';
+    return '<tr><td>' + l.empName + '</td><td><span class="chip ' + typeColor + '">' + l.type + '</span></td><td>' + formatDate(l.from) + '</td><td>' + formatDate(l.to) + '</td><td>' + l.days + '</td><td><span class="tag t-' + (l.status || 'pending').toLowerCase() + '">' + (l.status || 'Pending') + '</span></td><td style="font-size:12px;color:var(--muted);">' + l.reason + '</td></tr>';
   }).join('');
 }
 
-function openLeaveManage(idx) {
+function openLeaveManage(empId) {
+  if (!appState) return;
+  const employees = appState.employees || [];
+  const idx = employees.findIndex(e => e.id === empId);
+  if (idx === -1) return;
   selectedLeaveManageIdx = idx;
   const emp = employees[idx];
   document.getElementById('lm-emp-name').innerText = emp.name;
   document.getElementById('lm-cl').value = emp.cl;
   document.getElementById('lm-sl').value = emp.sl;
-  document.getElementById('lm-ul').value = emp.ul;
+  document.getElementById('lm-ul').value = emp.ul || 0;
   document.getElementById('leave-manage-modal').style.display = 'flex';
 }
 
 function saveLeaveBalance() {
-  if (selectedLeaveManageIdx === null) return;
+  if (selectedLeaveManageIdx === null || !appState) return;
+  const employees = appState.employees || [];
   const emp = employees[selectedLeaveManageIdx];
   emp.cl = parseFloat(document.getElementById('lm-cl').value) || 0;
   emp.sl = parseFloat(document.getElementById('lm-sl').value) || 0;
   emp.ul = parseFloat(document.getElementById('lm-ul').value) || 0;
   document.getElementById('leave-manage-modal').style.display = 'none';
-  renderLeaveBalances();
-  showNotifBar('success', 'Leave balances updated for ' + emp.name + '.', '✓');
+  api('/api/employees/' + emp.id, { method: 'PUT', body: { cl: emp.cl, sl: emp.sl, ul: emp.ul } }).then(() => {
+    refreshStateAndRender();
+    showNotifBar('success', 'Leave balances updated for ' + emp.name + '.', '✓');
+  });
 }
 
 function setReport(type, btn) {
+  if (!appState) return;
+  const attendanceRecords = appState.attendanceRecords || [];
   document.querySelectorAll('.rtab').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   const today = new Date().toISOString().split('T')[0];
@@ -608,7 +585,7 @@ function changeAdminPwd() {
   setButtonLoading(btn, true);
   api('/api/auth/password', {
     method: 'PUT',
-    body: { userId: 'atharvashishn@gmail.com', currentPwd: cur, newPwd: newPwd }
+    body: { userId: ADMIN_USERNAME, currentPwd: cur, newPwd: newPwd }
   }).then(res => {
     setButtonLoading(btn, false, 'Update Password');
     if (res && res.success) {
@@ -623,18 +600,17 @@ function changeAdminPwd() {
   });
 }
 
-/* ═══════════════════════════════════
-   EMPLOYEE JS
-═══════════════════════════════════ */
-
 function empTab(tabName, btnElement) {
-  localStorage.setItem('empLastTab', tabName);
+  sessionStorage.setItem('empLastTab', tabName);
   switchTab('#page-employee', 'emp', tabName, btnElement, () => {
     if (tabName === 'history') renderEmpHistory();
   });
 }
 
 function renderEmpDashboard(emp) {
+  if (!appState) return;
+  const attendanceRecords = appState.attendanceRecords || [];
+  const announcements = appState.announcements || [];
   const myRecs = attendanceRecords.filter(r => r.id === emp.id);
   const now = new Date();
   const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
@@ -664,12 +640,16 @@ function renderEmpDashboard(emp) {
   }).join('');
 
   renderMyLeaveHistory(emp);
+  renderAnnouncementsEmp(announcements);
 }
 
 function renderEmpHistory() {
+  if (!appState) return;
+  const attendanceRecords = appState.attendanceRecords || [];
+  const employees = appState.employees || [];
   const monthInp = document.getElementById('hist-month');
   const monthStr = monthInp?.value || new Date().toISOString().slice(0, 7);
-  const uid = localStorage.getItem('userId');
+  const uid = sessionStorage.getItem('userId');
   const emp = employees.find(e => e.id === uid) || employees[0];
   if (!emp) return;
   const recs = attendanceRecords.filter(r => r.id === emp.id && r.date.startsWith(monthStr));
@@ -691,7 +671,6 @@ function empPunchIn() {
   const h = now.getHours();
   const m = now.getMinutes();
 
-  // Local time-block: reject if past 18:00
   if (h >= 18) {
     showNotifBar('error', 'Cannot sign in after 6:00 PM. Contact admin if you need a correction.', '⛔');
     return;
@@ -702,22 +681,18 @@ function empPunchIn() {
   showNotifBar('success', 'Punched In at ' + timeStr, '✓');
   appendTimeline('in', 'Signed In', timeStr);
   if (h >= 14) showNotifBar('warning', 'First login after 2:00 PM — this day will be flagged as Half-Day.', '⚠️');
-  const uid = localStorage.getItem('userId');
-  const emp = employees.find(e => e.id === uid);
+  if (!appState) return;
+  const uid = sessionStorage.getItem('userId');
+  const emp = (appState.employees || []).find(e => e.id === uid);
   if (emp) {
-    let rec = attendanceRecords.find(r => r.id === emp.id && r.date === dateStr);
+    const inTimeStr = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
     let status = 'Present';
     if (h >= 14) status = 'Half-Day';
     else if (h > 9 || (h === 9 && m > 15)) status = 'Late';
-    const inTimeStr = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-    if (!rec) {
-      rec = { id: emp.id, name: emp.name, dept: emp.dept, date: dateStr, in: inTimeStr, out: '', hours: 0, status: status };
-      attendanceRecords.unshift(rec);
-    } else { rec.in = inTimeStr; rec.status = status; }
-    api('/api/attendance', { method: 'POST', body: rec });
-    renderEmpDashboard(emp);
-    renderDashboardCards();
-    renderRecords();
+    const rec = { id: emp.id, name: emp.name, dept: emp.dept, date: dateStr, in: inTimeStr, out: '', hours: 0, status: status };
+    api('/api/attendance', { method: 'POST', body: rec }).then(() => {
+      refreshStateAndRender();
+    });
   }
 }
 
@@ -730,26 +705,17 @@ function empPunchOut() {
   if (breakInterval) { clearInterval(breakInterval); breakInterval = null; document.getElementById('break-btn').innerText = '☕ Start Break'; document.getElementById('break-timer-wrap').style.display = 'none'; }
   showNotifBar('info', 'Punched Out at ' + timeStr, '←');
   appendTimeline('out', 'Signed Out', timeStr);
-  const uid = localStorage.getItem('userId');
-  const emp = employees.find(e => e.id === uid);
+  if (!appState) return;
+  const uid = sessionStorage.getItem('userId');
+  const emp = (appState.employees || []).find(e => e.id === uid);
   if (emp) {
-    let rec = attendanceRecords.find(r => r.id === emp.id && r.date === dateStr);
     const h = now.getHours();
     const m = now.getMinutes();
     const outTimeStr = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-    if (rec && rec.in) {
-      rec.out = outTimeStr;
-      const [inH, inM] = rec.in.split(':').map(Number);
-      const diffHrs = (h - inH) + (m - inM) / 60;
-      rec.hours = Math.max(0, parseFloat(diffHrs.toFixed(2)));
-    } else {
-      rec = { id: emp.id, name: emp.name, dept: emp.dept, date: dateStr, in: '', out: outTimeStr, hours: 0, status: 'Present' };
-      attendanceRecords.unshift(rec);
-    }
-    api('/api/attendance', { method: 'POST', body: rec });
-    renderEmpDashboard(emp);
-    renderDashboardCards();
-    renderRecords();
+    const rec = { id: emp.id, name: emp.name, dept: emp.dept, date: dateStr, in: '', out: outTimeStr, hours: 0, status: 'Present' };
+    api('/api/attendance', { method: 'POST', body: rec }).then(() => {
+      refreshStateAndRender();
+    });
   }
 }
 
@@ -799,6 +765,7 @@ function appendTimeline(type, text, time) {
 
 function autoAttendancePunchIn(emp) {
   const today = new Date().toISOString().split('T')[0];
+  const attendanceRecords = appState ? appState.attendanceRecords || [] : [];
   const existingRec = attendanceRecords.find(r => r.id === emp.id && r.date === today);
   if (!existingRec || !existingRec.in) {
     setTimeout(() => empPunchIn(), 700);
@@ -829,7 +796,9 @@ function calcLeaveDays() {
     const dow = d.getDay();
     if (dow !== 0 && dow !== 6) days++;
   }
-  const uid = localStorage.getItem('userId');
+  if (!appState) return;
+  const employees = appState.employees || [];
+  const uid = sessionStorage.getItem('userId');
   const emp = employees.find(e => e.id === uid) || employees[0];
   if (!emp) return;
   let msg = days + ' working day(s) requested.';
@@ -844,29 +813,33 @@ function submitLeaveRequest() {
   const reason = document.getElementById('leave-reason')?.value.trim();
   if (!from || !to) { showNotifBar('warning', 'Please select leave dates.', '⚠️'); return; }
   if (!reason) { showNotifBar('warning', 'Please provide a reason.', '⚠️'); return; }
-  const uid = localStorage.getItem('userId');
+  if (!appState) return;
+  const employees = appState.employees || [];
+  const uid = sessionStorage.getItem('userId');
   const emp = employees.find(e => e.id === uid) || employees[0];
   if (!emp) { showNotifBar('error', 'Employee not found. Please log in again.', '❌'); return; }
   let days = 0;
   const d1 = new Date(from), d2 = new Date(to);
   for (let d = new Date(d1); d <= d2; d.setDate(d.getDate() + 1)) { if (d.getDay() !== 0 && d.getDay() !== 6) days++; }
-  const newReq = { idx: leaveRequests.length, empId: emp.id, empName: emp.name, dept: emp.dept, type: currentLeaveType, from, to, days, reason, status: 'Pending' };
-  leaveRequests.push(newReq);
-  api('/api/leave-requests', { method: 'POST', body: newReq });
-  renderMyLeaveHistory(emp);
-  showNotifBar('success', 'Leave request submitted! Awaiting admin approval.', '✓');
-  addAdminNotif('New leave request from ' + emp.name + ' (' + currentLeaveType + ') for ' + formatDate(from) + '.');
-  document.getElementById('leave-reason').value = '';
+  const newReq = { empId: emp.id, empName: emp.name, dept: emp.dept, type: currentLeaveType, from, to, days, reason, status: 'Pending' };
+  api('/api/leave-requests', { method: 'POST', body: newReq }).then(() => {
+    refreshStateAndRender();
+    showNotifBar('success', 'Leave request submitted! Awaiting admin approval.', '✓');
+    addAdminNotif('New leave request from ' + emp.name + ' (' + currentLeaveType + ') for ' + formatDate(from) + '.');
+    document.getElementById('leave-reason').value = '';
+  });
 }
 
 function renderMyLeaveHistory(emp) {
+  if (!appState) return;
+  const leaveRequests = appState.leaveRequests || [];
   const el = document.getElementById('my-leave-history');
   if (!el) return;
   const myLeaves = leaveRequests.filter(l => l.empId === emp.id);
   if (!myLeaves.length) { el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No leave history.</p>'; return; }
   el.innerHTML = myLeaves.map(l => {
     const typeColor = l.type === 'CL' ? 'c-eng' : l.type === 'SL' ? 'c-mkt' : 'c-it';
-    return '<div class="leave-req-card" style="flex-wrap:wrap;"><div style="flex:1;"><div style="font-size:13px;font-weight:600;"><span class="chip ' + typeColor + '">' + l.type + '</span> ' + formatDate(l.from) + ' – ' + formatDate(l.to) + '</div><div style="font-size:12px;color:var(--muted);">' + l.days + ' day(s) | ' + l.reason + '</div></div><span class="tag t-' + l.status.toLowerCase() + '">' + l.status + '</span></div>';
+    return '<div class="leave-req-card" style="flex-wrap:wrap;"><div style="flex:1;"><div style="font-size:13px;font-weight:600;"><span class="chip ' + typeColor + '">' + l.type + '</span> ' + formatDate(l.from) + ' – ' + formatDate(l.to) + '</div><div style="font-size:12px;color:var(--muted);">' + l.days + ' day(s) | ' + l.reason + '</div></div><span class="tag t-' + (l.status || 'pending').toLowerCase() + '">' + (l.status || 'Pending') + '</span></div>';
   }).join('');
 }
 
@@ -874,7 +847,9 @@ function changeEmpPwd() {
   const cur = document.getElementById('e-cur-pwd').value.trim();
   const newPwd = document.getElementById('e-new-pwd').value.trim();
   const conf = document.getElementById('e-conf-pwd').value.trim();
-  const uid = localStorage.getItem('userId');
+  if (!appState) return;
+  const employees = appState.employees || [];
+  const uid = sessionStorage.getItem('userId');
   const emp = employees.find(e => e.id === uid);
   if (!emp) return;
   if (cur !== emp.password) { showNotifBar('error', 'Current password is incorrect.', '❌'); return; }
@@ -882,7 +857,7 @@ function changeEmpPwd() {
   if (newPwd !== conf) { showNotifBar('warning', 'Passwords do not match.', '⚠️'); return; }
   const btn = document.querySelector('#emp-settings .btn-primary');
   setButtonLoading(btn, true);
-  api('/api/auth/password', { method: 'PUT', body: { userId: uid, currentPwd: cur, newPwd }}).then(res => {
+  api('/api/auth/password', { method: 'PUT', body: { userId: uid, currentPwd: cur, newPwd } }).then(res => {
     setButtonLoading(btn, false, 'Update Password');
     if (res && res.success) {
       emp.password = newPwd;
@@ -896,12 +871,6 @@ function changeEmpPwd() {
     }
   });
 }
-
-/* ═══════════════════════════════════
-   FORGOT PASSWORD — EMAIL-TRIGGERED, REAL-TIME IN-APP DELIVERY (Admin only)
-   - Admin enters registered email → server generates temp password → Socket.io delivers
-   - Employee requests are rejected server-side
-═══════════════════════════════════ */
 
 function openAdminReset() {
   document.getElementById('forgot-uid').value = '';
@@ -917,19 +886,16 @@ function openAdminReset() {
 
 async function sendAdminReset() {
   const uid = document.getElementById('forgot-uid').value.trim();
-
   const sendBtn = document.querySelector('#forgot-modal .btn-primary');
   if (sendBtn) {
     sendBtn.disabled = true;
     sendBtn.textContent = '⏳ Generating...';
   }
-
   try {
     const res = await api('/api/auth/forgot-password', {
       method: 'POST',
       body: { uid }
     });
-
     if (res && res.success) {
       const statusEl = document.getElementById('fp-status-message');
       if (statusEl) {
@@ -955,11 +921,6 @@ async function sendAdminReset() {
   }
 }
 
-
-
-/* ═══════════════════════════════════
-   API HELPER
-═══════════════════════════════════ */
 async function api(url, opts = {}) {
   try {
     const fetchOpts = {
@@ -981,18 +942,10 @@ async function api(url, opts = {}) {
   }
 }
 
-// ── Load State from Server (MongoDB + Socket.io backend) ──
 async function loadStateFromServer() {
   const data = await api('/api/state');
   if (data) {
-    employees = data.employees || [];
-    archivedEmployees = data.archivedEmployees || [];
-    attendanceRecords = data.attendanceRecords || [];
-    leaveRequests = data.leaveRequests || [];
-    announcements = data.announcements || [];
-    adminNotifications = data.adminNotifications || [];
-    empNotifications = data.empNotifications || [];
-    if (data.departments && data.departments.length) departments = data.departments;
+    appState = data;
     serverAvailable = true;
     return true;
   }
@@ -1000,61 +953,38 @@ async function loadStateFromServer() {
   return false;
 }
 
-// ── Notification Badge — dynamically updated from DB count across devices ──
 function updateAdminNotifBadge() {
   const badge = document.getElementById('admin-notif-count');
   if (!badge) return;
-  // Sync count from server for accuracy across devices
-  api('/api/notifications/atharvashishn@gmail.com').then(data => {
-    if (data && data.notifications) {
-      adminNotifications = data.notifications;
-    }
-    const activeNotifs = (adminNotifications || []).filter(n => n.unread !== false);
-    const count = activeNotifs.length;
-    badge.textContent = count;
-    badge.style.display = count > 0 ? 'flex' : 'none';
-  }).catch(() => {
-    const activeNotifs = (adminNotifications || []).filter(n => n.unread !== false);
-    const count = activeNotifs.length;
-    badge.textContent = count;
-    badge.style.display = count > 0 ? 'flex' : 'none';
-  });
+  if (!appState || !appState.adminNotifications) { badge.textContent = '0'; badge.style.display = 'none'; return; }
+  const activeNotifs = appState.adminNotifications.filter(n => n.unread !== false);
+  const count = activeNotifs.length;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? 'flex' : 'none';
 }
 
 function updateEmpNotifBadge() {
   const badge = document.getElementById('emp-notif-count');
   if (!badge) return;
-  const uid = localStorage.getItem('userId');
-  api('/api/notifications/' + uid).then(data => {
-    if (data && data.notifications) {
-      empNotifications = data.notifications;
-    }
-    const activeNotifs = (empNotifications || []).filter(n => n.unread !== false);
-    const count = activeNotifs.length;
-    badge.textContent = count;
-    badge.style.display = count > 0 ? 'flex' : 'none';
-  }).catch(() => {
-    const activeNotifs = (empNotifications || []).filter(n => n.unread !== false);
-    const count = activeNotifs.length;
-    badge.textContent = count;
-    badge.style.display = count > 0 ? 'flex' : 'none';
-  });
+  if (!appState || !appState.empNotifications) { badge.textContent = '0'; badge.style.display = 'none'; return; }
+  const uid = sessionStorage.getItem('userId');
+  const relevant = appState.empNotifications.filter(n => n.target === 'emp' || n.userId === uid);
+  const activeNotifs = relevant.filter(n => n.unread !== false);
+  const count = activeNotifs.length;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? 'flex' : 'none';
 }
 
 function addAdminNotif(text) {
-  const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  adminNotifications.unshift({ text, time, unread: true });
-  updateAdminNotifBadge();
-  renderAdminNotifPanel();
-  api('/api/notifications', { method: 'POST', body: { text, target: 'admin' } });
+  api('/api/notifications', { method: 'POST', body: { text, target: 'admin' } }).then(() => {
+    refreshStateAndRender();
+  });
 }
 
 function addEmpNotif(text, userId) {
-  const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  empNotifications.unshift({ text, time, unread: true, userId });
-  updateEmpNotifBadge();
-  renderEmpNotifPanel();
-  api('/api/notifications', { method: 'POST', body: { text, target: 'emp', userId } });
+  api('/api/notifications', { method: 'POST', body: { text, target: 'emp', userId } }).then(() => {
+    refreshStateAndRender();
+  });
 }
 
 function toggleNotifPanel() {
@@ -1076,26 +1006,31 @@ function toggleEmpNotifPanel() {
 }
 
 function markAdminNotifsRead() {
-  adminNotifications.forEach(n => { n.unread = false; });
+  if (appState && appState.adminNotifications) {
+    appState.adminNotifications.forEach(n => { n.unread = false; });
+  }
   updateAdminNotifBadge();
   api('/api/notifications/mark-read', { method: 'POST', body: { userId: ADMIN_EMAIL } });
 }
 
 function markEmpNotifsRead() {
-  empNotifications.forEach(n => { n.unread = false; });
+  if (appState && appState.empNotifications) {
+    appState.empNotifications.forEach(n => { n.unread = false; });
+  }
   updateEmpNotifBadge();
-  const uid = localStorage.getItem('userId');
+  const uid = sessionStorage.getItem('userId');
   api('/api/notifications/mark-read', { method: 'POST', body: { userId: uid } });
 }
 
 function renderAdminNotifPanel() {
   const body = document.getElementById('notif-panel-body');
   if (!body) return;
-  if (!adminNotifications.length) {
+  const notifs = (appState && appState.adminNotifications) || [];
+  if (!notifs.length) {
     body.innerHTML = '<p style="color:var(--subtle);font-size:13px;text-align:center;padding:20px;">No notifications yet.</p>';
     return;
   }
-  body.innerHTML = adminNotifications.map(n =>
+  body.innerHTML = notifs.map(n =>
     '<div class="notif-item' + (n.unread ? ' unread' : '') + '">' +
     '<div>' + n.text + '</div>' +
     '<div class="notif-item-time">' + (n.time || '') + '</div></div>'
@@ -1105,11 +1040,14 @@ function renderAdminNotifPanel() {
 function renderEmpNotifPanel() {
   const body = document.getElementById('emp-notif-panel-body');
   if (!body) return;
-  if (!empNotifications.length) {
+  const uid = sessionStorage.getItem('userId');
+  const allNotifs = (appState && appState.empNotifications) || [];
+  const notifs = allNotifs.filter(n => n.target === 'emp' || n.userId === uid);
+  if (!notifs.length) {
     body.innerHTML = '<p style="color:var(--subtle);font-size:13px;text-align:center;padding:20px;">No notifications yet.</p>';
     return;
   }
-  body.innerHTML = empNotifications.map(n =>
+  body.innerHTML = notifs.map(n =>
     '<div class="notif-item' + (n.unread ? ' unread' : '') + '">' +
     '<div>' + n.text + '</div>' +
     '<div class="notif-item-time">' + (n.time || '') + '</div></div>'
@@ -1159,14 +1097,7 @@ function checkPwdStrength(inputId, barId) {
   bar.style.background = pct < 50 ? '#ef4444' : pct < 75 ? '#d97706' : '#16a34a';
 }
 
-/* ═══════════════════════════════════
-   LOGIN / AUTH — Unified Single Form
-   - Admin: enter quemahtech
-   - Employee: enter Employee ID
-╔═══════════════════════════════════ */
-
 function toggleAdminReset() {
-  // no-op: forgot password link is always visible now
 }
 
 async function doLogin() {
@@ -1182,7 +1113,6 @@ async function doLogin() {
 
   document.getElementById('err-msg').style.display = 'none';
 
-  // ── Local time-block check (employees only) ──
   const currentHour = new Date().getHours();
   if (uid !== ADMIN_USERNAME && uid.toLowerCase() !== ADMIN_EMAIL && currentHour >= 18) {
     document.getElementById('err-msg').style.display = 'flex';
@@ -1190,17 +1120,14 @@ async function doLogin() {
     return;
   }
 
-  // ── Show loading state on the login button ──
   const loginBtn = document.querySelector('.login-btn');
   setButtonLoading(loginBtn, true);
 
-  // Always authenticate against the live server — no local fallback
   const res = await api('/api/auth/login', {
     method: 'POST',
     body: { uid, pwd }
   });
 
-  // Handle server-side errors (time-block, DB down, etc.)
   if (res && res.error === 'TIME_BLOCK') {
     setButtonLoading(loginBtn, false, 'Sign In');
     document.getElementById('err-msg').style.display = 'flex';
@@ -1209,20 +1136,23 @@ async function doLogin() {
   }
 
   if (res && res.success) {
-    localStorage.setItem('userId', uid);
-    localStorage.setItem('userRole', res.role);
-    if (rememberMe) localStorage.setItem('rememberedUser', uid);
-    else localStorage.removeItem('rememberedUser');
+    sessionStorage.setItem('userId', uid);
+    sessionStorage.setItem('userRole', res.role);
+    if (rememberMe) {
+      localStorage.setItem('rememberedUser', uid);
+    } else {
+      localStorage.removeItem('rememberedUser');
+    }
 
     if (res.role === 'admin') {
       currentUser = { name: 'Administrator' };
       currentRole = 'admin';
       showLoading('Loading admin panel...', 'Fetching employee data from server');
+      await loadStateFromServer();
       showAdminPage();
       hideLoading();
     } else if (res.role === 'employee') {
       showLoading('Loading employee data...', 'Syncing from server');
-      // Load employee data from server
       await loadStateFromServer();
       currentUser = res.user;
       currentRole = 'employee';
@@ -1231,7 +1161,7 @@ async function doLogin() {
         showNotifBar('warning', '⚠️ First login after 2:00 PM — today will be flagged as Half-Day.', '⚠️');
       }
 
-      const emp = employees.find(e => e.id === res.user.id);
+      const emp = appState && (appState.employees || []).find(e => e.id === res.user.id);
       if (emp) {
         showEmployeePage(emp);
         hideLoading();
@@ -1243,7 +1173,6 @@ async function doLogin() {
     return;
   }
 
-  // ── Server returned error (invalid creds, etc.) ──
   if (res) {
     setButtonLoading(loginBtn, false, 'Sign In');
     document.getElementById('err-msg').style.display = 'flex';
@@ -1251,17 +1180,20 @@ async function doLogin() {
     return;
   }
 
-  // ── Server unreachable ──
   setButtonLoading(loginBtn, false, 'Sign In');
   document.getElementById('err-msg').style.display = 'flex';
   document.getElementById('err-msg-text').textContent = 'Server unreachable. Please ensure the backend is running and try again.';
 }
 
 function logout() {
+  if (currentRole === 'employee') {
+    const uid = sessionStorage.getItem('userId');
+    api('/api/auth/logout', { method: 'POST', body: { uid } });
+  }
   currentUser = null;
   currentRole = '';
-  localStorage.removeItem('userId');
-  localStorage.removeItem('userRole');
+  sessionStorage.removeItem('userId');
+  sessionStorage.removeItem('userRole');
   document.getElementById('page-admin').classList.remove('active');
   document.getElementById('page-employee').classList.remove('active');
   document.getElementById('page-login').classList.add('active');
@@ -1282,7 +1214,7 @@ async function showAdminPage() {
   document.getElementById('page-login').classList.remove('active');
   document.getElementById('page-admin').classList.add('active');
   initClock('admin-clock');
-  await loadStateAndRender();
+  renderAll();
 }
 
 function showEmployeePage(emp) {
@@ -1295,13 +1227,12 @@ function showEmployeePage(emp) {
   document.getElementById('emp-av').textContent = emp.name.charAt(0);
   document.getElementById('emp-cl-bal').textContent = emp.cl;
   document.getElementById('emp-sl-bal').textContent = emp.sl;
-  document.getElementById('emp-ul-used').textContent = emp.ul;
+  document.getElementById('emp-ul-used').textContent = emp.ul || 0;
   document.getElementById('emp-cl-bal2').textContent = emp.cl;
   document.getElementById('emp-sl-bal2').textContent = emp.sl;
-  document.getElementById('emp-ul-used2').textContent = emp.ul;
+  document.getElementById('emp-ul-used2').textContent = emp.ul || 0;
   initClock('emp-clock');
   renderEmpDashboard(emp);
-  renderAnnouncementsEmp();
   autoAttendancePunchIn(emp);
 }
 
@@ -1341,16 +1272,8 @@ function switchTab(pageId, prefix, tabName, btnElement, onShow) {
   if (btnElement) btnElement.classList.add('active');
 }
 
-async function loadStateAndRender() {
-  const loaded = await loadStateFromServer();
-  if (loaded) {
-    renderAll();
-  } else {
-    showNotifBar('warning', 'Could not load data from server. Check database connection.', '⚠');
-  }
-}
-
 function renderAll() {
+  if (!appState) return;
   updateDashboardStats();
   renderDashboardCards();
   renderRecords();
@@ -1366,7 +1289,7 @@ function renderAll() {
   updateEmpNotifBadge();
   renderAdminNotifPanel();
   renderEmpNotifPanel();
-  const lastTab = localStorage.getItem('adminLastTab') || 'dashboard';
+  const lastTab = sessionStorage.getItem('adminLastTab') || 'dashboard';
   const tabBtns = document.querySelectorAll('#page-admin .nav-btn');
   tabBtns.forEach(b => {
     if (b.textContent.includes('Dashboard') && lastTab === 'dashboard') b.click();
@@ -1379,7 +1302,22 @@ function renderAll() {
   });
 }
 
+async function refreshStateAndRender() {
+  const loaded = await loadStateFromServer();
+  if (loaded) {
+    if (document.getElementById('page-admin').classList.contains('active')) {
+      renderAll();
+    } else if (document.getElementById('page-employee').classList.contains('active')) {
+      const uid = sessionStorage.getItem('userId');
+      const emp = (appState.employees || []).find(e => e.id === uid);
+      if (emp) renderEmpDashboard(emp);
+    }
+  }
+}
+
 function renderArchivedTable() {
+  if (!appState) return;
+  const archivedEmployees = appState.archivedEmployees || [];
   const tbody = document.getElementById('archived-table-body');
   if (!tbody) return;
   tbody.innerHTML = archivedEmployees.map(a =>
@@ -1401,6 +1339,8 @@ function toggleArchived() {
 }
 
 function renderDeptHeadcount() {
+  if (!appState) return;
+  const employees = appState.employees || [];
   const el = document.getElementById('dept-headcount-bars');
   if (!el) return;
   const counts = {};
@@ -1413,6 +1353,8 @@ function renderDeptHeadcount() {
 }
 
 function renderDepartments() {
+  if (!appState) return;
+  const departments = appState.departments || [];
   const selects = ['f-dept', 'rec-dept', 'emp-dept-filter'];
   selects.forEach(id => {
     const el = document.getElementById(id);
@@ -1432,21 +1374,17 @@ async function addDept() {
   const input = document.getElementById('new-dept-input');
   if (!input || !input.value.trim()) return;
   const name = input.value.trim();
-  if (departments.includes(name)) { showNotifBar('warning', 'Department already exists.', '⚠️'); return; }
-  departments.push(name);
+  if (appState && appState.departments && appState.departments.includes(name)) { showNotifBar('warning', 'Department already exists.', '⚠️'); return; }
   input.value = '';
-  renderDepartments();
-  renderDeptHeadcount();
   await api('/api/departments', { method: 'POST', body: { name } });
+  refreshStateAndRender();
   showNotifBar('success', 'Department \'' + name + '\' added.', '✓');
 }
 
 async function removeDept(name) {
   if (!confirm('Remove department \'' + name + '\'?')) return;
-  departments = departments.filter(d => d !== name);
-  renderDepartments();
-  renderDeptHeadcount();
   await api('/api/departments/' + encodeURIComponent(name), { method: 'DELETE' });
+  refreshStateAndRender();
   showNotifBar('info', 'Department \'' + name + '\' removed.', '🗑');
 }
 
@@ -1469,13 +1407,13 @@ function sendAnnouncement() {
   if (!subject || !body) { showNotifBar('warning', 'Please enter subject and message.', '⚠️'); return; }
   const today = new Date().toISOString().split('T')[0];
   const ann = { date: today, subject, body, by: 'Admin', priority: annSelectedPriority, recipient: annSelectedRecipient === 'all' ? 'All Employees' : 'Department: ' + (document.getElementById('ann-dept-select')?.value || '') };
-  announcements.unshift(ann);
-  renderAnnouncements();
-  api('/api/announcements', { method: 'POST', body: ann });
-  document.getElementById('ann-subject').value = '';
-  document.getElementById('ann-body').value = '';
-  document.getElementById('ann-charcount').textContent = '0';
-  showNotifBar('success', 'Announcement sent!', '📢');
+  api('/api/announcements', { method: 'POST', body: ann }).then(() => {
+    refreshStateAndRender();
+    document.getElementById('ann-subject').value = '';
+    document.getElementById('ann-body').value = '';
+    document.getElementById('ann-charcount').textContent = '0';
+    showNotifBar('success', 'Announcement sent!', '📢');
+  });
 }
 
 function previewAnnouncement() {
@@ -1485,6 +1423,8 @@ function previewAnnouncement() {
 }
 
 function renderAnnouncements() {
+  if (!appState) return;
+  const announcements = appState.announcements || [];
   const el = document.getElementById('announcements-list');
   if (!el) return;
   const badge = document.getElementById('ann-count-badge');
@@ -1500,16 +1440,17 @@ function renderAnnouncements() {
   }).join('');
 }
 
-function renderAnnouncementsEmp() {
+function renderAnnouncementsEmp(announcements) {
+  const anns = announcements || (appState ? appState.announcements : []) || [];
   const el = document.getElementById('emp-announcements-list');
   if (!el) return;
   const badge = document.getElementById('emp-ann-count');
-  if (badge) badge.textContent = announcements.length;
-  if (!announcements.length) {
+  if (badge) badge.textContent = anns.length;
+  if (!anns.length) {
     el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No announcements yet.</p>';
     return;
   }
-  el.innerHTML = announcements.slice(0, 5).map(a => {
+  el.innerHTML = anns.slice(0, 5).map(a => {
     const pClass = 'priority-' + (a.priority || 'normal');
     return '<div class="announcement-card ' + pClass + '" style="padding:14px 18px;"><div class="ann-header"><div class="ann-subject" style="font-size:14px;">' + a.subject + '</div><span style="font-size:12px;color:var(--subtle);">' + formatDate(a.date) + '</span></div><div class="ann-body" style="font-size:13px;">' + (a.body.length > 120 ? a.body.substring(0, 120) + '…' : a.body) + '</div></div>';
   }).join('');
@@ -1529,10 +1470,8 @@ function sendCustomEmail() {
   const subject = document.getElementById('compose-subject').value.trim();
   const body = document.getElementById('compose-body').value.trim();
   if (!to || !subject) { showNotifBar('warning', 'Please fill in To and Subject.', '⚠️'); return; }
-  // Send as in-app notification instead of SMTP email
   const text = '📧 [' + subject + '] to ' + to + ': ' + (body || '').replace(/<[^>]*>/g, '').substring(0, 100);
   addAdminNotif(text);
-  api('/api/notifications', { method: 'POST', body: { text, target: 'admin' } });
   showNotifBar('success', 'Notification sent to admin panel!', '📨');
   closeComposeModal();
 }
@@ -1636,6 +1575,8 @@ async function testCalendarConnection() {
 }
 
 function exportCSV() {
+  if (!appState) return;
+  const attendanceRecords = appState.attendanceRecords || [];
   const rows = [['ID','Name','Dept','Date','In','Out','Hours','Status']];
   attendanceRecords.forEach(r => rows.push([r.id, r.name, r.dept, r.date, r.in, r.out, r.hours, r.status]));
   const csv = rows.map(r => r.join(',')).join('\n');
@@ -1644,6 +1585,9 @@ function exportCSV() {
 
 function exportExcel(type) {
   if (typeof XLSX === 'undefined') { showNotifBar('warning', 'XLSX library not loaded.', '⚠️'); return; }
+  if (!appState) return;
+  const attendanceRecords = appState.attendanceRecords || [];
+  const employees = appState.employees || [];
   try {
     if (type === 'records') {
       const data = attendanceRecords.map(r => ({ ID: r.id, Name: r.name, Dept: r.dept, Date: r.date, In: r.in, Out: r.out, Hours: r.hours, Status: r.status }));
@@ -1652,7 +1596,7 @@ function exportExcel(type) {
       XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
       XLSX.writeFile(wb, 'attendance_records.xlsx');
     } else if (type === 'employees') {
-      const data = employees.filter(e => e.active).map(e => ({ ID: e.id, Name: e.name, Dept: e.dept, Email: e.email, Phone: e.phone, Designation: e.designation, CL: e.cl, SL: e.sl, UL: e.ul }));
+      const data = employees.filter(e => e.active).map(e => ({ ID: e.id, Name: e.name, Dept: e.dept, Email: e.email, Phone: e.phone, Designation: e.designation, CL: e.cl, SL: e.sl, UL: e.ul || 0 }));
       const ws = XLSX.utils.json_to_sheet(data);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Employees');
@@ -1665,13 +1609,14 @@ function exportExcel(type) {
 }
 
 function exportEmpCSV() {
-  const uid = localStorage.getItem('userId');
+  if (!appState) return;
+  const attendanceRecords = appState.attendanceRecords || [];
+  const uid = sessionStorage.getItem('userId');
   const myRecs = attendanceRecords.filter(r => r.id === uid);
   const rows = [['Date','Day','In','Out','Hours','Status']];
   myRecs.forEach(r => {
     const d = new Date(r.date + 'T00:00:00');
-    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    rows.push([r.date, days[d.getDay()], r.in, r.out, r.hours, r.status]);
+    rows.push([r.date, DAYS[d.getDay()], r.in, r.out, r.hours, r.status]);
   });
   const csv = rows.map(r => r.join(',')).join('\n');
   downloadFile(csv, 'my_attendance.csv', 'text/csv');
@@ -1718,9 +1663,40 @@ function updateServerStatusIndicator() {
   }
 }
 
-async function init() {
-  // No localStorage seeding — all data comes from the server
+function startFirestoreListener() {
+  if (typeof FirebaseDB !== 'undefined' && FirebaseDB.isConfigured()) {
+    const inited = FirebaseDB.init();
+    if (inited) {
+      if (fsUnsubscribe) fsUnsubscribe();
+      fsUnsubscribe = FirebaseDB.subscribe((data) => {
+        if (data) {
+          console.log('[Firestore] Real-time update received');
+          appState = {
+            employees: data.employees || [],
+            archivedEmployees: data.archivedEmployees || [],
+            attendanceRecords: data.attendanceRecords || [],
+            leaveRequests: data.leaveRequests || [],
+            announcements: data.announcements || [],
+            adminNotifications: data.adminNotifications || [],
+            empNotifications: data.empNotifications || [],
+            departments: data.departments || ['Engineering', 'HR', 'IT', 'Marketing', 'Finance', 'Operations']
+          };
+          serverAvailable = true;
+          if (document.getElementById('page-admin').classList.contains('active')) {
+            renderAll();
+          } else if (document.getElementById('page-employee').classList.contains('active')) {
+            const uid = sessionStorage.getItem('userId');
+            const emp = (appState.employees || []).find(e => e.id === uid);
+            if (emp) renderEmpDashboard(emp);
+          }
+        }
+      });
+      console.log('[Firestore] Real-time listener attached');
+    }
+  }
+}
 
+async function init() {
   if (localStorage.getItem('darkMode') === 'true') {
     document.body.classList.add('dark-mode');
     document.querySelectorAll('.dark-toggle-btn').forEach(b => b.textContent = '☀️');
@@ -1732,12 +1708,12 @@ async function init() {
     document.getElementById('remember-me').checked = true;
   }
 
-  // Check server health on load
   checkServerHealth();
 
-  // Restore session if previously logged in — always load fresh state from server
-  const savedUid = localStorage.getItem('userId');
-  const savedRole = localStorage.getItem('userRole');
+  startFirestoreListener();
+
+  const savedUid = sessionStorage.getItem('userId');
+  const savedRole = sessionStorage.getItem('userRole');
   if (savedUid && savedRole) {
     showLoading('Restoring your session...', 'Loading data from server');
     const loaded = await loadStateFromServer();
@@ -1747,7 +1723,7 @@ async function init() {
         hideLoading();
         return;
       } else if (savedRole === 'employee') {
-        const emp = employees.find(e => e.id === savedUid);
+        const emp = (appState && appState.employees || []).find(e => e.id === savedUid);
         if (emp) {
           showEmployeePage(emp);
           hideLoading();
@@ -1755,10 +1731,9 @@ async function init() {
         }
       }
     }
-    // Session expired or server unreachable — clear stale token and show login
     hideLoading();
-    localStorage.removeItem('userId');
-    localStorage.removeItem('userRole');
+    sessionStorage.removeItem('userId');
+    sessionStorage.removeItem('userRole');
   }
 
   const annBody = document.getElementById('ann-body');
@@ -1790,6 +1765,26 @@ async function init() {
   if (todayEl) todayEl.textContent = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   const todayEl2 = document.getElementById('today-date2');
   if (todayEl2) todayEl2.textContent = today.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+  // Birthday widget - generate Google Calendar integration links
+  if (appState && appState.employees) {
+    const birthdayEl = document.getElementById('birthday-module');
+    if (birthdayEl) {
+      const todayStr = today.toISOString().split('T')[0].slice(5);
+      const birthdayEmps = appState.employees.filter(e => e.bday && e.bday.slice(5) === todayStr);
+      if (birthdayEmps.length > 0) {
+        birthdayEl.style.display = 'block';
+        birthdayEl.innerHTML = birthdayEmps.map(e => {
+          const year = today.getFullYear();
+          const bday = e.bday.split('-');
+          const calendarUrl = 'https://www.google.com/calendar/render?action=TEMPLATE&text=🎂+' + encodeURIComponent(e.name) + "'s+Birthday&dates=" + year + bday[1] + bday[2] + '/' + year + bday[1] + bday[2] + '&details=Birthday+of+' + encodeURIComponent(e.name);
+          return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;"><span>🎂</span><span><strong>' + e.name + '</strong>\'s Birthday today!</span><a href="' + calendarUrl + '" target="_blank" style="margin-left:auto;font-size:12px;color:var(--accent);">📅 Add to Calendar</a></div>';
+        }).join('');
+      } else {
+        birthdayEl.style.display = 'none';
+      }
+    }
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -18,56 +18,53 @@ const {
 const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'atharvashishn@gmail.com';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'quemahtech';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'quemah123';
 
-// ── Express App ──
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
-app.use(express.json({ limit: '5mb' }));
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+app.use(express.json({ limit: '10mb' }));
 
-// ── Firestore connection status ──
 let dbConnected = false;
 
 async function connectDB() {
   try {
-    // Test Firestore connection
     await admin.firestore().collection('systemConfig').doc('_connection_test').set({
       connected: true, timestamp: new Date().toISOString()
     });
     dbConnected = true;
     console.log('Firebase Firestore connected successfully');
 
-    // Seed / reset default admin
     const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
     if (adminUser) {
-      if (!process.env.VERCEL) {
-        adminUser.password = 'quemah123';
+      if (adminUser.password !== ADMIN_PASSWORD) {
+        adminUser.password = ADMIN_PASSWORD;
         await adminUser.save();
+        console.log('Admin password reset to default');
       }
     } else {
-      await Admin.create({ username: ADMIN_USERNAME, password: 'quemah123', email: ADMIN_EMAIL });
-      console.log(`Default admin created: ${ADMIN_USERNAME} / quemah123`);
+      await Admin.create({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD, email: ADMIN_EMAIL });
+      console.log('Default admin auto-seeded: quemahtech / quemah123');
     }
 
-    // Seed / reset default employees
+    const adminByEmail = await Admin.findOne({ email: ADMIN_EMAIL });
+    if (!adminByEmail && adminUser) {
+    } else if (!adminByEmail && !adminUser) {
+      await Admin.create({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD, email: ADMIN_EMAIL });
+    }
+
     const defaultEmps = [
       { id: 'EMP001', name: 'Rahul Sharma', dept: 'Engineering', designation: 'Senior Developer', email: 'rahul@quemahtech.com', password: 'emp123', cl: 7.5, sl: 3.0 },
       { id: 'EMP002', name: 'Priya Patel', dept: 'HR', designation: 'HR Manager', email: 'priya@quemahtech.com', password: 'emp123', cl: 6.0, sl: 1.0 },
     ];
     for (const data of defaultEmps) {
       const existing = await Employee.findOne({ id: data.id });
-      if (existing) {
-        if (!process.env.VERCEL) {
-          existing.password = data.password;
-          await existing.save();
-        }
-      } else {
+      if (!existing) {
         await Employee.create({ ...data, phone: '', bday: '', joining: '', ul: 0, active: true });
       }
     }
 
-    // Seed default departments
     const deptCount = await Department.countDocuments();
     if (deptCount === 0) {
       for (const name of ['Engineering', 'HR', 'IT', 'Marketing', 'Finance', 'Operations']) {
@@ -81,38 +78,37 @@ async function connectDB() {
   }
 }
 
-// ── Socket.io ──
 let io = null;
 
 function setupSocketIO() {
   if (process.env.VERCEL) return;
   io = new Server(server, {
-    cors: { origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] }
+    cors: { origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] }
   });
   io.on('connection', (socket) => {
-    console.log(`Socket connected: ${socket.id} (${io.engine.clientsCount} total)`);
+    console.log('Socket connected:', socket.id, '(' + io.engine.clientsCount + ' total)');
     socket.on('disconnect', () => {
-      console.log(`Socket disconnected: ${socket.id} (${io.engine.clientsCount} total)`);
+      console.log('Socket disconnected:', socket.id, '(' + io.engine.clientsCount + ' total)');
     });
     socket.on('request_password_reset', () => {
-      console.log(`Password reset requested via socket from ${socket.id}`);
+      console.log('Password reset requested via socket from', socket.id);
     });
   });
 }
 
 function broadcast(event, data) {
-  if (io) io.emit(event, data);
+  if (io) {
+    io.emit(event, data);
+    console.log('Broadcast:', event);
+  }
 }
 
-// ── Sanitizers ──
-// Only strip Firestore doc _id and password — keep business id (e.g. 'EMP001')
 function sanitizeEmp(e) {
   const obj = e.toObject ? e.toObject() : { ...e };
   const { _ref, _collection, _id, password, ...rest } = obj;
   return rest;
 }
 
-// ── IST time helpers ──
 function getISTNow() {
   const now = new Date();
   const istOffset = 5.5 * 60 * 60 * 1000;
@@ -121,43 +117,35 @@ function getISTNow() {
 function getISTHour() { return getISTNow().getUTCHours(); }
 function getISTMinutes() { return getISTNow().getUTCMinutes(); }
 
-// ── Monthly Leave Accrual ──
 const ACCRUAL_FLAG_KEY = '_leaveAccrualLastRun';
 
 async function runMonthlyLeaveAccrual() {
   try {
     if (!dbConnected) return;
-    // Check when accrual was last run (stored in Firestore SystemConfig)
     const config = await SystemConfig.findOne({ key: 'leaveAccrual' });
     const lastRun = config && config.value ? config.value.lastRun : '';
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
-    const firstOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
-
-    // Run only on the 1st of the month and only if not already run this month
+    const firstOfMonth = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-01';
     if (todayStr !== firstOfMonth) return;
     if (lastRun === firstOfMonth) return;
-
     const emps = await Employee.find({ active: true });
     let count = 0;
     for (const emp of emps) {
-      emp.cl = (parseFloat(emp.cl) || 0) + 1.0; // +1 CL per month
-      emp.sl = (parseFloat(emp.sl) || 0) + 0.5; // +0.5 SL per month
-      // Cap maximum carry-forward (optional: max 30 CL, 15 SL)
+      emp.cl = (parseFloat(emp.cl) || 0) + 1.0;
+      emp.sl = (parseFloat(emp.sl) || 0) + 0.5;
       emp.cl = Math.min(emp.cl, 30);
       emp.sl = Math.min(emp.sl, 15);
       if (emp.save) await emp.save();
       count++;
     }
-
     await SystemConfig.updateOne({ key: 'leaveAccrual' }, { value: { lastRun: firstOfMonth } }, { upsert: true });
-    console.log(`[Accrual] ${count} employees credited (${firstOfMonth})`);
+    console.log('[Accrual] ' + count + ' employees credited (' + firstOfMonth + ')');
   } catch (e) {
     console.error('[Accrual] Error:', e.message);
   }
 }
 
-// ── Middleware: require DB ──
 function requireDB(req, res, next) {
   if (!dbConnected) {
     return res.status(503).json({ error: 'Database not connected. Check Firebase service account configuration.' });
@@ -165,14 +153,12 @@ function requireDB(req, res, next) {
   next();
 }
 
-// ── Monthly Leave Accrual Cron (run on server start for all active employees) ──
 async function runMonthlyAccrualForAll() {
   try {
     if (!dbConnected) return;
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
-
     const allEmps = await Employee.find({ active: true });
     for (const emp of allEmps) {
       if (emp._lastAccrualMonth !== currentMonth || emp._lastAccrualYear !== currentYear) {
@@ -183,25 +169,59 @@ async function runMonthlyAccrualForAll() {
         await emp.save();
       }
     }
-    console.log(`Monthly leave accrual applied to ${allEmps.length} employees for ${currentMonth + 1}/${currentYear}`);
+    console.log('Monthly leave accrual applied to ' + allEmps.length + ' employees for ' + (currentMonth + 1) + '/' + currentYear);
   } catch (e) {
     console.error('Monthly accrual cron error:', e.message);
   }
 }
 
-// ── Auth Router ──
+async function forceLogoutExpiredEmployees() {
+  try {
+    if (!dbConnected) return;
+    const hr = getISTHour();
+    if (hr < 18) return;
+    const today = new Date().toISOString().split('T')[0];
+    const activeSession = await SystemConfig.findOne({ key: 'activeSessions' });
+    if (!activeSession || !activeSession.value) return;
+    const sessions = activeSession.value.sessions || [];
+    let changed = false;
+    for (const session of sessions) {
+      if (!session.loggedOut) {
+        session.loggedOut = true;
+        session.forceLoggedOutAt = new Date().toISOString();
+        changed = true;
+        const attRec = await Attendance.findOne({ id: session.employeeId, date: today });
+        if (attRec && attRec.in && !attRec.out) {
+          const outHr = getISTHour();
+          const outMin = getISTMinutes();
+          attRec.out = String(outHr).padStart(2, '0') + ':' + String(outMin).padStart(2, '0');
+          const [inH, inM] = attRec.in.split(':').map(Number);
+          const diffHrs = (outHr - inH) + (outMin - inM) / 60;
+          attRec.hours = Math.max(0, parseFloat(diffHrs.toFixed(2)));
+          if (attRec.hours > 0 && attRec.hours < 4) attRec.status = 'Half-Day';
+          await attRec.save();
+          broadcast('attendance_update', attRec.toObject());
+        }
+      }
+    }
+    if (changed) {
+      await SystemConfig.updateOne({ key: 'activeSessions' }, { value: { sessions } }, { upsert: true });
+      broadcast('force_logout', { message: 'All employee sessions logged out at 18:00 IST' });
+      console.log('Force logout completed for all active employee sessions');
+    }
+  } catch (e) {
+    console.error('Force logout error:', e.message);
+  }
+}
+
 const authRouter = express.Router();
 authRouter.use(requireDB);
 
-// POST /api/auth/login — Smart Unified Authentication
-// - If input matches ADMIN_USERNAME → authenticate as admin (no time-block)
-// - Otherwise → treat as Employee ID or Employee Email (time-block after 18:00)
 authRouter.post('/login', async (req, res) => {
   try {
     const { uid, pwd } = req.body;
     const normalized = (uid || '').toLowerCase().trim();
 
-    // ── ADMIN ROUTE ──
     if (normalized === ADMIN_USERNAME || normalized === ADMIN_EMAIL.toLowerCase()) {
       let adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
       if (!adminUser) {
@@ -213,15 +233,12 @@ authRouter.post('/login', async (req, res) => {
       return res.json({ success: false });
     }
 
-    // ── EMPLOYEE ROUTE ──
-    // Time-block: reject employee login if past 18:00 IST
     const hr = getISTHour();
     const min = getISTMinutes();
     if (hr >= 18) {
-      return res.json({ success: false, error: 'TIME_BLOCK', message: `Employee logins are blocked after 6:00 PM IST (current time: ${String(hr).padStart(2,'0')}:${String(min).padStart(2,'0')} IST). Office hours: 9:00 AM – 6:00 PM.` });
+      return res.json({ success: false, error: 'TIME_BLOCK', message: 'Employee logins are blocked after 6:00 PM IST (current time: ' + String(hr).padStart(2,'0') + ':' + String(min).padStart(2,'0') + ' IST). Office hours: 9:00 AM - 6:00 PM.' });
     }
 
-    // Try employee by ID first, then by email
     let emp = await Employee.findOne({ id: normalized, active: true });
     if (!emp) {
       emp = await Employee.findOne({ email: normalized, active: true });
@@ -237,6 +254,20 @@ authRouter.post('/login', async (req, res) => {
 
     if (emp && emp.password === pwd) {
       const halfDay = hr >= 14;
+
+      const sessionsConfig = await SystemConfig.findOne({ key: 'activeSessions' });
+      let sessions = (sessionsConfig && sessionsConfig.value && sessionsConfig.value.sessions) ? sessionsConfig.value.sessions : [];
+      sessions = sessions.filter(s => s.employeeId !== emp.id);
+      sessions.push({
+        employeeId: emp.id,
+        employeeName: emp.name,
+        loggedInAt: new Date().toISOString(),
+        loggedOut: false
+      });
+      await SystemConfig.updateOne({ key: 'activeSessions' }, { value: { sessions } }, { upsert: true });
+
+      broadcast('employee_logged_in', { id: emp.id, name: emp.name });
+
       return res.json({
         success: true, role: 'employee',
         user: { id: emp.id, name: emp.name, dept: emp.dept, designation: emp.designation, cl: emp.cl, sl: emp.sl, ul: emp.ul },
@@ -249,34 +280,57 @@ authRouter.post('/login', async (req, res) => {
   }
 });
 
-// ── ADMIN-ONLY Forgot Password — REAL-TIME IN-APP DELIVERY ──
-// This endpoint generates a secure temp password, stores it in the database,
-// and instantly delivers it to the active Admin UI via Socket.io.
+authRouter.post('/logout', async (req, res) => {
+  try {
+    const { uid } = req.body;
+    const normalized = (uid || '').toLowerCase().trim();
+    if (normalized && normalized !== ADMIN_USERNAME) {
+      const sessionsConfig = await SystemConfig.findOne({ key: 'activeSessions' });
+      if (sessionsConfig && sessionsConfig.value) {
+        let sessions = sessionsConfig.value.sessions || [];
+        const session = sessions.find(s => s.employeeId === normalized);
+        if (session) {
+          session.loggedOut = true;
+          session.loggedOutAt = new Date().toISOString();
+        }
+        await SystemConfig.updateOne({ key: 'activeSessions' }, { value: { sessions } }, { upsert: true });
+      }
+      const today = new Date().toISOString().split('T')[0];
+      const attRec = await Attendance.findOne({ id: normalized, date: today });
+      if (attRec && attRec.in && !attRec.out) {
+        const hr = getISTHour();
+        const min = getISTMinutes();
+        attRec.out = String(hr).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+        const [inH, inM] = attRec.in.split(':').map(Number);
+        const diffHrs = (hr - inH) + (min - inM) / 60;
+        attRec.hours = Math.max(0, parseFloat(diffHrs.toFixed(2)));
+        await attRec.save();
+        broadcast('attendance_update', attRec.toObject());
+      }
+    }
+    broadcast('employee_logged_out', { id: normalized });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 authRouter.post('/forgot-password', async (req, res) => {
   try {
     const { uid } = req.body;
-
     const normalized = (uid || '').toLowerCase().trim();
     const isAuthorized = normalized === ADMIN_USERNAME || normalized === ADMIN_EMAIL.toLowerCase();
-
     if (!isAuthorized) {
       return res.status(400).json({ error: 'Unauthorized. Only the system administrator can reset their password.' });
     }
-
     const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
     if (!adminUser) return res.status(404).json({ error: 'Admin not found' });
-
-    // Generate secure temp password
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
     const tempPassword = Array.from({ length: 12 }, () =>
       chars[Math.floor(Math.random() * chars.length)]
     ).join('');
-
-    // Update admin password in DB
     adminUser.password = tempPassword;
     await adminUser.save();
-
-    // Store reset record with 10-minute expiry
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
     await PasswordReset.create({
       userId: ADMIN_USERNAME,
@@ -284,21 +338,17 @@ authRouter.post('/forgot-password', async (req, res) => {
       email: ADMIN_EMAIL,
       expiresAt
     });
-
-    // INSTANT DELIVERY via Socket.io directly to the Admin UI
     broadcast('password_reset', {
       tempPassword,
       expiresAt,
       message: 'Your temporary password has been generated and is displayed below.'
     });
-
     res.json({ success: true, message: 'Temporary password delivered to the admin panel via real-time connection.' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// ── Admin-Only: Reset password after login with temp password ──
 authRouter.post('/reset-password', async (req, res) => {
   try {
     const { userId, currentPwd, newPassword } = req.body;
@@ -321,16 +371,15 @@ authRouter.post('/reset-password', async (req, res) => {
   }
 });
 
-// PUT /api/auth/password — Change password (admin or employee)
 authRouter.put('/password', async (req, res) => {
   try {
     const { userId, currentPwd, newPwd } = req.body;
     if (userId === ADMIN_USERNAME) {
-      const admin = await Admin.findOne({ username: ADMIN_USERNAME });
-      if (!admin) return res.status(404).json({ error: 'Admin not found' });
-      if (admin.password !== currentPwd) return res.status(400).json({ error: 'Wrong password' });
-      admin.password = newPwd;
-      await admin.save();
+      const adm = await Admin.findOne({ username: ADMIN_USERNAME });
+      if (!adm) return res.status(404).json({ error: 'Admin not found' });
+      if (adm.password !== currentPwd) return res.status(400).json({ error: 'Wrong password' });
+      adm.password = newPwd;
+      await adm.save();
       broadcast('password_changed', { userId: ADMIN_USERNAME });
       return res.json({ success: true });
     }
@@ -346,15 +395,14 @@ authRouter.put('/password', async (req, res) => {
   }
 });
 
-// POST /api/auth/reset-admin — Reset admin password to default (useful if forgot-password changed it)
 authRouter.post('/reset-admin', async (req, res) => {
   try {
     const adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
     if (adminUser) {
-      adminUser.password = 'quemah123';
+      adminUser.password = ADMIN_PASSWORD;
       await adminUser.save();
       broadcast('password_changed', { userId: ADMIN_USERNAME });
-      return res.json({ success: true, message: 'Admin password reset to: quemah123' });
+      return res.json({ success: true, message: 'Admin password reset to: ' + ADMIN_PASSWORD });
     }
     res.status(404).json({ error: 'Admin not found' });
   } catch (e) {
@@ -362,17 +410,14 @@ authRouter.post('/reset-admin', async (req, res) => {
   }
 });
 
-// ── API Router ──
 const apiRouter = express.Router();
 
-// GET /api/health
 apiRouter.get('/health', (req, res) => {
   res.json({ status: 'ok', db: dbConnected ? 'connected' : 'disconnected' });
 });
 
 apiRouter.use(requireDB);
 
-// GET /api/state
 apiRouter.get('/state', async (req, res) => {
   try {
     const [employees, archivedEmployeesDocs, attendanceRecords, leaveRequests, announcements, departments] =
@@ -380,7 +425,7 @@ apiRouter.get('/state', async (req, res) => {
         Employee.find({}),
         ArchivedEmployee.find({}),
         Attendance.find({}),
-        LeaveRequest.find({ $sort: { idx: -1 } }),
+        LeaveRequest.find({}),
         Announcement.find({}),
         Department.find({})
       ]);
@@ -404,7 +449,6 @@ apiRouter.get('/state', async (req, res) => {
   }
 });
 
-// GET/POST /api/employees
 apiRouter.route('/employees')
   .get(async (req, res) => {
     try {
@@ -432,11 +476,18 @@ apiRouter.route('/employees')
           if (result.success) Employee.updateOne({ id: emp.id }, { calendarEventId: result.eventId });
         }).catch(() => {});
       }
+      const addNotif = await Notification.create({
+        text: 'New employee added: ' + emp.name + ' (' + emp.id + ')',
+        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        unread: true,
+        target: 'admin',
+        userId: ''
+      });
+      broadcast('notification', addNotif.toObject());
       res.json({ success: true, employee: sanitizeEmp(emp) });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-// GET/PUT/DELETE /api/employees/:id
 apiRouter.route('/employees/:id')
   .get(async (req, res) => {
     try {
@@ -479,7 +530,6 @@ apiRouter.route('/employees/:id')
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-// POST /api/employees/:id/archive
 apiRouter.post('/employees/:id/archive', async (req, res) => {
   try {
     const emp = await Employee.findOne({ id: req.params.id });
@@ -497,7 +547,6 @@ apiRouter.post('/employees/:id/archive', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET/POST /api/attendance
 apiRouter.route('/attendance')
   .get(async (req, res) => {
     try {
@@ -510,25 +559,19 @@ apiRouter.route('/attendance')
       const body = req.body;
       const hr = getISTHour();
       const min = getISTMinutes();
-
-      // Server-side attendance time enforcement
       if (body.in && !body.out) {
-        // Punch-in after 18:00 IST — reject
         if (hr >= 18) {
-          return res.status(403).json({ success: false, error: `Sign-in blocked after 6:00 PM IST.` });
+          return res.status(403).json({ success: false, error: 'Sign-in blocked after 6:00 PM IST.' });
         }
       }
-
       const existing = await Attendance.findOne({ id: body.id, date: body.date });
       if (existing) {
         Object.assign(existing, body);
-        // If first sign-in of the day was after 14:00, flag as Half-Day
         if (existing.in && !existing.out && hr >= 14) {
           existing.status = 'Half-Day';
         }
         await existing.save();
       } else {
-        // New record — determine status server-side
         let status = body.status || 'Present';
         if (body.in && !body.out) {
           if (hr >= 14) status = 'Half-Day';
@@ -542,49 +585,34 @@ apiRouter.route('/attendance')
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-// GET/POST /api/leave-requests
 apiRouter.route('/leave-requests')
   .get(async (req, res) => {
     try {
-      const reqs = await LeaveRequest.find({ $sort: { idx: -1 } });
+      const reqs = await LeaveRequest.find({});
       res.json(reqs);
     } catch (e) { res.status(500).json({ error: e.message }); }
   })
   .post(async (req, res) => {
     try {
-      const count = await LeaveRequest.countDocuments();
-      const lr = await LeaveRequest.create({ ...req.body, idx: count });
+      const lr = await LeaveRequest.create({ ...req.body });
       broadcast('leave_request', lr.toObject());
       res.json({ success: true, leaveRequest: lr.toObject() });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-// PUT /api/leave-requests/:idx — Update leave status AND deduct balance on approval
-apiRouter.put('/leave-requests/:idx', async (req, res) => {
+apiRouter.put('/leave-requests/:id', async (req, res) => {
   try {
-    const idx = parseInt(req.params.idx);
-    const lr = await LeaveRequest.findOne({ idx });
+    const docId = req.params.id;
+    const lr = await LeaveRequest.findOne({ id: docId });
     if (!lr) return res.status(404).json({ error: 'Not found' });
-
     const oldStatus = lr.status;
     const newStatus = req.body.status;
     Object.assign(lr, req.body);
     await lr.save();
-
-    // ── LEAVE MANAGEMENT ENGINE ──
-    // Rules:
-    // • CL: Casual Leave — accrues 1.0 day/month, carry-forward allowed
-    // • SL: Sick Leave — accrues 0.5 day/month, carry-forward allowed
-    // • Full-Day Sick Rule: 1 SL day = 0.5 SL + 0.5 Unpaid
-    // • Overflow: If CL/SL insufficient, remaining converts to Unpaid
-    // • Approved leaves override automated 'Absent' flags
-    // ────────────────────────────────────────────────────────────
-
     if (newStatus === 'Approved' && oldStatus !== 'Approved' && lr.empId && lr.days) {
       const emp = await Employee.findOne({ id: lr.empId });
       if (emp) {
         if (lr.type === 'CL') {
-          // Casual Leave: deduct from CL, overflow converts to UL
           if (emp.cl >= lr.days) {
             emp.cl -= lr.days;
           } else {
@@ -593,14 +621,12 @@ apiRouter.put('/leave-requests/:idx', async (req, res) => {
             emp.ul = (emp.ul || 0) + deficit;
           }
         } else if (lr.type === 'SL') {
-          // Full-Day Sick Rule: 1 SL day = 0.5 SL + 0.5 Unpaid
           const slNeeded = lr.days * 0.5;
           const ulNeeded = lr.days * 0.5;
           if (emp.sl >= slNeeded) {
             emp.sl -= slNeeded;
             emp.ul = (emp.ul || 0) + ulNeeded;
           } else {
-            // If insufficient SL, apply full days as UL
             emp.ul = (emp.ul || 0) + lr.days;
             emp.sl = Math.max(0, emp.sl - slNeeded);
           }
@@ -611,45 +637,11 @@ apiRouter.put('/leave-requests/:idx', async (req, res) => {
         broadcast('leave_balance_updated', { id: emp.id, cl: emp.cl, sl: emp.sl, ul: emp.ul });
       }
     }
-
-    // ── Monthly Leave Accrual ──
-    // Run on every leave approval to ensure balances are updated for the current month
-    // CL: +1.0 per month, SL: +0.5 per month, carry-forward allowed
-    async function runMonthlyAccrual(emp) {
-      if (!emp) return;
-      const now = new Date();
-      const currentMonth = now.getMonth(); // 0-11
-      const currentYear = now.getFullYear();
-
-      // Check if accrual already ran this month (by checking a meta field)
-      if (emp._lastAccrualMonth === currentMonth && emp._lastAccrualYear === currentYear) {
-        return;
-      }
-
-      // Apply monthly accrual
-      emp.cl = (emp.cl || 0) + 1.0;  // +1.0 CL per month
-      emp.sl = (emp.sl || 0) + 0.5;  // +0.5 SL per month
-
-      // Track accrual run
-      emp._lastAccrualMonth = currentMonth;
-      emp._lastAccrualYear = currentYear;
-
-      await emp.save();
-      broadcast('leave_balance_updated', { id: emp.id, cl: emp.cl, sl: emp.sl, ul: emp.ul });
-    }
-
-    // Run accrual for the affected employee
-    if (lr.empId) {
-      const emp = await Employee.findOne({ id: lr.empId });
-      await runMonthlyAccrual(emp);
-    }
-
     broadcast('leave_update', lr.toObject());
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET/POST /api/announcements
 apiRouter.route('/announcements')
   .get(async (req, res) => {
     try {
@@ -661,11 +653,18 @@ apiRouter.route('/announcements')
     try {
       const ann = await Announcement.create(req.body);
       broadcast('announcement', ann.toObject());
+      const annNotif = await Notification.create({
+        text: 'New announcement: ' + (req.body.subject || ''),
+        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        unread: true,
+        target: 'emp',
+        userId: ''
+      });
+      broadcast('notification', annNotif.toObject());
       res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-// GET/POST /api/departments
 apiRouter.route('/departments')
   .get(async (req, res) => {
     try {
@@ -684,7 +683,6 @@ apiRouter.route('/departments')
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-// DELETE /api/departments/:name
 apiRouter.delete('/departments/:name', async (req, res) => {
   try {
     const name = decodeURIComponent(req.params.name);
@@ -695,7 +693,6 @@ apiRouter.delete('/departments/:name', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET/POST /api/notifications
 apiRouter.route('/notifications')
   .post(async (req, res) => {
     try {
@@ -711,16 +708,14 @@ apiRouter.route('/notifications')
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-// GET /api/notifications/:userId — returns unread notifications array AND count for badge sync
 apiRouter.get('/notifications/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
     let notifs;
     if (userId === ADMIN_USERNAME) {
-      const all = await Notification.find({ target: 'admin', $sort: { createdAt: -1 } });
-      notifs = all;
+      notifs = await Notification.find({ target: 'admin' });
     } else {
-      const all = await Notification.find({ $sort: { createdAt: -1 } });
+      const all = await Notification.find({});
       notifs = all.filter(r => r.target === 'emp' || r.userId === userId);
     }
     const unreadNotifs = notifs.filter(n => n.unread !== false);
@@ -728,7 +723,6 @@ apiRouter.get('/notifications/:userId', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/notifications/mark-read — mark all notifications as read for a user
 apiRouter.post('/notifications/mark-read', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -749,7 +743,6 @@ apiRouter.post('/notifications/mark-read', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/save (bulk sync from frontend)
 apiRouter.post('/save', async (req, res) => {
   try {
     const body = req.body;
@@ -777,7 +770,6 @@ apiRouter.post('/save', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET/POST /api/calendar-config
 apiRouter.route('/calendar-config')
   .get((req, res) => {
     const cc = calendarService.getCalendarConfig();
@@ -793,7 +785,6 @@ apiRouter.route('/calendar-config')
     res.status(500).json({ error: 'Failed to save calendar config' });
   });
 
-// POST /api/calendar/birthday
 apiRouter.post('/calendar/birthday', async (req, res) => {
   try {
     const emp = await Employee.findOne({ id: req.body.employeeId });
@@ -811,7 +802,6 @@ apiRouter.post('/calendar/birthday', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/calendar/sync-birthdays
 apiRouter.post('/calendar/sync-birthdays', async (req, res) => {
   try {
     const cc = calendarService.getCalendarConfig();
@@ -835,11 +825,9 @@ apiRouter.post('/calendar/sync-birthdays', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Mount Routers ──
 app.use('/api/auth', authRouter);
 app.use('/api', apiRouter);
 
-// ── Static File Serving ──
 const MIME = {
   '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
@@ -850,7 +838,6 @@ const MIME = {
 app.use(express.static(path.join(__dirname, 'dist')));
 app.use(express.static(__dirname));
 
-// Fallback: serve index.html for SPA routes (but NOT for API calls)
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'API route not found' });
@@ -867,10 +854,8 @@ app.get('*', (req, res) => {
   res.status(404).send('Not found');
 });
 
-// ── Socket.io ──
 setupSocketIO();
 
-// POST /api/leave-accrual — manually trigger monthly accrual
 apiRouter.post('/leave-accrual', async (req, res) => {
   try {
     if (!dbConnected) return res.status(503).json({ error: 'DB not connected' });
@@ -886,28 +871,29 @@ apiRouter.post('/leave-accrual', async (req, res) => {
     }
     const today = new Date().toISOString().split('T')[0];
     await SystemConfig.updateOne({ key: 'leaveAccrual' }, { value: { lastRun: today } }, { upsert: true });
-    res.json({ success: true, count, message: `${count} employees credited (CL +1.0, SL +0.5)` });
+    res.json({ success: true, count, message: count + ' employees credited (CL +1.0, SL +0.5)' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── DB Connection & Startup ──
+setInterval(() => {
+  forceLogoutExpiredEmployees();
+}, 60000);
+
 if (process.env.VERCEL) {
-  // In Vercel, connect DB immediately
   connectDB().then(() => {
     runMonthlyLeaveAccrual();
   }).catch(console.error);
 } else {
-  // Local dev server startup
   (async () => {
     await connectDB();
     runMonthlyLeaveAccrual();
     server.listen(PORT, '0.0.0.0', () => {
-      console.log(`\n  ${process.env.APP_NAME || 'Quemahtech'} Employee Management System`);
-      console.log(`  http://localhost:${PORT}`);
-      console.log(`  DB: ${dbConnected ? 'Firestore connected' : 'DB offline'}`);
-      console.log(`  Socket.io: ${io ? 'enabled' : 'disabled (Vercel)'}`);
-      console.log(`  Admin: ${ADMIN_USERNAME} / quemah123`);
-      console.log(`  Emp:   EMP001 / emp123\n`);
+      console.log('\n  ' + (process.env.APP_NAME || 'Quemahtech') + ' Employee Management System');
+      console.log('  http://localhost:' + PORT);
+      console.log('  DB: ' + (dbConnected ? 'Firestore connected' : 'DB offline'));
+      console.log('  Socket.io: ' + (io ? 'enabled' : 'disabled (Vercel)'));
+      console.log('  Admin: ' + ADMIN_USERNAME + ' / ' + ADMIN_PASSWORD);
+      console.log('  Emp:   EMP001 / emp123\n');
     });
   })();
 }
