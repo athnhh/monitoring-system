@@ -23,7 +23,11 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'quemah123';
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+app.use(cors({
+  origin: ['https://athnhh.github.io', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true
+}));
 app.use(express.json({ limit: '10mb' }));
 
 app.use((req, res, next) => {

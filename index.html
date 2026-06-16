@@ -3,15 +3,9 @@
 <head>
 <script>
   window.APP_CONFIG = {
-    // Local development: use the local backend on port 3000.
-    // Production (Vercel): frontend + backend are served from the same domain, so window.location.origin works.
-    // GitHub Pages: NOT supported — requires a Node.js backend.
-    //   To use a separate backend, uncomment and set the Vercel URL below:
     API_BASE: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
       ? 'http://localhost:3000'
-      : window.location.origin
-    // ◀ Example: separate backend on Vercel:
-    // API_BASE: 'https://quemahtech-ems.vercel.app'
+      : 'https://monitoring-system.vercel.app'
   };
 </script>
 <meta charset="UTF-8">
