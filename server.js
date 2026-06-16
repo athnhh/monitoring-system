@@ -281,72 +281,6 @@ async function forceLogoutExpiredEmployees() {
 const authRouter = express.Router();
 authRouter.use(requireDB);
 
-authRouter.post('/login', async (req, res) => {
-  try {
-    const { uid, pwd } = req.body;
-    const normalized = (uid || '').toLowerCase().trim();
-
-    if (normalized === ADMIN_USERNAME || normalized === ADMIN_EMAIL.toLowerCase()) {
-      let adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
-      if (!adminUser) {
-        adminUser = await Admin.findOne({ email: ADMIN_EMAIL });
-      }
-      if (adminUser) {
-        if (adminUser.password === pwd) {
-          return res.json({ success: true, role: 'admin', user: { id: ADMIN_USERNAME, name: 'Administrator' } });
-        }
-        return res.json({ success: false, message: 'Incorrect admin password.' });
-      }
-      return res.json({ success: false, message: 'Admin account not found in database. Server may not have seeded correctly.' });
-    }
-
-    const hr = getISTHour();
-    const min = getISTMinutes();
-    if (hr >= 18) {
-      return res.json({ success: false, error: 'TIME_BLOCK', message: 'Employee logins are blocked after 6:00 PM IST (current time: ' + String(hr).padStart(2,'0') + ':' + String(min).padStart(2,'0') + ' IST). Office hours: 9:00 AM - 6:00 PM.' });
-    }
-
-    let emp = await Employee.findOne({ id: normalized, active: true });
-    if (!emp) {
-      emp = await Employee.findOne({ email: normalized, active: true });
-    }
-    if (!emp) {
-      const all = await Employee.find({ active: true });
-      emp = all.find(e => e.id && e.id.toLowerCase() === normalized);
-    }
-    if (!emp) {
-      const all = await Employee.find({ active: true });
-      emp = all.find(e => e.email && e.email.toLowerCase() === normalized);
-    }
-
-    if (emp && emp.password === pwd) {
-      const halfDay = hr >= 14;
-
-      const sessionsConfig = await SystemConfig.findOne({ key: 'activeSessions' });
-      let sessions = (sessionsConfig && sessionsConfig.value && sessionsConfig.value.sessions) ? sessionsConfig.value.sessions : [];
-      sessions = sessions.filter(s => s.employeeId !== emp.id);
-      sessions.push({
-        employeeId: emp.id,
-        employeeName: emp.name,
-        loggedInAt: new Date().toISOString(),
-        loggedOut: false
-      });
-      await SystemConfig.updateOne({ key: 'activeSessions' }, { value: { sessions } }, { upsert: true });
-
-      broadcast('employee_logged_in', { id: emp.id, name: emp.name });
-
-      return res.json({
-        success: true, role: 'employee',
-        user: { id: emp.id, name: emp.name, dept: emp.dept, designation: emp.designation, cl: emp.cl, sl: emp.sl, ul: emp.ul },
-        timeBlock: { isHalfDay: halfDay }
-      });
-    }
-    return res.json({ success: false });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 authRouter.post('/logout', async (req, res) => {
   try {
     const { uid } = req.body;
@@ -896,6 +830,72 @@ apiRouter.post('/calendar/sync-birthdays', async (req, res) => {
     }
     res.json({ success: true, results });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/auth/login', requireDB, async (req, res) => {
+  try {
+    const { uid, pwd } = req.body;
+    const normalized = (uid || '').toLowerCase().trim();
+
+    if (normalized === ADMIN_USERNAME || normalized === ADMIN_EMAIL.toLowerCase()) {
+      let adminUser = await Admin.findOne({ username: ADMIN_USERNAME });
+      if (!adminUser) {
+        adminUser = await Admin.findOne({ email: ADMIN_EMAIL });
+      }
+      if (adminUser) {
+        if (adminUser.password === pwd) {
+          return res.json({ success: true, role: 'admin', user: { id: ADMIN_USERNAME, name: 'Administrator' } });
+        }
+        return res.json({ success: false, message: 'Incorrect admin password.' });
+      }
+      return res.json({ success: false, message: 'Admin account not found in database. Server may not have seeded correctly.' });
+    }
+
+    const hr = getISTHour();
+    const min = getISTMinutes();
+    if (hr >= 18) {
+      return res.json({ success: false, error: 'TIME_BLOCK', message: 'Employee logins are blocked after 6:00 PM IST (current time: ' + String(hr).padStart(2,'0') + ':' + String(min).padStart(2,'0') + ' IST). Office hours: 9:00 AM - 6:00 PM.' });
+    }
+
+    let emp = await Employee.findOne({ id: normalized, active: true });
+    if (!emp) {
+      emp = await Employee.findOne({ email: normalized, active: true });
+    }
+    if (!emp) {
+      const all = await Employee.find({ active: true });
+      emp = all.find(e => e.id && e.id.toLowerCase() === normalized);
+    }
+    if (!emp) {
+      const all = await Employee.find({ active: true });
+      emp = all.find(e => e.email && e.email.toLowerCase() === normalized);
+    }
+
+    if (emp && emp.password === pwd) {
+      const halfDay = hr >= 14;
+
+      const sessionsConfig = await SystemConfig.findOne({ key: 'activeSessions' });
+      let sessions = (sessionsConfig && sessionsConfig.value && sessionsConfig.value.sessions) ? sessionsConfig.value.sessions : [];
+      sessions = sessions.filter(s => s.employeeId !== emp.id);
+      sessions.push({
+        employeeId: emp.id,
+        employeeName: emp.name,
+        loggedInAt: new Date().toISOString(),
+        loggedOut: false
+      });
+      await SystemConfig.updateOne({ key: 'activeSessions' }, { value: { sessions } }, { upsert: true });
+
+      broadcast('employee_logged_in', { id: emp.id, name: emp.name });
+
+      return res.json({
+        success: true, role: 'employee',
+        user: { id: emp.id, name: emp.name, dept: emp.dept, designation: emp.designation, cl: emp.cl, sl: emp.sl, ul: emp.ul },
+        timeBlock: { isHalfDay: halfDay }
+      });
+    }
+    return res.json({ success: false });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.use('/api/auth', authRouter);
