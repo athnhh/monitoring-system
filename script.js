@@ -38,7 +38,7 @@ function smartTableSync(tbody, items, rowHtmlFn, getIdFn) {
     if (rowMap.has(id)) {
       // Update existing row cells in-place — no flicker
       const row = rowMap.get(id);
-      const tmp = document.createElement('div');
+      const tmp = document.createElement('tbody');
       tmp.innerHTML = rowHtmlFn(item, idx);
       const innerRow = tmp.querySelector('tr');
       const newCells = innerRow ? innerRow.children : [];
@@ -48,7 +48,7 @@ function smartTableSync(tbody, items, rowHtmlFn, getIdFn) {
       frag.appendChild(row);
     } else {
       // Create new row with entrance animation
-      const tmp = document.createElement('div');
+      const tmp = document.createElement('tbody');
       tmp.innerHTML = rowHtmlFn(item, idx);
       const row = tmp.querySelector('tr');
       if (row) {
