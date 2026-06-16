@@ -11,6 +11,7 @@ let breakInterval = null;
 let breakSeconds = 0;
 let selectedLeaveManageIdx = null;
 let archiveTargetId = null;
+let removeTargetId = null;
 let annSelectedRecipient = 'all';
 let annSelectedPriority = 'normal';
 let serverAvailable = false;
@@ -444,19 +445,24 @@ function renderEmpTable() {
     '<td style="font-size:13px;">' + (emp.bday ? formatDate(emp.bday) : '—') + '</td>' +
     '<td><button class="btn btn-sm" onclick="openEditEmpModal(\'' + emp.id + '\')" title="Edit">✏️</button> ' +
     '<button class="btn btn-sm" onclick="archiveEmployee(\'' + emp.id + '\')" title="Archive">📦</button> ' +
-    '<button class="btn btn-sm btn-danger remove-employee-btn" data-id="' + emp.id + '" title="Remove">🗑</button></td></tr>',
+    '<button class="btn btn-sm btn-danger" onclick="openRemoveEmpModal(\'' + emp.id + '\')" title="Remove">🗑</button></td></tr>',
     emp => emp.id
   );
+}
+
+function setModalHeader(title) {
+  const header = document.querySelector('#delete-emp-modal .modal-header h3');
+  if (header) header.textContent = title;
 }
 
 function archiveEmployee(empId) {
   if (!appState) return;
   const emp = (appState.employees || []).find(e => e.id === empId);
   if (!emp) return;
-  // Use the delete modal with archive messaging
   archiveTargetId = empId;
+  removeTargetId = null;
+  setModalHeader('📦 Archive Employee');
   document.getElementById('delete-emp-modal').dataset.mode = 'archive';
-  document.getElementById('delete-emp-name').innerText = emp.name + ' (' + emp.id + ')';
   const modalBody = document.querySelector('#delete-emp-modal .modal-body');
   if (modalBody) {
     modalBody.innerHTML = '' +
@@ -504,10 +510,54 @@ async function deleteEmployee(employeeId) {
   }
 }
 
+function openRemoveEmpModal(empId) {
+  if (!appState) return;
+  const emp = (appState.employees || []).find(e => e.id === empId);
+  if (!emp) return;
+  removeTargetId = empId;
+  archiveTargetId = null;
+  setModalHeader('🗑 Remove Employee');
+  document.getElementById('delete-emp-modal').dataset.mode = 'remove';
+  const modalBody = document.querySelector('#delete-emp-modal .modal-body');
+  if (modalBody) {
+    modalBody.innerHTML = '' +
+      '<p style="font-size:16px;margin-bottom:8px;">Permanently remove <strong>' + emp.name + '</strong>?</p>' +
+      '<p style="font-size:13px;color:var(--red);margin-bottom:16px;">⚠️ This will delete all attendance records and leave requests for <strong>' + emp.id + '</strong>. This action <strong>cannot</strong> be undone.</p>' +
+      '<div style="display:flex;gap:10px;justify-content:center;">' +
+        '<button class="btn" onclick="closeDeleteEmpModal()" style="flex:1;">Cancel</button>' +
+        '<button class="btn btn-danger" id="remove-confirm-btn" onclick="confirmRemoveEmployee()" style="flex:1;">🗑 Remove Permanently</button>' +
+      '</div>';
+  }
+  document.getElementById('delete-emp-modal').style.display = 'flex';
+}
+
+async function confirmRemoveEmployee() {
+  if (!removeTargetId || !appState) return;
+  const emp = (appState.employees || []).find(e => e.id === removeTargetId);
+  if (!emp) { showNotifBar('error', 'Employee not found.', '❌'); closeDeleteEmpModal(); return; }
+  const confirmBtn = document.getElementById('remove-confirm-btn');
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.style.background = '#dc2626';
+    confirmBtn.style.color = '#fff';
+    confirmBtn.innerHTML = '<span class="loading-spinner-sm" style="margin-right:6px;vertical-align:middle;"></span> Removing...';
+  }
+  const res = await deleteEmployee(removeTargetId);
+  closeDeleteEmpModal();
+  await refreshStateAndRender();
+  if (res && res.success) {
+    showNotifBar('info', emp.name + ' has been removed.', '🗑');
+  } else {
+    showNotifBar('error', (res && res.error) || 'Failed to remove ' + emp.name + '.', '❌');
+  }
+  removeTargetId = null;
+}
+
 function closeDeleteEmpModal() {
   const modal = document.getElementById('delete-emp-modal');
   if (modal) { modal.style.display = 'none'; modal.dataset.mode = ''; }
   archiveTargetId = null;
+  removeTargetId = null;
 }
 
 function openAddEmpModal() {
@@ -1999,23 +2049,7 @@ async function init() {
 
 document.addEventListener('DOMContentLoaded', init);
 
-// ── Event delegation: Remove Employee ──
-document.getElementById('emp-table-body').addEventListener('click', async (e) => {
-  const btn = e.target.closest('.remove-employee-btn');
-  if (!btn) return;
-  const employeeId = btn.getAttribute('data-id');
-  if (!employeeId) return;
-  if (!confirm('Are you sure you want to permanently remove employee ' + employeeId + '? This will delete all their attendance records and leave requests.')) return;
-  btn.disabled = true;
-  btn.innerHTML = '⏳';
-  const res = await deleteEmployee(employeeId);
-  await refreshStateAndRender();
-  if (res && res.success) {
-    showNotifBar('info', 'Employee ' + employeeId + ' has been removed.', '🗑');
-  } else {
-    showNotifBar('error', (res && res.error) || 'Failed to remove employee.', '❌');
-  }
-});
+
 
 // ── Seed Test Employee (one-shot) ──
 (async function seedTestEmployee() {

@@ -69,6 +69,9 @@
     const archiveMatch = path.match(/^\/api\/employees\/([^/]+)\/archive$/);
     if (archiveMatch && method === 'POST')
       return () => _archiveEmployee(decodeURIComponent(archiveMatch[1]));
+    const unarchiveMatch = path.match(/^\/api\/employees\/([^/]+)\/unarchive$/);
+    if (unarchiveMatch && method === 'POST')
+      return () => _unarchiveEmployee(decodeURIComponent(unarchiveMatch[1]));
 
     // ── Attendance ──
     if (path === '/api/attendance' && method === 'GET')
@@ -271,6 +274,23 @@
       exit: new Date().toISOString().split('T')[0], employee_data: emp[0]
     });
     await db.supabase.from('employees').update({ active: false }).eq('id', id);
+    return { success: true };
+  }
+
+  async function _unarchiveEmployee(id) {
+    // Find the archived record
+    const { data: archived } = await db.supabase
+      .from('archived_employees').select('*').eq('id', id).order('created_at', { ascending: false }).limit(1);
+    // Restore the employee
+    const { data: emp } = await db.supabase
+      .from('employees').select('*').eq('id', id).limit(1);
+    if (!emp || emp.length === 0) return { error: 'Not found' };
+    // Set active back to true
+    await db.supabase.from('employees').update({ active: true }).eq('id', id);
+    // Remove from archived_employees
+    if (archived && archived.length > 0) {
+      await db.supabase.from('archived_employees').delete().eq('id', archived[0].id);
+    }
     return { success: true };
   }
 
