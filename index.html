@@ -15,6 +15,138 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
 <!-- Single consolidated stylesheet -->
 <link rel="stylesheet" href="style.css">
+<!-- ═══ Premium UI Animations — hardware-accelerated, flicker-free ═══ -->
+<style>
+/* ── Entrance: fade + slide up for new rows/cards ── */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.enter-fade-slide {
+  animation: fadeSlideUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards !important;
+}
+.enter-fade {
+  animation: fadeIn 0.25s ease-out forwards !important;
+}
+.enter-slide-down {
+  animation: slideDown 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards !important;
+}
+.exit-fade {
+  animation: fadeIn 0.2s ease-in reverse forwards !important;
+  pointer-events: none;
+}
+
+/* ── Status badge glow transitions ── */
+.tag {
+  transition: background-color 0.4s ease, box-shadow 0.4s ease, color 0.3s ease;
+}
+.tag:hover {
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.04);
+}
+.t-present { box-shadow: 0 0 0 1px rgba(22,163,74,0.15); }
+.t-absent  { box-shadow: 0 0 0 1px rgba(220,38,38,0.15); }
+.t-late    { box-shadow: 0 0 0 1px rgba(217,119,6,0.15); }
+.t-halfday { box-shadow: 0 0 0 1px rgba(124,58,237,0.15); }
+
+.status-pill {
+  transition: background-color 0.35s ease, box-shadow 0.35s ease, transform 0.2s ease;
+}
+.sp-in { box-shadow: 0 0 0 1px rgba(22,163,74,0.15); }
+.sp-out { box-shadow: 0 0 0 1px rgba(220,38,38,0.15); }
+.sp-break { box-shadow: 0 0 0 1px rgba(217,119,6,0.15); }
+
+/* ── Live pulse indicator for active workstations ── */
+@keyframes livePulseShadow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+}
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #86efac;
+  animation: livePulseShadow 2s ease-in-out infinite;
+  border-radius: 20px;
+  padding: 3px 12px;
+  background: rgba(34,197,94,0.08);
+  border: 1px solid rgba(34,197,94,0.15);
+}
+.live-indicator::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse 2s infinite;
+}
+
+/* ── Status dot pulse (existing - enhanced) ── */
+.status-dot {
+  box-shadow: 0 0 0 0 rgba(34,197,94,0.3);
+  transition: box-shadow 0.4s ease;
+}
+.sd-g { box-shadow: 0 0 0 0 rgba(34,197,94,0.3); }
+.sd-r { box-shadow: 0 0 0 0 rgba(239,68,68,0.25); }
+.sd-a { box-shadow: 0 0 0 0 rgba(217,119,6,0.25); }
+
+/* ── Server status pulse (adds live-connection glow) ── */
+#server-status-indicator {
+  transition: all 0.5s ease !important;
+}
+
+/* ── Stat card value transitions ── */
+.stat-val, .mini-stat-val, .leave-bal-val {
+  transition: color 0.3s ease, transform 0.3s ease;
+}
+
+/* ── Table row hover smoothness ── */
+tbody tr {
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+tbody tr.enter-fade-slide {
+  animation: fadeSlideUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards !important;
+}
+
+/* ── Card entrance smoothing ── */
+.act-row:first-child,
+.leave-req-card:first-child,
+.announcement-card:first-child {
+  animation: fadeSlideUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+/* ── Notification bar hardware acceleration ── */
+.notif-bar {
+  will-change: transform, opacity;
+}
+
+/* ── Notification panel smooth slide ── */
+.notif-panel {
+  will-change: transform;
+}
+
+/* ── Modal entrance hardware acceleration ── */
+.modal-box, .compose-modal-box {
+  will-change: transform, opacity;
+}
+
+/* ── Dark mode smooth transitions — scoped to body.dark-mode to avoid cascading GPU work ── */
+body.dark-mode, body.dark-mode .card, body.dark-mode .topbar, body.dark-mode .nav,
+body.dark-mode .content, body.dark-mode td, body.dark-mode th,
+body.dark-mode .tag, body.dark-mode .chip, body.dark-mode .btn, body.dark-mode .badge {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+</style>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <!-- Firebase SDK for client-side Firestore onSnapshot real-time sync -->
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>

@@ -21,6 +21,106 @@ let socket = null;
 // Firestore snapshot unsubscribe function
 let fsUnsubscribe = null;
 
+// ── Smart DOM Sync Utilities ──
+// Eliminate flicker by matching elements via data-id instead of full innerHTML rebuilds
+
+// For table <tbody> — updates <tr> cells in-place, only creates new rows for new items
+function smartTableSync(tbody, items, rowHtmlFn, getIdFn) {
+  if (!tbody) return;
+  // Map existing rows by data-id
+  const rowMap = new Map();
+  for (let i = 0; i < tbody.children.length; i++) {
+    const row = tbody.children[i];
+    const id = row.getAttribute('data-id');
+    if (id) rowMap.set(id, row);
+  }
+  const frag = document.createDocumentFragment();
+  const activeIds = new Set();
+  items.forEach((item, idx) => {
+    const id = getIdFn(item, idx);
+    activeIds.add(id);
+    if (rowMap.has(id)) {
+      // Update existing row cells in-place — no flicker
+      const row = rowMap.get(id);
+      const tmp = document.createElement('tr');
+      tmp.innerHTML = rowHtmlFn(item, idx);
+      const newCells = tmp.children[0] ? tmp.children[0].children : [];
+      for (let c = 0; c < newCells.length; c++) {
+        if (row.children[c]) row.children[c].innerHTML = newCells[c].innerHTML;
+      }
+      frag.appendChild(row);
+    } else {
+      // Create new row with entrance animation
+      const tmp = document.createElement('tr');
+      tmp.innerHTML = rowHtmlFn(item, idx);
+      const row = tmp.children[0] || tmp;
+      row.setAttribute('data-id', id);
+      row.classList.add('enter-fade-slide');
+      frag.appendChild(row);
+    }
+  });
+  // Check if there are orphaned rows that need exit animation
+  const hasOrphans = [...rowMap.keys()].some(id => !activeIds.has(id));
+  if (hasOrphans) {
+    // Add exit animation to orphaned rows, then swap after animation completes
+    for (const [id, row] of rowMap) {
+      if (!activeIds.has(id)) row.classList.add('exit-fade');
+    }
+    setTimeout(() => {
+      tbody.replaceChildren(frag);
+    }, 280);
+  } else {
+    // No orphans — swap immediately (no flicker)
+    tbody.replaceChildren(frag);
+  }
+}
+
+// For card/list containers — matches by data-id, full outerHTML replacement for existing items
+function smartListSync(container, items, htmlFn, getIdFn) {
+  if (!container) return;
+  const elMap = new Map();
+  for (let i = 0; i < container.children.length; i++) {
+    const el = container.children[i];
+    const id = el.getAttribute('data-id');
+    if (id) elMap.set(id, el);
+  }
+  const frag = document.createDocumentFragment();
+  const activeIds = new Set();
+  items.forEach((item, idx) => {
+    const id = getIdFn(item, idx);
+    activeIds.add(id);
+    if (elMap.has(id)) {
+      // Replace existing element with updated HTML (preserves data-id)
+      const el = elMap.get(id);
+      // Safer injection: match opening tag to add data-id
+      el.outerHTML = htmlFn(item, idx).replace(/^<(\w+)/, `<$1 data-id="${id}"`);
+      // Re-query the replaced element
+      const updated = container.querySelector(`[data-id="${id}"]`);
+      if (updated) frag.appendChild(updated);
+    } else {
+      // New element with entrance animation
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = htmlFn(item, idx);
+      const child = wrapper.children[0] || wrapper;
+      child.setAttribute('data-id', id);
+      child.classList.add('enter-fade-slide');
+      frag.appendChild(child);
+    }
+  });
+  // Stale removal with exit animation
+  const hasOrphans = [...elMap.keys()].some(id => !activeIds.has(id));
+  if (hasOrphans) {
+    for (const [id, el] of elMap) {
+      if (!activeIds.has(id) && el.parentNode) el.classList.add('exit-fade');
+    }
+    setTimeout(() => {
+      container.replaceChildren(frag);
+    }, 280);
+  } else {
+    container.replaceChildren(frag);
+  }
+}
+
 const DEPT_COLORS = {
   Engineering: 'c-eng', HR: 'c-hr', Marketing: 'c-mkt',
   Finance: 'c-fin', IT: 'c-it', Operations: 'c-ops'
@@ -210,8 +310,22 @@ function renderDashboardCards() {
   const aEl = document.getElementById('a-absent');
   setText('title-present-count', 'Present (' + presentEmps.length + ')');
   setText('title-absent-count', 'Absent / On Leave (' + absentEmps.length + ')');
-  if (pEl) pEl.innerHTML = presentEmps.length ? presentEmps.map(r => actRow(r, employees)).join('') : '<p style="color:var(--subtle);font-size:13px;">No one present yet.</p>';
-  if (aEl) aEl.innerHTML = absentEmps.length ? absentEmps.map(r => actRow(r, employees)).join('') : '<p style="color:var(--subtle);font-size:13px;">All present!</p>';
+  // Smart sync for present list — no flicker
+  if (pEl) {
+    if (presentEmps.length) {
+      smartListSync(pEl, presentEmps, r => actRow(r, employees), r => r.id);
+    } else {
+      pEl.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No one present yet.</p>';
+    }
+  }
+  // Smart sync for absent list
+  if (aEl) {
+    if (absentEmps.length) {
+      smartListSync(aEl, absentEmps, r => actRow(r, employees), r => r.id);
+    } else {
+      aEl.innerHTML = '<p style="color:var(--subtle);font-size:13px;">All present!</p>';
+    }
+  }
 
   const barsEl = document.getElementById('a-bars');
   if (barsEl) {
@@ -229,15 +343,19 @@ function renderDashboardCards() {
     }).join('');
   }
 
+  // Smart sync for attendance log table
   const logEl = document.getElementById('a-log');
-  if (logEl) logEl.innerHTML = todayRecs.map(r =>
-    '<tr><td><div style="display:flex;align-items:center;gap:8px;"><div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '">' + r.name.charAt(0) + '</div><span>' + r.name + '</span></div></td>' +
-    '<td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td>' +
-    '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td>' +
-    '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td>' +
-    '<td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
-    '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>'
-  ).join('');
+  if (logEl) {
+    smartTableSync(logEl, todayRecs, r =>
+      '<tr><td><div style="display:flex;align-items:center;gap:8px;"><div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '">' + r.name.charAt(0) + '</div><span>' + r.name + '</span></div></td>' +
+      '<td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td>' +
+      '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td>' +
+      '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td>' +
+      '<td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
+      '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>',
+      r => r.id + '-' + r.date
+    );
+  }
 
   renderDashPendingLeaves(leaveRequests);
 }
@@ -248,7 +366,7 @@ function renderDashPendingLeaves(leaveRequests) {
   const leaveReqs = leaveRequests || (appState ? appState.leaveRequests : []) || [];
   const pending = leaveReqs.filter(l => l.status === 'Pending');
   if (!pending.length) { el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No pending requests.</p>'; return; }
-  el.innerHTML = pending.map(l => leaveReqCard(l)).join('');
+  smartListSync(el, pending, l => leaveReqCard(l), l => l.id || l.empId + '-' + l.from);
 }
 
 function actRow(r, employees) {
@@ -270,7 +388,7 @@ function renderRecords() {
   if (deptF) recs = recs.filter(r => r.dept === deptF);
   if (statusF) recs = recs.filter(r => r.status === statusF);
   const employees = appState.employees || [];
-  tbody.innerHTML = recs.map(r =>
+  smartTableSync(tbody, recs, r =>
     '<tr><td><span style="font-family:var(--font-mono);font-size:11px;color:var(--muted);">' + r.id + '</span></td>' +
     '<td><div style="display:flex;align-items:center;gap:8px;"><div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '">' + r.name.charAt(0) + '</div>' + r.name + '</div></td>' +
     '<td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td>' +
@@ -279,8 +397,9 @@ function renderRecords() {
     '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td>' +
     '<td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
     '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td>' +
-    '<td style="font-size:11px;color:var(--subtle);">' + (r.status === 'Half-Day' ? 'Late login>14:00' : '') + '</td></tr>'
-  ).join('');
+    '<td style="font-size:11px;color:var(--subtle);">' + (r.status === 'Half-Day' ? 'Late login>14:00' : '') + '</td></tr>',
+    r => r.id + '-' + r.date
+  );
 }
 
 function renderEmpTable() {
@@ -293,7 +412,7 @@ function renderEmpTable() {
   let list = employees.filter(e => e.active);
   if (search) list = list.filter(e => e.name.toLowerCase().includes(search) || e.id.toLowerCase().includes(search));
   if (deptF) list = list.filter(e => e.dept === deptF);
-  tbody.innerHTML = list.map((emp, i) =>
+  smartTableSync(tbody, list, (emp, i) =>
     '<tr><td><div class="av ' + AV_COLORS[i % AV_COLORS.length] + '">' + emp.name.charAt(0) + '</div></td>' +
     '<td><span style="font-family:var(--font-mono);font-size:12px;font-weight:600;">' + emp.id + '</span></td>' +
     '<td><strong>' + emp.name + '</strong></td>' +
@@ -304,8 +423,9 @@ function renderEmpTable() {
     '<td style="font-size:12px;">' + (emp.bday ? formatDate(emp.bday) : '—') + '</td>' +
     '<td><button class="btn btn-sm" onclick="openEditEmpModal(\'' + emp.id + '\')" title="Edit">✏️</button> ' +
     '<button class="btn btn-sm" onclick="archiveEmployee(\'' + emp.id + '\')" title="Archive">📦</button> ' +
-    '<button class="btn btn-sm btn-danger" onclick="openDeleteEmpModal(\'' + emp.id + '\')" title="Remove">🗑</button></td></tr>'
-  ).join('');
+    '<button class="btn btn-sm btn-danger" onclick="openDeleteEmpModal(\'' + emp.id + '\')" title="Remove">🗑</button></td></tr>',
+    emp => emp.id
+  );
 }
 
 function archiveEmployee(empId) {
@@ -446,7 +566,8 @@ function renderLeaveRequests(leaveRequests) {
   if (!el) return;
   const leaveReqs = leaveRequests || (appState ? appState.leaveRequests : []) || [];
   const pending = leaveReqs.filter(l => l.status === 'Pending');
-  el.innerHTML = pending.length ? pending.map(l => leaveReqCard(l)).join('') : '<p style="color:var(--subtle);font-size:13px;">No pending requests 🎉</p>';
+  if (!pending.length) { el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No pending requests 🎉</p>'; return; }
+  smartListSync(el, pending, l => leaveReqCard(l), l => l.id || l.empId + '-' + l.from);
 }
 
 function handleLeave(idxOrId, decision) {
@@ -483,24 +604,25 @@ function renderLeaveBalances(leaveRequests) {
   const employees = appState.employees || [];
   const tbody = document.getElementById('leave-balances-table');
   if (!tbody) return;
-  tbody.innerHTML = employees.filter(e => e.active).map((emp, i) =>
+  smartTableSync(tbody, employees.filter(e => e.active), (emp, i) =>
     '<tr><td><div style="display:flex;align-items:center;gap:8px;"><div class="av ' + AV_COLORS[i % AV_COLORS.length] + '">' + emp.name.charAt(0) + '</div>' + emp.name + '</div></td>' +
     '<td><span class="chip ' + (DEPT_COLORS[emp.dept] || 'c-eng') + '">' + emp.dept + '</span></td>' +
     '<td><strong class="blue-v">' + emp.cl + '</strong> days</td>' +
     '<td><strong class="green-v">' + emp.sl + '</strong> days</td>' +
     '<td><strong class="red-v">' + (emp.ul || 0) + '</strong> days</td>' +
-    '<td><button class="btn btn-sm" onclick="openLeaveManage(\'' + emp.id + '\')">Adjust</button></td></tr>'
-  ).join('');
+    '<td><button class="btn btn-sm" onclick="openLeaveManage(\'' + emp.id + '\')">Adjust</button></td></tr>',
+    emp => emp.id
+  );
 }
 
 function renderLeaveHistory(leaveRequests) {
   const tbody = document.getElementById('leave-history-table');
   if (!tbody) return;
   const leaveReqs = leaveRequests || (appState ? appState.leaveRequests : []) || [];
-  tbody.innerHTML = leaveReqs.map(l => {
+  smartTableSync(tbody, leaveReqs, l => {
     const typeColor = l.type === 'CL' ? 'c-eng' : l.type === 'SL' ? 'c-mkt' : 'c-it';
     return '<tr><td>' + l.empName + '</td><td><span class="chip ' + typeColor + '">' + l.type + '</span></td><td>' + formatDate(l.from) + '</td><td>' + formatDate(l.to) + '</td><td>' + l.days + '</td><td><span class="tag t-' + (l.status || 'pending').toLowerCase() + '">' + (l.status || 'Pending') + '</span></td><td style="font-size:12px;color:var(--muted);">' + l.reason + '</td></tr>';
-  }).join('');
+  }, l => (l.id || l.empId + '-' + l.from + '-' + l.type));
 }
 
 function openLeaveManage(empId) {
@@ -571,7 +693,9 @@ function setReport(type, btn) {
   const thead = document.getElementById('rpt-thead');
   const tbody = document.getElementById('rpt-table');
   if (thead) thead.innerHTML = '<th>ID</th><th>Employee</th><th>Dept</th><th>Date</th><th>In</th><th>Out</th><th>Hours</th><th>Status</th>';
-  if (tbody) tbody.innerHTML = recs.map(r => '<tr><td><span style="font-family:var(--font-mono);font-size:11px;color:var(--muted);">' + r.id + '</span></td><td>' + r.name + '</td><td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td><td>' + formatDate(r.date) + '</td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td><td>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>').join('');
+  if (tbody) {
+    smartTableSync(tbody, recs, r => '<tr><td><span style="font-family:var(--font-mono);font-size:11px;color:var(--muted);">' + r.id + '</span></td><td>' + r.name + '</td><td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td><td>' + formatDate(r.date) + '</td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td><td>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>', r => r.id + '-' + r.date);
+  }
 }
 
 function changeAdminPwd() {
@@ -634,10 +758,12 @@ function renderEmpDashboard(emp) {
   }).join('');
 
   const logEl = document.getElementById('emp-log');
-  if (logEl) logEl.innerHTML = myRecs.slice(0, 7).map(r => {
-    const dateObj = new Date(r.date);
-    return '<tr><td>' + formatDate(r.date) + '</td><td style="color:var(--muted);font-size:12px;">' + DAYS[dateObj.getDay()] + '</td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td><td>—</td><td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>';
-  }).join('');
+  if (logEl) {
+    smartTableSync(logEl, myRecs.slice(0, 7), r => {
+      const dateObj = new Date(r.date);
+      return '<tr><td>' + formatDate(r.date) + '</td><td style="color:var(--muted);font-size:12px;">' + DAYS[dateObj.getDay()] + '</td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td><td>—</td><td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>';
+    }, r => r.id + '-' + r.date);
+  }
 
   renderMyLeaveHistory(emp);
   renderAnnouncementsEmp(announcements);
@@ -658,10 +784,12 @@ function renderEmpHistory() {
   const summEl = document.getElementById('hist-summary');
   if (summEl) summEl.innerHTML = '<div class="sum-item"><span>Working Days</span><strong>' + recs.length + '</strong></div><div class="sum-item"><span>Present</span><strong class="green-v">' + present + '</strong></div><div class="sum-item"><span>Total Hours</span><strong>' + hours.toFixed(1) + 'h</strong></div>';
   const tbody = document.getElementById('hist-table');
-  if (tbody) tbody.innerHTML = recs.map(r => {
-    const dateObj = new Date(r.date);
-    return '<tr><td>' + formatDate(r.date) + '</td><td style="color:var(--muted);">' + DAYS[dateObj.getDay()] + '</td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td><td>—</td><td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>';
-  }).join('');
+  if (tbody) {
+    smartTableSync(tbody, recs, r => {
+      const dateObj = new Date(r.date);
+      return '<tr><td>' + formatDate(r.date) + '</td><td style="color:var(--muted);">' + DAYS[dateObj.getDay()] + '</td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td><td>—</td><td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>';
+    }, r => r.id + '-' + r.date);
+  }
 }
 
 function empPunchIn() {
@@ -837,10 +965,10 @@ function renderMyLeaveHistory(emp) {
   if (!el) return;
   const myLeaves = leaveRequests.filter(l => l.empId === emp.id);
   if (!myLeaves.length) { el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No leave history.</p>'; return; }
-  el.innerHTML = myLeaves.map(l => {
+  smartListSync(el, myLeaves, l => {
     const typeColor = l.type === 'CL' ? 'c-eng' : l.type === 'SL' ? 'c-mkt' : 'c-it';
     return '<div class="leave-req-card" style="flex-wrap:wrap;"><div style="flex:1;"><div style="font-size:13px;font-weight:600;"><span class="chip ' + typeColor + '">' + l.type + '</span> ' + formatDate(l.from) + ' – ' + formatDate(l.to) + '</div><div style="font-size:12px;color:var(--muted);">' + l.days + ' day(s) | ' + l.reason + '</div></div><span class="tag t-' + (l.status || 'pending').toLowerCase() + '">' + (l.status || 'Pending') + '</span></div>';
-  }).join('');
+  }, l => l.id || l.empId + '-' + l.from + '-' + l.type);
 }
 
 function changeEmpPwd() {
@@ -1337,15 +1465,16 @@ function renderArchivedTable() {
   const archivedEmployees = appState.archivedEmployees || [];
   const tbody = document.getElementById('archived-table-body');
   if (!tbody) return;
-  tbody.innerHTML = archivedEmployees.map(a =>
+  smartTableSync(tbody, archivedEmployees, a =>
     '<tr><td><span style="font-family:var(--font-mono);font-size:12px;">' + (a.id || '—') + '</span></td>' +
     '<td>' + a.name + '</td>' +
     '<td><span class="chip ' + (DEPT_COLORS[a.dept] || 'c-eng') + '">' + a.dept + '</span></td>' +
     '<td><span class="tag t-' + (a.status === 'Archived' ? 'leave' : 'absent') + '">' + a.status + '</span></td>' +
     '<td>' + (a.joining ? formatDate(a.joining) : '—') + '</td>' +
     '<td>' + (a.exit ? formatDate(a.exit) : '—') + '</td>' +
-    '<td><button class="btn btn-sm" onclick="showNotifBar(&quot;info&quot;,&quot;Archived employee data is read-only.&quot;,&quot;ℹ️&quot;)">👁 View</button></td></tr>'
-  ).join('');
+    '<td><button class="btn btn-sm" onclick="showNotifBar(&quot;info&quot;,&quot;Archived employee data is read-only.&quot;,&quot;ℹ️&quot;)">👁 View</button></td></tr>',
+    a => a.id || a.name
+  );
 }
 
 function toggleArchived() {
@@ -1364,9 +1493,10 @@ function renderDeptHeadcount() {
   employees.filter(e => e.active).forEach(e => { counts[e.dept] = (counts[e.dept] || 0) + 1; });
   const max = Math.max(...Object.values(counts), 1);
   const colors = ['bf-blue', 'bf-green', 'bf-amber', 'bf-red', 'bf-purple', 'bf-green'];
-  el.innerHTML = Object.entries(counts).map(([d, c], i) =>
-    '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + colors[i % colors.length] + '" style="width:' + (c / max * 100) + '%"></div></div><span class="bar-val">' + c + '</span></div>'
-  ).join('');
+  smartListSync(el, Object.entries(counts), ([d, c], i) =>
+    '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + colors[i % colors.length] + '" style="width:' + (c / max * 100) + '%"></div></div><span class="bar-val">' + c + '</span></div>',
+    ([d]) => d
+  );
 }
 
 function renderDepartments() {
@@ -1450,11 +1580,11 @@ function renderAnnouncements() {
     el.innerHTML = '<div class="ann-empty-state"><span class="ann-empty-icon">📭</span><div class="ann-empty-text">No announcements yet</div><div class="ann-empty-sub">Your first announcement will appear here</div></div>';
     return;
   }
-  el.innerHTML = announcements.map(a => {
+  smartListSync(el, announcements, a => {
     const cat = a.priority === 'urgent' ? 'ann-cat-urgent' : a.priority === 'high' ? 'ann-cat-high' : a.priority === 'low' ? 'ann-cat-general' : 'ann-cat-event';
     const pClass = 'priority-' + (a.priority || 'normal');
     return '<div class="announcement-card ' + pClass + '"><div class="ann-header"><div class="ann-header-left"><span class="ann-category-badge ' + cat + '">' + (a.priority || 'normal') + '</span><div class="ann-subject">' + a.subject + '</div></div></div><div class="ann-meta"><span class="ann-meta-item">📅 ' + formatDate(a.date) + '</span><span class="ann-meta-item">👤 ' + (a.by || 'Admin') + '</span><span class="ann-meta-item">👥 ' + (a.recipient || 'All Employees') + '</span></div><div class="ann-body">' + a.body.replace(/\n/g, '<br>') + '</div></div>';
-  }).join('');
+  }, a => a.date + '-' + (a.subject || '').substring(0, 20));
 }
 
 function renderBirthdayModule() {
@@ -1488,10 +1618,10 @@ function renderAnnouncementsEmp(announcements) {
     el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No announcements yet.</p>';
     return;
   }
-  el.innerHTML = anns.slice(0, 5).map(a => {
+  smartListSync(el, anns.slice(0, 5), a => {
     const pClass = 'priority-' + (a.priority || 'normal');
     return '<div class="announcement-card ' + pClass + '" style="padding:14px 18px;"><div class="ann-header"><div class="ann-subject" style="font-size:14px;">' + a.subject + '</div><span style="font-size:12px;color:var(--subtle);">' + formatDate(a.date) + '</span></div><div class="ann-body" style="font-size:13px;">' + (a.body.length > 120 ? a.body.substring(0, 120) + '…' : a.body) + '</div></div>';
-  }).join('');
+  }, a => a.date + '-' + (a.subject || '').substring(0, 20));
 }
 
 function openComposeModal() {
