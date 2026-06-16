@@ -922,6 +922,12 @@ async function sendAdminReset() {
 }
 
 async function api(url, opts = {}) {
+  // Try FirebaseClient first if server is clearly unavailable (e.g. GitHub Pages)
+  if (typeof FirebaseClient !== 'undefined' && FirebaseClient.ready && !serverAvailable) {
+    const fbResult = await FirebaseClient.call(opts.method || 'GET', url, opts.body || null);
+    if (fbResult) return fbResult;
+  }
+  // Try server API
   try {
     const fetchOpts = {
       method: opts.method || 'GET',
@@ -932,12 +938,22 @@ async function api(url, opts = {}) {
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({ error: 'Request failed with status ' + res.status }));
       console.warn('API error:', url, errBody);
+      // Fallback to FirebaseClient
+      if (typeof FirebaseClient !== 'undefined' && FirebaseClient.ready) {
+        const fbResult = await FirebaseClient.call(opts.method || 'GET', url, opts.body || null);
+        if (fbResult) return fbResult;
+      }
       return errBody;
     }
     const data = await res.json();
     return data;
   } catch (e) {
     console.warn('API fetch failed:', url, e.message);
+    // Fallback to FirebaseClient
+    if (typeof FirebaseClient !== 'undefined' && FirebaseClient.ready) {
+      const fbResult = await FirebaseClient.call(opts.method || 'GET', url, opts.body || null);
+      if (fbResult) return fbResult;
+    }
     return null;
   }
 }
