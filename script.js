@@ -121,6 +121,29 @@ function smartListSync(container, items, htmlFn, getIdFn) {
   }
 }
 
+// ── RAF-Batched Render Scheduler ──
+// Coalesces multiple real-time events into a single frame-accurate re-render.
+// Prevents flicker when rapid socket events or Firestore syncs arrive.
+const RenderQueue = {
+  _rafId: null,
+  _pending: false,
+
+  schedule() {
+    if (this._pending) return; // Already queued for this frame
+    this._pending = true;
+    this._rafId = requestAnimationFrame(async () => {
+      this._rafId = null;
+      this._pending = false;
+      try { await refreshStateAndRender(); } catch (e) { console.warn('[RenderQueue]', e); }
+    });
+  },
+
+  flush() {
+    if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+    if (this._pending) { this._pending = false; refreshStateAndRender(); }
+  }
+};
+
 // ── Skeleton Loading Placeholders ──
 // Renders shimmer animated placeholders in data containers while loading
 
@@ -277,45 +300,33 @@ function connectSocketIO() {
     });
     socket.on('notification', (data) => {
       console.log('Socket notification:', data);
-      refreshStateAndRender();
+      RenderQueue.schedule();
     });
-    socket.on('leave_request', (data) => {
-      refreshStateAndRender();
-    });
-    socket.on('leave_update', (data) => {
-      refreshStateAndRender();
-    });
+    socket.on('leave_request', () => { RenderQueue.schedule(); });
+    socket.on('leave_update', () => { RenderQueue.schedule(); });
     socket.on('employee_added', (data) => {
       console.log('Employee added (remote):', data);
-      refreshStateAndRender();
+      RenderQueue.schedule();
     });
     socket.on('employee_deleted', (data) => {
       console.log('Employee deleted (remote):', data);
-      refreshStateAndRender();
+      RenderQueue.schedule();
     });
     socket.on('employee_updated', (data) => {
       console.log('Employee updated (remote):', data);
-      refreshStateAndRender();
+      RenderQueue.schedule();
     });
     socket.on('employee_archived', (data) => {
       console.log('Employee archived (remote):', data);
-      refreshStateAndRender();
+      RenderQueue.schedule();
     });
-    socket.on('departments_updated', (data) => {
-      refreshStateAndRender();
-    });
-    socket.on('attendance_update', (data) => {
-      refreshStateAndRender();
-    });
-    socket.on('announcement', (data) => {
-      refreshStateAndRender();
-    });
+    socket.on('departments_updated', () => { RenderQueue.schedule(); });
+    socket.on('attendance_update', () => { RenderQueue.schedule(); });
+    socket.on('announcement', () => { RenderQueue.schedule(); });
     socket.on('password_changed', () => {
       showNotifBar('info', 'Password was changed in another session.', '🔑');
     });
-    socket.on('leave_balance_updated', (data) => {
-      refreshStateAndRender();
-    });
+    socket.on('leave_balance_updated', () => { RenderQueue.schedule(); });
     socket.on('password_reset', (data) => {
       console.log('Password reset received via socket:', data);
       const pwdDisplay = document.getElementById('fp-temp-password');
@@ -512,7 +523,7 @@ function archiveEmployee(empId) {
   const emp = (appState.employees || []).find(e => e.id === empId);
   if (!emp) return;
   if (!confirm('Archive ' + emp.name + '? They will be moved to the archived employees section.')) return;
-  api('/api/employees/' + emp.id + '/archive', { method: 'POST' }).then(() => refreshStateAndRender());
+  api('/api/employees/' + emp.id + '/archive', { method: 'POST' }).then(() => RenderQueue.schedule());
   showNotifBar('info', emp.name + ' has been archived.', '📦');
 }
 
@@ -536,7 +547,7 @@ async function confirmDeleteEmployee() {
   closeDeleteEmpModal();
   showNotifBar('info', emp.name + ' has been removed.', '🗑');
   await api('/api/employees/' + deleteTargetId, { method: 'DELETE' });
-  refreshStateAndRender();
+  RenderQueue.schedule();
 }
 
 function openAddEmpModal() {
@@ -608,7 +619,7 @@ function saveEmployee() {
     api('/api/employees', { method: 'POST', body: { id, name, dept, email, phone, bday, joining, designation, cl, sl, password: pwd || 'emp123' } }).then(res => {
       if (res && res.success) {
         closeAddEmpModal();
-        refreshStateAndRender();
+        RenderQueue.schedule();
         showNotifBar('success', 'Employee ' + name + ' added successfully!', '✓');
       } else {
         showNotifBar('error', (res && res.error) || 'Failed to add employee.', '❌');
@@ -618,7 +629,7 @@ function saveEmployee() {
     api('/api/employees/' + editId, { method: 'PUT', body: { name, dept, email, phone, bday, joining, designation, cl, sl, password: pwd || undefined } }).then(res => {
       if (res && res.success) {
         closeAddEmpModal();
-        refreshStateAndRender();
+        RenderQueue.schedule();
         showNotifBar('success', 'Employee ' + name + ' updated successfully!', '✓');
       } else {
         showNotifBar('error', (res && res.error) || 'Failed to update employee.', '❌');
@@ -668,7 +679,7 @@ function handleLeave(idxOrId, decision) {
     }
   }
   api('/api/leave-requests/' + (req.id || req.idx), { method: 'PUT', body: { status: decision } }).then(() => {
-    refreshStateAndRender();
+    RenderQueue.schedule();
     if (decision === 'Approved') {
       showNotifBar('success', 'Leave for ' + req.empName + ' Approved!', '✓');
       addAdminNotif('Leave request from ' + req.empName + ' has been ' + decision + '.');
@@ -727,7 +738,7 @@ function saveLeaveBalance() {
   emp.ul = parseFloat(document.getElementById('lm-ul').value) || 0;
   document.getElementById('leave-manage-modal').style.display = 'none';
   api('/api/employees/' + emp.id, { method: 'PUT', body: { cl: emp.cl, sl: emp.sl, ul: emp.ul } }).then(() => {
-    refreshStateAndRender();
+    RenderQueue.schedule();
     showNotifBar('success', 'Leave balances updated for ' + emp.name + '.', '✓');
   });
 }
@@ -898,7 +909,7 @@ function empPunchIn() {
     else if (h > 9 || (h === 9 && m > 15)) status = 'Late';
     const rec = { id: emp.id, name: emp.name, dept: emp.dept, date: dateStr, in: inTimeStr, out: '', hours: 0, status: status };
     api('/api/attendance', { method: 'POST', body: rec }).then(() => {
-      refreshStateAndRender();
+      RenderQueue.schedule();
     });
   }
 }
@@ -921,7 +932,7 @@ function empPunchOut() {
     const outTimeStr = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
     const rec = { id: emp.id, name: emp.name, dept: emp.dept, date: dateStr, in: '', out: outTimeStr, hours: 0, status: 'Present' };
     api('/api/attendance', { method: 'POST', body: rec }).then(() => {
-      refreshStateAndRender();
+      RenderQueue.schedule();
     });
   }
 }
@@ -1030,7 +1041,7 @@ function submitLeaveRequest() {
   for (let d = new Date(d1); d <= d2; d.setDate(d.getDate() + 1)) { if (d.getDay() !== 0 && d.getDay() !== 6) days++; }
   const newReq = { empId: emp.id, empName: emp.name, dept: emp.dept, type: currentLeaveType, from, to, days, reason, status: 'Pending' };
   api('/api/leave-requests', { method: 'POST', body: newReq }).then(() => {
-    refreshStateAndRender();
+    RenderQueue.schedule();
     showNotifBar('success', 'Leave request submitted! Awaiting admin approval.', '✓');
     addAdminNotif('New leave request from ' + emp.name + ' (' + currentLeaveType + ') for ' + formatDate(from) + '.');
     document.getElementById('leave-reason').value = '';
@@ -1200,7 +1211,7 @@ function updateEmpNotifBadge() {
 
 function addAdminNotif(text) {
   api('/api/notifications', { method: 'POST', body: { text, target: 'admin' } }).then(() => {
-    refreshStateAndRender();
+    RenderQueue.schedule();
   });
 }
 
@@ -1605,14 +1616,14 @@ async function addDept() {
   if (appState && appState.departments && appState.departments.includes(name)) { showNotifBar('warning', 'Department already exists.', '⚠️'); return; }
   input.value = '';
   await api('/api/departments', { method: 'POST', body: { name } });
-  refreshStateAndRender();
+  RenderQueue.schedule();
   showNotifBar('success', 'Department \'' + name + '\' added.', '✓');
 }
 
 async function removeDept(name) {
   if (!confirm('Remove department \'' + name + '\'?')) return;
   await api('/api/departments/' + encodeURIComponent(name), { method: 'DELETE' });
-  refreshStateAndRender();
+  RenderQueue.schedule();
   showNotifBar('info', 'Department \'' + name + '\' removed.', '🗑');
 }
 
@@ -1636,7 +1647,7 @@ function sendAnnouncement() {
   const today = new Date().toISOString().split('T')[0];
   const ann = { date: today, subject, body, by: 'Admin', priority: annSelectedPriority, recipient: annSelectedRecipient === 'all' ? 'All Employees' : 'Department: ' + (document.getElementById('ann-dept-select')?.value || '') };
   api('/api/announcements', { method: 'POST', body: ann }).then(() => {
-    refreshStateAndRender();
+    RenderQueue.schedule();
     document.getElementById('ann-subject').value = '';
     document.getElementById('ann-body').value = '';
     document.getElementById('ann-charcount').textContent = '0';
@@ -1918,8 +1929,8 @@ function startFirestoreListener() {
     if (inited) {
       if (fsUnsubscribe) fsUnsubscribe();
       fsUnsubscribe = FirebaseDB.subscribe(() => {
-        console.log('[Firestore] Sync signal received — refreshing from server');
-        refreshStateAndRender();
+        console.log('[Firestore] Sync signal received — scheduling RAF render');
+        RenderQueue.schedule();
       });
       console.log('[Firestore] Real-time listener attached to _sync');
     }
