@@ -38,21 +38,24 @@ function smartTableSync(tbody, items, rowHtmlFn, getIdFn) {
     if (rowMap.has(id)) {
       // Update existing row cells in-place — no flicker
       const row = rowMap.get(id);
-      const tmp = document.createElement('tr');
+      const tmp = document.createElement('div');
       tmp.innerHTML = rowHtmlFn(item, idx);
-      const newCells = tmp.children[0] ? tmp.children[0].children : [];
+      const innerRow = tmp.querySelector('tr');
+      const newCells = innerRow ? innerRow.children : [];
       for (let c = 0; c < newCells.length; c++) {
         if (row.children[c]) row.children[c].innerHTML = newCells[c].innerHTML;
       }
       frag.appendChild(row);
     } else {
       // Create new row with entrance animation
-      const tmp = document.createElement('tr');
+      const tmp = document.createElement('div');
       tmp.innerHTML = rowHtmlFn(item, idx);
-      const row = tmp.children[0] || tmp;
-      row.setAttribute('data-id', id);
-      row.classList.add('enter-fade-slide');
-      frag.appendChild(row);
+      const row = tmp.querySelector('tr');
+      if (row) {
+        row.setAttribute('data-id', id);
+        row.classList.add('enter-fade-slide');
+        frag.appendChild(row);
+      }
     }
   });
   // Check if there are orphaned rows that need exit animation
