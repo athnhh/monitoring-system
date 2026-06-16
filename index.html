@@ -1085,18 +1085,17 @@ body.dark-mode .skel-act-row {
       <button class="close-modal-btn" onclick="document.getElementById('forgot-modal').style.display='none'">×</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your registered email address to receive a temporary password. <strong>Available for admin only.</strong> Employees please contact your administrator.</p>
-      <div class="field"><label>Registered Email</label>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your admin email or username to generate a temporary password. <strong>Admin only.</strong> Employees please contact your administrator.</p>
+      <div class="field"><label>Admin Email / Username</label>
         <input type="text" id="forgot-uid" placeholder="e.g. atharvashishn@gmail.com">
       </div>
 
       <div id="fp-status-message" style="display:none;font-size:13px;font-weight:600;margin-bottom:12px;padding:14px 16px;border-radius:8px;"></div>
 
-      <!-- Password display area — filled by Socket.io -->
       <div id="fp-temp-password" style="display:none;font-size:22px;font-weight:700;color:#0f2744;text-align:center;padding:18px;background:#f0f4f8;border:2px dashed #f59e0b;border-radius:10px;letter-spacing:3px;font-family:monospace;margin:12px 0 16px;word-break:break-all;"></div>
 
-      <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="sendAdminReset()">🔑 Send Reset Password</button>
-      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">🔑 A temporary password will appear above via real-time connection. Expires in <strong>10 minutes</strong>. Copy it now and use it to log in.</p>
+      <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="sendAdminReset()">🔑 Generate Temp Password</button>
+      <p style="font-size:11px;color:var(--subtle);margin-top:10px;text-align:center;">Copy the temporary password above and use it to log in. Change it in Settings after logging in.</p>
     </div>
   </div>
 </div>

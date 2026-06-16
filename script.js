@@ -342,11 +342,18 @@ function renderDashboardCards() {
   const logEl = document.getElementById('a-log');
   if (logEl) {
     smartTableSync(logEl, todayRecs, r =>
-      '<tr><td><div style="display:flex;align-items:center;gap:8px;"><div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '">' + r.name.charAt(0) + '</div><span>' + r.name + '</span></div></td>' +
+      '<tr>' +
+      '<td><div style="display:flex;align-items:center;gap:10px;">' +
+        '<div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '" style="flex-shrink:0;">' + r.name.charAt(0) + '</div>' +
+        '<div style="display:flex;flex-direction:column;">' +
+          '<span style="font-weight:600;font-size:14px;color:var(--text);">' + r.name + '</span>' +
+          '<span style="font-size:11px;color:var(--subtle);">' + r.id + '</span>' +
+        '</div>' +
+      '</div></td>' +
       '<td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td>' +
-      '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td>' +
-      '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td>' +
-      '<td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
+      '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.in || '—') + '</span></td>' +
+      '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.out || '—') + '</span></td>' +
+      '<td><strong style="font-size:14px;">' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
       '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>',
       r => r.id + '-' + r.date
     );
@@ -367,7 +374,13 @@ function renderDashPendingLeaves(leaveRequests) {
 function actRow(r, employees) {
   const emps = employees || (appState ? appState.employees : []) || [];
   const idx = emps.findIndex(e => e.id === r.id);
-  return '<div class="act-row"><div class="av ' + AV_COLORS[Math.max(0, idx) % AV_COLORS.length] + '">' + r.name.charAt(0) + '</div><div style="flex:1;"><div style="font-size:13px;font-weight:600;">' + r.name + '</div><div style="font-size:11px;color:var(--muted);">' + r.dept + '</div></div><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></div>';
+  return '<div class="act-row">' +
+    '<div class="av ' + AV_COLORS[Math.max(0, idx) % AV_COLORS.length] + '" style="flex-shrink:0;">' + r.name.charAt(0) + '</div>' +
+    '<div style="flex:1;min-width:0;">' +
+      '<div style="font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + r.name + '</div>' +
+      '<div style="font-size:12px;color:var(--subtle);margin-top:2px;">' + r.dept + '</div>' +
+    '</div>' +
+    '<span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '" style="flex-shrink:0;">' + r.status + '</span></div>';
 }
 
 function renderRecords() {
@@ -384,15 +397,21 @@ function renderRecords() {
   if (statusF) recs = recs.filter(r => r.status === statusF);
   const employees = appState.employees || [];
   smartTableSync(tbody, recs, r =>
-    '<tr><td><span style="font-family:var(--font-mono);font-size:11px;color:var(--muted);">' + r.id + '</span></td>' +
-    '<td><div style="display:flex;align-items:center;gap:8px;"><div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '">' + r.name.charAt(0) + '</div>' + r.name + '</div></td>' +
+    '<tr>' +
+    '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--text);font-weight:600;">' + r.id + '</span></td>' +
+    '<td><div style="display:flex;align-items:center;gap:10px;">' +
+      '<div class="av ' + AV_COLORS[employees.findIndex(e => e.id === r.id) % AV_COLORS.length] + '" style="flex-shrink:0;width:32px;height:32px;font-size:12px;">' + r.name.charAt(0) + '</div>' +
+      '<div style="display:flex;flex-direction:column;">' +
+        '<span style="font-weight:600;font-size:14px;color:var(--text);">' + r.name + '</span>' +
+      '</div>' +
+    '</div></td>' +
     '<td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td>' +
     '<td>' + formatDate(r.date) + '</td>' +
-    '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td>' +
-    '<td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td>' +
-    '<td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
+    '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.in || '—') + '</span></td>' +
+    '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.out || '—') + '</span></td>' +
+    '<td><strong style="font-size:14px;">' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
     '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td>' +
-    '<td style="font-size:11px;color:var(--subtle);">' + (r.status === 'Half-Day' ? 'Late login>14:00' : '') + '</td></tr>',
+    '<td style="font-size:12px;color:var(--subtle);">' + (r.status === 'Half-Day' ? 'Late login>14:00' : '') + '</td></tr>',
     r => r.id + '-' + r.date
   );
 }
@@ -408,14 +427,21 @@ function renderEmpTable() {
   if (search) list = list.filter(e => e.name.toLowerCase().includes(search) || e.id.toLowerCase().includes(search));
   if (deptF) list = list.filter(e => e.dept === deptF);
   smartTableSync(tbody, list, (emp, i) =>
-    '<tr><td><div class="av ' + AV_COLORS[i % AV_COLORS.length] + '">' + emp.name.charAt(0) + '</div></td>' +
-    '<td><span style="font-family:var(--font-mono);font-size:12px;font-weight:600;">' + emp.id + '</span></td>' +
-    '<td><strong>' + emp.name + '</strong></td>' +
+    '<tr>' +
+    /* Avatar column */
+    '<td><div class="av ' + AV_COLORS[i % AV_COLORS.length] + '" style="flex-shrink:0;width:36px;height:36px;font-size:13px;">' + emp.name.charAt(0) + '</div></td>' +
+    /* ID column */
+    '<td><span style="font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text);">' + emp.id + '</span></td>' +
+    /* Name column */
+    '<td><div style="display:flex;flex-direction:column;">' +
+      '<span style="font-weight:600;font-size:14px;color:var(--text);">' + emp.name + '</span>' +
+    '</div></td>' +
+    /* Dept column */
     '<td><span class="chip ' + (DEPT_COLORS[emp.dept] || 'c-eng') + '">' + emp.dept + '</span></td>' +
-    '<td style="color:var(--muted);font-size:12px;">' + (emp.designation || '—') + '</td>' +
-    '<td style="font-size:12px;">' + emp.email + '</td>' +
-    '<td style="font-size:12px;">' + (emp.phone || '—') + '</td>' +
-    '<td style="font-size:12px;">' + (emp.bday ? formatDate(emp.bday) : '—') + '</td>' +
+    '<td style="color:var(--muted);font-size:13px;">' + (emp.designation || '—') + '</td>' +
+    '<td style="font-size:13px;">' + emp.email + '</td>' +
+    '<td style="font-size:13px;">' + (emp.phone || '—') + '</td>' +
+    '<td style="font-size:13px;">' + (emp.bday ? formatDate(emp.bday) : '—') + '</td>' +
     '<td><button class="btn btn-sm" onclick="openEditEmpModal(\'' + emp.id + '\')" title="Edit">✏️</button> ' +
     '<button class="btn btn-sm" onclick="archiveEmployee(\'' + emp.id + '\')" title="Archive">📦</button> ' +
     '<button class="btn btn-sm btn-danger" onclick="openDeleteEmpModal(\'' + emp.id + '\')" title="Remove">🗑</button></td></tr>',
@@ -593,11 +619,18 @@ function renderLeaveBalances(leaveRequests) {
   const tbody = document.getElementById('leave-balances-table');
   if (!tbody) return;
   smartTableSync(tbody, employees.filter(e => e.active), (emp, i) =>
-    '<tr><td><div style="display:flex;align-items:center;gap:8px;"><div class="av ' + AV_COLORS[i % AV_COLORS.length] + '">' + emp.name.charAt(0) + '</div>' + emp.name + '</div></td>' +
+    '<tr>' +
+    '<td><div style="display:flex;align-items:center;gap:10px;">' +
+      '<div class="av ' + AV_COLORS[i % AV_COLORS.length] + '" style="flex-shrink:0;">' + emp.name.charAt(0) + '</div>' +
+      '<div style="display:flex;flex-direction:column;">' +
+        '<span style="font-weight:600;font-size:14px;color:var(--text);">' + emp.name + '</span>' +
+        '<span style="font-family:var(--font-mono);font-size:11px;color:var(--subtle);">' + emp.id + '</span>' +
+      '</div>' +
+    '</div></td>' +
     '<td><span class="chip ' + (DEPT_COLORS[emp.dept] || 'c-eng') + '">' + emp.dept + '</span></td>' +
-    '<td><strong class="blue-v">' + emp.cl + '</strong> days</td>' +
-    '<td><strong class="green-v">' + emp.sl + '</strong> days</td>' +
-    '<td><strong class="red-v">' + (emp.ul || 0) + '</strong> days</td>' +
+    '<td><strong class="blue-v" style="font-size:15px;">' + emp.cl + '</strong> days</td>' +
+    '<td><strong class="green-v" style="font-size:15px;">' + emp.sl + '</strong> days</td>' +
+    '<td><strong class="red-v" style="font-size:15px;">' + (emp.ul || 0) + '</strong> days</td>' +
     '<td><button class="btn btn-sm" onclick="openLeaveManage(\'' + emp.id + '\')">Adjust</button></td></tr>',
     emp => emp.id
   );
@@ -682,7 +715,23 @@ function setReport(type, btn) {
   const tbody = document.getElementById('rpt-table');
   if (thead) thead.innerHTML = '<th>ID</th><th>Employee</th><th>Dept</th><th>Date</th><th>In</th><th>Out</th><th>Hours</th><th>Status</th>';
   if (tbody) {
-    smartTableSync(tbody, recs, r => '<tr><td><span style="font-family:var(--font-mono);font-size:11px;color:var(--muted);">' + r.id + '</span></td><td>' + r.name + '</td><td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td><td>' + formatDate(r.date) + '</td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td><td>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>', r => r.id + '-' + r.date);
+    smartTableSync(tbody, recs, r =>
+      '<tr>' +
+      '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:600;">' + r.id + '</span></td>' +
+      '<td>' +
+        '<div style="display:flex;align-items:center;gap:10px;">' +
+          '<div class="av ' + AV_COLORS[0] + '" style="flex-shrink:0;">' + r.name.charAt(0) + '</div>' +
+          '<span style="font-weight:600;font-size:14px;color:var(--text);">' + r.name + '</span>' +
+        '</div>' +
+      '</td>' +
+      '<td><span class="chip ' + (DEPT_COLORS[r.dept] || 'c-eng') + '">' + r.dept + '</span></td>' +
+      '<td>' + formatDate(r.date) + '</td>' +
+      '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.in || '—') + '</span></td>' +
+      '<td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.out || '—') + '</span></td>' +
+      '<td><strong style="font-size:14px;">' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
+      '<td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>',
+      r => r.id + '-' + r.date
+    );
   }
 }
 
@@ -749,7 +798,7 @@ function renderEmpDashboard(emp) {
   if (logEl) {
     smartTableSync(logEl, myRecs.slice(0, 7), r => {
       const dateObj = new Date(r.date);
-      return '<tr><td>' + formatDate(r.date) + '</td><td style="color:var(--muted);font-size:12px;">' + DAYS[dateObj.getDay()] + '</td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td><td>—</td><td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>';
+      return '<tr><td style="font-weight:500;">' + formatDate(r.date) + '</td><td style="color:var(--muted);font-size:13px;">' + DAYS[dateObj.getDay()] + '</td><td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.out || '—') + '</span></td><td style="color:var(--subtle);">—</td><td><strong style="font-size:14px;">' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>';
     }, r => r.id + '-' + r.date);
   }
 
@@ -775,7 +824,7 @@ function renderEmpHistory() {
   if (tbody) {
     smartTableSync(tbody, recs, r => {
       const dateObj = new Date(r.date);
-      return '<tr><td>' + formatDate(r.date) + '</td><td style="color:var(--muted);">' + DAYS[dateObj.getDay()] + '</td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (r.out || '—') + '</span></td><td>—</td><td><strong>' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>';
+      return '<tr><td style="font-weight:500;">' + formatDate(r.date) + '</td><td style="color:var(--muted);font-size:13px;">' + DAYS[dateObj.getDay()] + '</td><td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.in || '—') + '</span></td><td><span style="font-family:var(--font-mono);font-size:13px;">' + (r.out || '—') + '</span></td><td style="color:var(--subtle);">—</td><td><strong style="font-size:14px;">' + (r.hours > 0 ? r.hours.toFixed(1) + 'h' : '—') + '</strong></td><td><span class="tag t-' + r.status.toLowerCase().replace('-', '').replace(' ', '') + '">' + r.status + '</span></td></tr>';
     }, r => r.id + '-' + r.date);
   }
 }
@@ -1013,15 +1062,24 @@ async function sendAdminReset() {
       method: 'POST',
       body: { uid }
     });
-    if (res && res.success) {
+    if (res && res.success && res.tempPassword) {
       const statusEl = document.getElementById('fp-status-message');
       if (statusEl) {
-        statusEl.innerHTML = '⏳ <strong>Waiting for password delivery via real-time connection...</strong>';
+        statusEl.innerHTML = '✅ <strong>Temporary password generated. Use it to log in, then change it in Settings.</strong>';
         statusEl.style.display = 'block';
-        statusEl.style.color = 'var(--amber-text)';
-        statusEl.style.background = 'var(--amber-bg)';
+        statusEl.style.color = 'var(--green-text, #166534)';
+        statusEl.style.background = 'var(--green-bg, #dcfce7)';
+        statusEl.style.border = '1px solid var(--green-border, #86efac)';
       }
-      showNotifBar('info', '⏳ Generating temporary password... Check the modal for the password.', '🔑');
+      const pwdEl = document.getElementById('fp-temp-password');
+      if (pwdEl) {
+        pwdEl.textContent = res.tempPassword;
+        pwdEl.style.display = 'block';
+      }
+      if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = '🔑 Generate New Password';
+      }
     } else {
       showNotifBar('error', (res && res.error) || 'Failed to generate reset password.', '❌');
       if (sendBtn) {
@@ -1455,14 +1513,14 @@ function renderArchivedTable() {
   if (!appState) return;
   const archivedEmployees = appState.archivedEmployees || [];
   const tbody = document.getElementById('archived-table-body');
-  if (!tbody) return;
-  smartTableSync(tbody, archivedEmployees, a =>
-    '<tr><td><span style="font-family:var(--font-mono);font-size:12px;">' + (a.id || '—') + '</span></td>' +
-    '<td>' + a.name + '</td>' +
+  if (!tbody) return;    smartTableSync(tbody, archivedEmployees, a =>
+    '<tr>' +
+    '<td><span style="font-family:var(--font-mono);font-size:12px;font-weight:600;">' + (a.id || '—') + '</span></td>' +
+    '<td><span style="font-weight:500;font-size:14px;color:var(--text);">' + a.name + '</span></td>' +
     '<td><span class="chip ' + (DEPT_COLORS[a.dept] || 'c-eng') + '">' + a.dept + '</span></td>' +
     '<td><span class="tag t-' + (a.status === 'Archived' ? 'leave' : 'absent') + '">' + a.status + '</span></td>' +
-    '<td>' + (a.joining ? formatDate(a.joining) : '—') + '</td>' +
-    '<td>' + (a.exit ? formatDate(a.exit) : '—') + '</td>' +
+    '<td style="font-size:13px;">' + (a.joining ? formatDate(a.joining) : '—') + '</td>' +
+    '<td style="font-size:13px;">' + (a.exit ? formatDate(a.exit) : '—') + '</td>' +
     '<td><button class="btn btn-sm" onclick="showNotifBar(&quot;info&quot;,&quot;Archived employee data is read-only.&quot;,&quot;ℹ️&quot;)">👁 View</button></td></tr>',
     a => a.id || a.name
   );
