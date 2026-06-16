@@ -1536,7 +1536,7 @@ body.dark-mode .ann-empty-sub{color:var(--subtle);}
 }
 .forgot-link:hover{color:#fbbf24;text-decoration:underline;}
 
-body.dark-mode .login-bg{background:var(--bg);}
+/* Inherits body.dark-mode background */
 body.dark-mode .login-card{background:var(--surface);border-color:var(--border);}
 
 /* ═══════════════════════════════════
