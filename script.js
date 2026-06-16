@@ -570,28 +570,14 @@ function renderLeaveRequests(leaveRequests) {
 function handleLeave(idxOrId, decision) {
   if (!appState) return;
   const leaveRequests = appState.leaveRequests || [];
-  const employees = appState.employees || [];
-  const req = leaveRequests.find(l => l.id === idxOrId || l.idx === parseInt(idxOrId));
+  const req = leaveRequests.find(l => String(l.id) === String(idxOrId) || String(l.idx) === String(idxOrId));
   if (!req) return;
-  const emp = employees.find(e => e.id === req.empId);
-  if (emp && decision === 'Approved') {
-    if (req.type === 'CL') {
-      if (emp.cl >= req.days) { emp.cl -= req.days; }
-      else { const deficit = req.days - emp.cl; emp.cl = 0; emp.ul += deficit; showNotifBar('warning', 'CL insufficient. ' + deficit + ' day(s) converted to Unpaid Leave.', '⚠️'); }
-    } else if (req.type === 'SL') {
-      const slNeeded = req.days * 0.5;
-      const ulNeeded = req.days * 0.5;
-      if (emp.sl >= slNeeded) { emp.sl -= slNeeded; emp.ul += ulNeeded; }
-      else { emp.ul += req.days; emp.sl = Math.max(0, emp.sl - slNeeded); showNotifBar('warning', 'SL insufficient. Applied as Unpaid Leave.', '⚠️'); }
-    }
-  }
-  const persistBalances = emp && decision === 'Approved' ? api('/api/employees/' + req.empId, { method: 'PUT', body: { cl: emp.cl, sl: emp.sl, ul: emp.ul || 0 } }) : Promise.resolve(null);
-  api('/api/leave-requests/' + (req.id || req.idx), { method: 'PUT', body: { status: decision } }).then(async () => {
-    await persistBalances;
+  api('/api/leave-requests/' + (req.id || req.idx), { method: 'PUT', body: { status: decision } }).then(async (res) => {
     await refreshStateAndRender();
     if (decision === 'Approved') {
+      if (res && res.warning) showNotifBar('warning', res.warning, '⚠️');
       showNotifBar('success', 'Leave for ' + req.empName + ' Approved!', '✓');
-      addAdminNotif('Leave request from ' + req.empName + ' has been ' + decision + '.');
+      addAdminNotif('Leave request from ' + req.empName + ' has been Approved.');
     } else {
       showNotifBar('info', 'Leave for ' + req.empName + ' Rejected.', 'ℹ');
     }
@@ -1070,6 +1056,49 @@ async function loadStateFromServer() {
   return false;
 }
 
+function updateNavBadges() {
+  // Update notification badges on nav buttons
+  if (!appState) return;
+
+  // ── Admin nav badges ──
+  // Leave Mgmt: pending leave requests
+  const pendingLeaves = (appState.leaveRequests || []).filter(l => l.status === 'Pending').length;
+  updateBadge('nav-badge-leaves', pendingLeaves);
+
+  // Announcements: total announcements count
+  const annCount = (appState.announcements || []).length;
+  updateBadge('nav-badge-ann', annCount);
+
+  // Employees: total active employees count
+  const empCount = (appState.employees || []).filter(e => e.active).length;
+  updateBadge('nav-badge-emps', empCount);
+
+  // Dashboard: pending leaves + unread notifications
+  const unreadNotifs = (appState.adminNotifications || []).filter(n => n.unread !== false).length;
+  const dashCount = pendingLeaves + unreadNotifs;
+  updateBadge('nav-badge-dash', dashCount);
+
+  // ── Employee nav badges ──
+  const uid = sessionStorage.getItem('userId');
+  if (uid) {
+    const myPendingLeaves = (appState.leaveRequests || [])
+      .filter(l => l.empId === uid && l.status === 'Pending').length;
+    updateBadge('nav-badge-emp-leaves', myPendingLeaves);
+  }
+}
+
+function updateBadge(id, count) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (count > 0) {
+    el.textContent = count > 99 ? '99+' : count;
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+    el.textContent = '';
+  }
+}
+
 function updateAdminNotifBadge() {
   const badge = document.getElementById('admin-notif-count');
   if (!badge) return;
@@ -1350,6 +1379,7 @@ function showEmployeePage(emp) {
   document.getElementById('emp-ul-used2').textContent = emp.ul || 0;
   initClock('emp-clock');
   renderEmpDashboard(emp);
+  updateNavBadges();
   autoAttendancePunchIn(emp);
 }
 
@@ -1399,6 +1429,7 @@ function renderAll() {
   renderAnnouncements();
   updateAdminNotifBadge();
   updateEmpNotifBadge();
+  updateNavBadges();
   renderAdminNotifPanel();
   renderEmpNotifPanel();
 }
@@ -1412,6 +1443,7 @@ async function refreshStateAndRender() {
       const uid = sessionStorage.getItem('userId');
       const emp = (appState.employees || []).find(e => e.id === uid);
       if (emp) renderEmpDashboard(emp);
+      updateNavBadges();
     }
   }
 }

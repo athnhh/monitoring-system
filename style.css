@@ -273,22 +273,7 @@ input,select,textarea{font-family:var(--font);}
   70%{transform:scale(1.15);}
   100%{transform:scale(1);opacity:1;}
 }
-.nav-badge-dot{
-  display:inline-block;
-  width:7px;
-  height:7px;
-  border-radius:50%;
-  background:#ef4444;
-  margin-left:4px;
-  vertical-align:middle;
-  animation:dotPulse 2s ease-in-out infinite;
-  box-shadow:0 0 0 1.5px var(--primary);
-}
-@keyframes dotPulse{
-  0%,100%{opacity:1;}
-  50%{opacity:0.4;}
-}
-.nav-badge.hidden,.nav-badge-dot.hidden{display:none;}
+.nav-badge.hidden{display:none;}
 
 /* NOTIFICATION BAR */
 .notif-bar{

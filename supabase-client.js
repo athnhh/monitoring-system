@@ -315,6 +315,7 @@
     await db.supabase.from('leave_requests').update(body).eq('id', idOrIdx);
 
     // Deduct leave balances on approval
+    let warning = null;
     if (newStatus === 'Approved' && oldStatus !== 'Approved' && lr.emp_id && lr.days) {
       const { data: emps } = await db.supabase
         .from('employees').select('*').eq('id', lr.emp_id).limit(1);
@@ -323,17 +324,17 @@
         let cl = emp.cl || 0, sl = emp.sl || 0, ul = emp.ul || 0;
         if (lr.type === 'CL') {
           if (cl >= lr.days) { cl -= lr.days; }
-          else { const deficit = lr.days - cl; cl = 0; ul += deficit; }
+          else { const deficit = lr.days - cl; cl = 0; ul += deficit; warning = 'CL insufficient. ' + deficit + ' day(s) converted to Unpaid Leave.'; }
         } else if (lr.type === 'SL') {
           const slNeeded = lr.days * 0.5;
           const ulNeeded = lr.days * 0.5;
           if (sl >= slNeeded) { sl -= slNeeded; ul += ulNeeded; }
-          else { ul += lr.days; sl = Math.max(0, sl - slNeeded); }
+          else { ul += lr.days; sl = Math.max(0, sl - slNeeded); warning = 'SL insufficient. Applied as Unpaid Leave.'; }
         } else if (lr.type === 'UL') { ul += lr.days; }
         await db.supabase.from('employees').update({ cl, sl, ul }).eq('id', lr.emp_id);
       }
     }
-    return { success: true };
+    return { success: true, warning };
   }
 
   // ── Departments ──
