@@ -426,11 +426,11 @@ function renderDashboardCards() {
       const rec = todayRecs.find(r => r.id === emp.id && ['Present', 'Late', 'Half-Day'].includes(r.status));
       if (rec) deptData[emp.dept].present++;
     });
-    barsEl.innerHTML = Object.entries(deptData).map(([d, v]) => {
+    smartListSync(barsEl, Object.entries(deptData), ([d, v]) => {
       const pct = v.total > 0 ? Math.round(v.present / v.total * 100) : 0;
       const color = pct >= 80 ? 'bf-green' : pct >= 50 ? 'bf-amber' : 'bf-red';
       return '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + color + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + pct + '%</span></div>';
-    }).join('');
+    }, ([d]) => d);
   }
 
   // Smart sync for attendance log table
@@ -841,11 +841,11 @@ function renderEmpDashboard(emp) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
   const colors = ['bf-blue', 'bf-green', 'bf-amber', 'bf-red', 'bf-purple'];
   const barsEl = document.getElementById('emp-bars');
-  if (barsEl) barsEl.innerHTML = days.map((d, i) => {
+  if (barsEl) smartListSync(barsEl, days, (d, i) => {
     const hrs = (Math.random() * 3 + 6).toFixed(1);
     const pct = Math.round(parseFloat(hrs) / 10 * 100);
     return '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + colors[i] + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + hrs + 'h</span></div>';
-  }).join('');
+  }, d => d);
 
   const logEl = document.getElementById('emp-log');
   if (logEl) {
@@ -1264,11 +1264,10 @@ function renderAdminNotifPanel() {
     body.innerHTML = '<p style="color:var(--subtle);font-size:13px;text-align:center;padding:20px;">No notifications yet.</p>';
     return;
   }
-  body.innerHTML = notifs.map(n =>
-    '<div class="notif-item' + (n.unread ? ' unread' : '') + '">' +
-    '<div>' + n.text + '</div>' +
-    '<div class="notif-item-time">' + (n.time || '') + '</div></div>'
-  ).join('');
+  smartListSync(body, notifs, n =>
+    '<div class="notif-item' + (n.unread ? ' unread' : '') + '"><div>' + n.text + '</div><div class="notif-item-time">' + (n.time || '') + '</div></div>',
+    n => n._id || n.text + (n.time || '')
+  );
 }
 
 function renderEmpNotifPanel() {
@@ -1281,11 +1280,10 @@ function renderEmpNotifPanel() {
     body.innerHTML = '<p style="color:var(--subtle);font-size:13px;text-align:center;padding:20px;">No notifications yet.</p>';
     return;
   }
-  body.innerHTML = notifs.map(n =>
-    '<div class="notif-item' + (n.unread ? ' unread' : '') + '">' +
-    '<div>' + n.text + '</div>' +
-    '<div class="notif-item-time">' + (n.time || '') + '</div></div>'
-  ).join('');
+  smartListSync(body, notifs, n =>
+    '<div class="notif-item' + (n.unread ? ' unread' : '') + '"><div>' + n.text + '</div><div class="notif-item-time">' + (n.time || '') + '</div></div>',
+    n => n._id || n.text + (n.time || '')
+  );
 }
 
 function showNotifBar(type, msg, icon) {
