@@ -553,7 +553,8 @@ apiRouter.route('/employees')
       broadcast('notification', addNotif.toObject());
       res.json({ success: true, employee: sanitizeEmp(emp) });
     } catch (e) { res.status(500).json({ error: e.message }); }
-  });
+  })
+  .all((req, res) => res.status(404).json({ error: 'Method not supported', path: '/employees' }));
 
 apiRouter.route('/employees/:id')
   .get(async (req, res) => {
@@ -595,7 +596,8 @@ apiRouter.route('/employees/:id')
       broadcast('employee_deleted', { id: req.params.id });
       res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
-  });
+  })
+  .all((req, res) => res.status(404).json({ error: 'Method not supported', path: '/employees/:id' }));
 
 apiRouter.post('/employees/:id/archive', async (req, res) => {
   try {
@@ -650,7 +652,8 @@ apiRouter.route('/attendance')
       broadcast('attendance_update', body);
       res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
-  });
+  })
+  .all((req, res) => res.status(404).json({ error: 'Method not supported', path: '/attendance' }));
 
 apiRouter.route('/leave-requests')
   .get(async (req, res) => {
@@ -665,7 +668,8 @@ apiRouter.route('/leave-requests')
       broadcast('leave_request', lr.toObject());
       res.json({ success: true, leaveRequest: lr.toObject() });
     } catch (e) { res.status(500).json({ error: e.message }); }
-  });
+  })
+  .all((req, res) => res.status(404).json({ error: 'Method not supported', path: '/leave-requests' }));
 
 apiRouter.put('/leave-requests/:id', async (req, res) => {
   try {
@@ -730,7 +734,8 @@ apiRouter.route('/announcements')
       broadcast('notification', annNotif.toObject());
       res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
-  });
+  })
+  .all((req, res) => res.status(404).json({ error: 'Method not supported', path: '/announcements' }));
 
 apiRouter.route('/departments')
   .get(async (req, res) => {
@@ -748,7 +753,8 @@ apiRouter.route('/departments')
       broadcast('departments_updated', { departments: depts.map(d => d.name) });
       res.json({ success: true, departments: depts.map(d => d.name) });
     } catch (e) { res.status(500).json({ error: e.message }); }
-  });
+  })
+  .all((req, res) => res.status(404).json({ error: 'Method not supported', path: '/departments' }));
 
 apiRouter.delete('/departments/:name', async (req, res) => {
   try {
@@ -760,20 +766,19 @@ apiRouter.delete('/departments/:name', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-apiRouter.route('/notifications')
-  .post(async (req, res) => {
-    try {
-      const notif = await Notification.create({
-        text: req.body.text,
-        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        unread: true,
-        target: req.body.target || 'admin',
-        userId: req.body.userId || ''
-      });
-      broadcast('notification', notif.toObject());
-      res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
+apiRouter.post('/notifications', async (req, res) => {
+  try {
+    const notif = await Notification.create({
+      text: req.body.text,
+      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      unread: true,
+      target: req.body.target || 'admin',
+      userId: req.body.userId || ''
+    });
+    broadcast('notification', notif.toObject());
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 apiRouter.get('/notifications/:userId', async (req, res) => {
   try {
@@ -850,7 +855,8 @@ apiRouter.route('/calendar-config')
     });
     if (saved) return res.json({ success: true, message: 'Calendar config saved' });
     res.status(500).json({ error: 'Failed to save calendar config' });
-  });
+  })
+  .all((req, res) => res.status(404).json({ error: 'Method not supported', path: '/calendar-config' }));
 
 apiRouter.post('/calendar/birthday', async (req, res) => {
   try {
