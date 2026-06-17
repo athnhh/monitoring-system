@@ -1407,12 +1407,10 @@ body.dark-mode .ann-empty-sub{color:var(--subtle);}
 }
 .login-logo-icon{
   width:52px;height:52px;
-  background:linear-gradient(135deg,#0f2744 0%,#1a4a7a 100%);
   border-radius:12px;
   display:flex;align-items:center;justify-content:center;
-  font-size:24px;font-weight:700;color:#ffffff;
   flex-shrink:0;
-  box-shadow:0 4px 12px rgba(15,39,68,0.2);
+  overflow:hidden;
 }
 .login-logo-text h2{
   font-family:var(--font-display);
@@ -1546,10 +1544,6 @@ body.dark-mode .login-card{
   background:#1e293b;
   border-color:#334155;
   box-shadow:0 4px 24px rgba(0,0,0,0.3),0 1px 4px rgba(0,0,0,0.2);
-}
-body.dark-mode .login-logo-icon{
-  background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);
-  box-shadow:0 4px 12px rgba(59,130,246,0.25);
 }
 body.dark-mode .login-logo-text h2{color:#f1f5f9;}
 body.dark-mode .login-logo-text p{color:#94a3b8;}
