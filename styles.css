@@ -478,8 +478,7 @@ input,select,textarea{font-family:var(--font);}
 .notif-bar .notif-text{flex:1;line-height:1.5;}
 .notif-bar .notif-close{background:none;border:none;color:rgba(255,255,255,0.5);cursor:pointer;font-size:18px;line-height:1;padding:0;flex-shrink:0;}
 
-/* ── NOTIFICATION BELL ── */
-.notif-bell-btn{
+/* ── NOTIFICATION BELL ── */.notif-bell-btn{
   position:relative;
   background:rgba(245,158,11,0.08);
   border:1px solid rgba(245,158,11,0.15);
@@ -490,7 +489,25 @@ input,select,textarea{font-family:var(--font);}
   font-size:14px;
   transition:all 0.2s;
 }
-.notif-bell-btn:hover{background:rgba(245,158,11,0.15);border-color:rgba(245,158,11,0.25);}
+.notif-bell-btn:hover{
+  background:rgba(245,158,11,0.15);
+  border-color:rgba(245,158,11,0.25);
+}
+
+/* ── Bell pulse animation when there are unread notifications ── */
+.notif-bell-btn.bell-pulse {
+  animation: bellRing 1.2s ease-in-out infinite;
+  border-color: rgba(245,158,11,0.35);
+  box-shadow: 0 0 12px rgba(245,158,11,0.15);
+}
+@keyframes bellRing {
+  0%, 50%, 100% { transform: rotate(0deg); }
+  5%, 15% { transform: rotate(12deg); }
+  10%, 20% { transform: rotate(-12deg); }
+  25% { transform: rotate(6deg); }
+  30% { transform: rotate(-6deg); }
+  35% { transform: rotate(0deg); }
+}
 .notif-badge{
   position:absolute;
   top:-4px;right:-4px;

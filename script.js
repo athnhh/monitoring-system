@@ -1505,9 +1505,13 @@ function toggleNotifPanel() {
   adminNotifPanelOpen = !adminNotifPanelOpen;
   const panel = document.getElementById('notif-panel');
   if (adminNotifPanelOpen) {
-    markAdminNotifsRead();
     renderAdminNotifPanel();
-    requestAnimationFrame(() => { if (adminNotifPanelOpen) panel.classList.add('open'); });
+    requestAnimationFrame(() => {
+      if (adminNotifPanelOpen) {
+        panel.classList.add('open');
+        markAdminNotifsRead();
+      }
+    });
   } else {
     panel.classList.remove('open');
     closeNotifPanels();
@@ -1518,9 +1522,13 @@ function toggleEmpNotifPanel() {
   empNotifPanelOpen = !empNotifPanelOpen;
   const panel = document.getElementById('emp-notif-panel');
   if (empNotifPanelOpen) {
-    markEmpNotifsRead();
     renderEmpNotifPanel();
-    requestAnimationFrame(() => { if (empNotifPanelOpen) panel.classList.add('open'); });
+    requestAnimationFrame(() => {
+      if (empNotifPanelOpen) {
+        panel.classList.add('open');
+        markEmpNotifsRead();
+      }
+    });
   } else {
     panel.classList.remove('open');
     closeNotifPanels();
@@ -1563,8 +1571,6 @@ function renderAdminNotifPanel() {
     '</div>',
     n => n._id || n.id || n.text + (n.time || '')
   );
-  if (document.getElementById('notif-panel')?.classList.contains('open')) {
-    markAdminNotifsRead();
   }
 }
 
@@ -1600,8 +1606,6 @@ function renderEmpNotifPanel() {
     '</div>',
     n => n._id || n.id || n.text + (n.time || '')
   );
-  if (document.getElementById('emp-notif-panel')?.classList.contains('open')) {
-    markEmpNotifsRead();
   }
 }
 
