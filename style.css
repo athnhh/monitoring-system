@@ -331,6 +331,22 @@ input,select,textarea{font-family:var(--font);}
   transition:all 0.2s;
 }
 .notif-bell-btn:hover{background:rgba(245,158,11,0.15);border-color:rgba(245,158,11,0.25);}
+
+/* ── Bell pulse animation when there are unread notifications ── */
+.notif-bell-btn.bell-pulse {
+  animation: bellRing 1.2s ease-in-out infinite;
+  border-color: rgba(245,158,11,0.35);
+  box-shadow: 0 0 12px rgba(245,158,11,0.15);
+}
+@keyframes bellRing {
+  0%, 50%, 100% { transform: rotate(0deg); }
+  5%, 15% { transform: rotate(12deg); }
+  10%, 20% { transform: rotate(-12deg); }
+  25% { transform: rotate(6deg); }
+  30% { transform: rotate(-6deg); }
+  35% { transform: rotate(0deg); }
+}
+
 .notif-badge{
   position:absolute;
   top:-4px;right:-4px;
@@ -898,11 +914,11 @@ tbody tr{
 
 /* ANNOUNCEMENTS */
 .announcement-card{
-  background:#ffffff;
-  border:1px solid var(--border);
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
   border-left:4px solid var(--accent);
   border-radius:12px;
-  padding:22px 24px;
+  padding:1.25rem 1.5rem;
   color:var(--text);
   position:relative;
   margin-bottom:12px;
@@ -953,8 +969,8 @@ tbody tr{
   display:flex;
   align-items:center;
   gap:12px;
-  font-size:13px;
-  color:var(--subtle);
+  font-size:0.85rem;
+  color:#64748b;
   margin-bottom:10px;
 }
 .ann-meta-item{
@@ -964,9 +980,11 @@ tbody tr{
 }
 .ann-body{
   font-size:15px;
-  line-height:1.7;
-  color:var(--muted);
+  line-height:1.6;
+  color:#334155;
   margin-top:4px;
+  word-wrap:break-word;
+  overflow-wrap:break-word;
 }
 
 /* ANNOUNCEMENT FORM */
@@ -984,16 +1002,6 @@ tbody tr{
   padding:18px 22px;
   background:linear-gradient(135deg,#fffbeb,#fef3c7);
   border-bottom:1px solid var(--border);
-}
-.ann-form-icon{
-  width:40px;height:40px;
-  background:linear-gradient(135deg,var(--accent),#60a5fa);
-  border-radius:10px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-size:18px;
-  flex-shrink:0;
 }
 .ann-form-title{
   font-size:16px;
@@ -1288,7 +1296,7 @@ body.dark-mode .compose-row{background:var(--surface2);border-color:var(--border
 body.dark-mode .history-toggle{background:var(--surface);border-color:var(--border);color:var(--muted);}
 body.dark-mode .history-toggle:hover,
 body.dark-mode .history-toggle.active{background:rgba(217,119,6,0.1);border-color:rgba(245,158,11,0.2);color:var(--gold-light);}
-body.dark-mode .announcement-card{background:var(--surface2);border-color:var(--border);}
+body.dark-mode .announcement-card{background:#1e293b;border-color:#334155;}
 body.dark-mode .announcement-card:hover{box-shadow:var(--shadow-premium);}
 body.dark-mode .announcement-card.priority-urgent{background:rgba(220,38,38,0.08);}
 body.dark-mode .ann-form-card{background:var(--surface);border-color:var(--border);}
@@ -2197,6 +2205,7 @@ body.dark-mode .loading-sub {
   .logout-btn{font-size:12px;padding:5px 10px;}
   .topbar-right{gap:8px;}
   .notif-bell-btn{padding:5px 8px;font-size:13px;}
+  .notif-bell-btn.bell-pulse{border-color:rgba(245,158,11,0.35);box-shadow:0 0 10px rgba(245,158,11,0.12);}
   .notif-badge{min-width:16px;height:16px;font-size:9px;top:-4px;right:-4px;}
   .nav{padding:0 12px;}
   .nav-btn{font-size:13px;padding:12px 12px;}
