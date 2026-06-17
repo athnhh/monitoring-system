@@ -18,8 +18,18 @@ let pendingUndoTimeout = null;
 let annSelectedPriority = 'normal';
 let serverAvailable = false;
 
-// Track nav badges cleared by user tab click — only real-time events re-activate them
+// Track nav badges cleared by user tab click — persisted in sessionStorage so they survive refresh
 const clearedNavBadges = new Set();
+function _saveClearedBadges() {
+  sessionStorage.setItem('clearedNavBadges', JSON.stringify([...clearedNavBadges]));
+}
+function _loadClearedBadges() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('clearedNavBadges'));
+    if (saved) saved.forEach(id => clearedNavBadges.add(id));
+  } catch (_) {}
+}
+_loadClearedBadges();
 
 let appState = null;
 
@@ -304,10 +314,11 @@ console.log('[EMS] Supabase mode');
 
 function adminTab(tabName, btnElement) {
   sessionStorage.setItem('adminLastTab', tabName);
+  if (tabName === 'dashboard') markAdminNotifsRead();
   // Clear the nav badge for this tab on click
   const badgeMap = { dashboard: 'nav-badge-dash', employees: 'nav-badge-emps', leaves: 'nav-badge-leaves', announcements: 'nav-badge-ann' };
   if (badgeMap[tabName]) {
-    clearedNavBadges.add(badgeMap[tabName]);
+    clearedNavBadges.add(badgeMap[tabName]); _saveClearedBadges();
     const el = document.getElementById(badgeMap[tabName]);
     if (el) { el.classList.add('hidden'); el.textContent = ''; }
   }
@@ -1033,7 +1044,7 @@ function changeAdminPwd() {
 function empTab(tabName, btnElement) {
   sessionStorage.setItem('empLastTab', tabName);
   if (tabName === 'leaves') {
-    clearedNavBadges.add('nav-badge-emp-leaves');
+    clearedNavBadges.add('nav-badge-emp-leaves'); _saveClearedBadges();
     const el = document.getElementById('nav-badge-emp-leaves');
     if (el) { el.classList.add('hidden'); el.textContent = ''; }
   }
@@ -1535,23 +1546,23 @@ function toggleEmpNotifPanel() {
   }
 }
 
-function markAdminNotifsRead() {
+async function markAdminNotifsRead() {
   if (appState && appState.adminNotifications) {
     appState.adminNotifications.forEach(n => { n.isRead = true; n.unread = false; });
   }
   updateAdminNotifBadge();
   updateNavBadges();
-  api('/api/notifications/mark-read', { method: 'POST', body: { userId: ADMIN_USERNAME } });
+  await api('/api/notifications/mark-read', { method: 'POST', body: { userId: ADMIN_USERNAME } });
 }
 
-function markEmpNotifsRead() {
+async function markEmpNotifsRead() {
   if (appState && appState.empNotifications) {
     appState.empNotifications.forEach(n => { n.isRead = true; n.unread = false; });
   }
   updateEmpNotifBadge();
   updateNavBadges();
   const uid = sessionStorage.getItem('userId');
-  api('/api/notifications/mark-read', { method: 'POST', body: { userId: uid } });
+  await api('/api/notifications/mark-read', { method: 'POST', body: { userId: uid } });
 }
 
 function renderAdminNotifPanel() {
@@ -1869,7 +1880,7 @@ async function switchTab(pageId, prefix, tabName, btnElement, onShow) {
   if (current) {
     // Apply exit animation before removing
     current.classList.add('tab-leaving');
-    await new Promise(r => setTimeout(r, 180));
+    await new Promise(r => setTimeout(r, 60));
     tabs.forEach(t => t.classList.remove('show', 'tab-leaving'));
   } else {
     tabs.forEach(t => t.classList.remove('show'));
@@ -2455,7 +2466,7 @@ function handleRealtimeEvent(info) {
         showNotifBar('info', 'New leave request from ' + (lr.empName || 'Employee'));
         renderLeaveRequests();
         renderLeaveHistory();
-        clearedNavBadges.delete('nav-badge-leaves'); clearedNavBadges.delete('nav-badge-dash');
+        clearedNavBadges.delete('nav-badge-leaves'); clearedNavBadges.delete('nav-badge-dash'); _saveClearedBadges();
         updateNavBadges();
       }
       if (isEmp && lr.empId === sessionStorage.getItem('userId')) {
@@ -2495,7 +2506,7 @@ function handleRealtimeEvent(info) {
       if (isAdmin && newData.target === 'admin') {
         appState.adminNotifications = [...(appState.adminNotifications || []), normalized];
         updateAdminNotifBadge();
-        clearedNavBadges.delete('nav-badge-dash');
+        clearedNavBadges.delete('nav-badge-dash'); _saveClearedBadges();
         updateNavBadges();
         renderAdminNotifPanel();
       }
@@ -2555,7 +2566,7 @@ function handleRealtimeEvent(info) {
 
   // ── announcements: re-activate badge on new broadcast ──
   if (table === 'announcements' && event === 'INSERT' && appState) {
-    clearedNavBadges.delete('nav-badge-ann');
+    clearedNavBadges.delete('nav-badge-ann'); _saveClearedBadges();
     updateNavBadges();
     RenderQueue.schedule();
     return;
