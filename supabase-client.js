@@ -232,20 +232,26 @@
       console.log('[Auth] DIAGNOSTIC: Available employee IDs:', allEmps.map(e => e.id).join(', '));
       
       // Check if employee exists but is inactive (active = false or null)
-      const { data: inactiveEmps } = await db.supabase
-        .from('employees').select('id,active').ilike('id', normalizedUid).limit(1);
-      
-      if (inactiveEmps && inactiveEmps.length > 0) {
-        const emp = inactiveEmps[0];
-        console.log('[Auth] DIAGNOSTIC: Employee', normalizedUid, 'exists but active =', emp.active);
-        
-        if (emp.active === null || emp.active === undefined) {
-          console.log('[Auth] DIAGNOSTIC: active is NULL — auto-fixing...');
-          await db.supabase.from('employees').update({ active: true }).ilike('id', normalizedUid);
-          console.log('[Auth] DIAGNOSTIC: Fixed active flag — please try again');
-        } else if (emp.active === false) {
-          return { success: false, message: 'Employee "' + originalUid + '" has been deactivated. Contact admin to reactivate your account.' };
+      // Fetch ALL employees (including inactive) and match in JS
+      try {
+        const { data: allEmpsIncludingInactive } = await db.supabase
+          .from('employees').select('id,active').limit(500);
+        if (allEmpsIncludingInactive && allEmpsIncludingInactive.length > 0) {
+          const inactiveMatch = allEmpsIncludingInactive.find(e => e.id.toLowerCase() === normalizedUid || (e.email && e.email.toLowerCase() === normalizedUid));
+          if (inactiveMatch) {
+            console.log('[Auth] DIAGNOSTIC: Employee', normalizedUid, 'found with active =', inactiveMatch.active);
+            if (inactiveMatch.active === null || inactiveMatch.active === undefined) {
+              console.log('[Auth] DIAGNOSTIC: active is NULL — auto-fixing and retrying...');
+              await db.supabase.from('employees').update({ active: true }).eq('id', inactiveMatch.id);
+              console.log('[Auth] DIAGNOSTIC: Fixed active flag — retrying login automatically...');
+              return await _login(uid, pwd);
+            } else if (inactiveMatch.active === false) {
+              return { success: false, message: 'Employee "' + originalUid + '" has been deactivated. Contact admin to reactivate your account.' };
+            }
+          }
         }
+      } catch (diagErr) {
+        console.warn('[Auth] DIAGNOSTIC: Inactive check query failed:', diagErr.message);
       }
       
     } catch (err) {
