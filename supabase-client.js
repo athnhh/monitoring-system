@@ -81,6 +81,34 @@
       return () => _loginSession(body);
     if (path === '/api/attendance/logout' && method === 'POST')
       return () => _logoutSession(body);
+    if (path === '/api/attendance/gps-logs' && method === 'GET')
+      return () => _getGPSLogs();
+    if (path === '/api/attendance/gps-log' && method === 'POST')
+      return () => _addGPSLog(body);
+
+    // ── Geofence ──
+    if (path === '/api/geofence' && method === 'GET')
+      return () => _getGeofence();
+    if (path === '/api/geofence' && method === 'POST')
+      return () => _saveGeofence(body);
+
+    // ── Attendance Approvals ──
+    if (path === '/api/attendance/approvals' && method === 'GET')
+      return () => _getApprovals();
+    if (path === '/api/attendance/approvals' && method === 'POST')
+      return () => _submitApproval(body);
+    if (path === '/api/attendance/approvals/review' && method === 'POST')
+      return () => _reviewApproval(body);
+
+    // ── Employee Devices ──
+    if (path === '/api/devices/register' && method === 'POST')
+      return () => _registerDevice(body);
+    if (path === '/api/devices/check' && method === 'POST')
+      return () => _checkDevice(body);
+    if (path.match(/^\/api\/devices\/([^/]+)$/) && method === 'GET')
+      return () => _getDevices(path.match(/^\/api\/devices\/([^/]+)$/)[1]);
+    if (path === '/api/devices/approve' && method === 'POST')
+      return () => _approveDevice(body);
 
     // ── Leave requests ──
     if (path === '/api/leave-requests' && method === 'GET')
@@ -391,7 +419,7 @@
   }
 
   async function _loginSession(body) {
-    const { empId, empName, department, computerName } = body;
+    const { empId, empName, department, computerName, gpsLat, gpsLng, gpsAccuracy, attendanceType, approvalReason } = body;
     if (!empId) return { success: false, error: 'Missing employee ID.' };
     const hr = new Date().getHours();
     if (hr >= 18) {
@@ -416,29 +444,82 @@
     let status = 'Present';
     if (hr >= 14) status = 'Half-Day';
     else if (hr > 9 || (hr === 9 && m > 15)) status = 'Late';
+
+    // Determine GPS status
+    let gpsStatus = 'unknown';
+    let attType = 'in_office';
+    let approvalStatus = null;
+    if (gpsLat && gpsLng) {
+      const fence = await _getGeofence();
+      const dist = _haversine(gpsLat, gpsLng, fence.lat, fence.lng);
+      if (dist <= fence.radius_meters) {
+        gpsStatus = 'in_office';
+        attType = 'in_office';
+      } else {
+        gpsStatus = 'outside';
+        attType = attendanceType || 'outside';
+        // Outside geofence requires approval for any status that requires presence
+        if (status !== 'Half-Day') {
+          approvalStatus = 'pending';
+          status = 'Pending Approval';
+        }
+      }
+    }
+
+    const fp = _deviceFingerprint();
+    const di = _deviceInfo();
     const loginDate = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    const insertData = {
+      emp_id: empId,
+      emp_name: empName,
+      department: department || '',
+      login_time: now.toISOString(),
+      logout_time: null,
+      working_hours: 0,
+      status,
+      computer_name: computerName || 'Web Browser',
+      login_date: loginDate,
+      event: 'LOGIN',
+      gps_lat: gpsLat || null,
+      gps_lng: gpsLng || null,
+      gps_accuracy: gpsAccuracy || null,
+      gps_status: gpsStatus,
+      attendance_type: attType,
+      approval_status: approvalStatus,
+      approval_reason: gpsStatus === 'outside' ? (approvalReason || 'outside_geofence') : null,
+      device_fingerprint: fp,
+      device_info: di
+    };
     const { data, error } = await db.supabase
       .from('attendance_logs')
-      .insert({
-        emp_id: empId,
-        emp_name: empName,
-        department: department || '',
-        login_time: now.toISOString(),
-        logout_time: null,
-        working_hours: 0,
-        status,
-        computer_name: computerName || 'Web Browser',
-        login_date: loginDate,
-        event: 'LOGIN'
-      })
+      .insert(insertData)
       .select()
       .single();
     if (error) return { success: false, error: error.message };
+
+    // Register/update device
+    await _registerDevice({ emp_id: empId, emp_name: empName });
+
+    // Log GPS point
+    if (gpsLat && gpsLng) {
+      const fence = await _getGeofence();
+      const dist = _haversine(gpsLat, gpsLng, fence.lat, fence.lng);
+      await _addGPSLog({
+        emp_id: empId, emp_name: empName,
+        lat: gpsLat, lng: gpsLng, accuracy: gpsAccuracy || 0,
+        event_type: 'login',
+        device_fingerprint: fp,
+        device_info: di,
+        distance_from_office: Math.round(dist * 100) / 100,
+        in_office: dist <= fence.radius_meters
+      });
+    }
+
     return { success: true, log: data };
   }
 
   async function _logoutSession(body) {
-    const { empId } = body;
+    const { empId, gpsLat, gpsLng, gpsAccuracy } = body;
     if (!empId) return { success: false, error: 'Missing employee ID.' };
     // Find the active session for this employee
     let active, findErr;
@@ -461,17 +542,240 @@
     const now = new Date();
     const loginTime = new Date(session.login_time);
     const workingHours = Math.max(0, (now - loginTime) / (1000 * 60 * 60));
+
+    const updateData = {
+      logout_time: now.toISOString(),
+      working_hours: Math.round(workingHours * 100) / 100
+    };
+    if (gpsLat && gpsLng) {
+      updateData.gps_lat = gpsLat;
+      updateData.gps_lng = gpsLng;
+      updateData.gps_accuracy = gpsAccuracy || 0;
+    }
+
     const { data, error } = await db.supabase
       .from('attendance_logs')
-      .update({
-        logout_time: now.toISOString(),
-        working_hours: Math.round(workingHours * 100) / 100
-      })
+      .update(updateData)
       .eq('id', session.id)
       .select()
       .single();
     if (error) return { success: false, error: error.message };
+
+    // Log GPS point
+    if (gpsLat && gpsLng) {
+      const fence = await _getGeofence();
+      const dist = _haversine(gpsLat, gpsLng, fence.lat, fence.lng);
+      await _addGPSLog({
+        emp_id: empId, emp_name: session.emp_name || '',
+        lat: gpsLat, lng: gpsLng, accuracy: gpsAccuracy || 0,
+        event_type: 'logout',
+        device_fingerprint: _deviceFingerprint(),
+        device_info: _deviceInfo(),
+        distance_from_office: Math.round(dist * 100) / 100,
+        in_office: dist <= fence.radius_meters
+      });
+    }
+
     return { success: true, log: data };
+  }
+
+  // ── GPS / Geofence / Approval / Device ──
+
+  // Haversine distance in meters
+  function _haversine(lat1, lng1, lat2, lng2) {
+    const R = 6371000;
+    const toRad = a => a * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // Device fingerprint from browser properties
+  function _deviceFingerprint() {
+    const d = window.navigator;
+    const raw = [
+      d.userAgent || '', d.platform || '', d.language || '',
+      screen.width, screen.height, screen.colorDepth,
+      new Date().getTimezoneOffset()
+    ].join('|');
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+      const c = raw.charCodeAt(i);
+      hash = ((hash << 5) - hash) + c;
+      hash |= 0;
+    }
+    return 'dev_' + Math.abs(hash).toString(36);
+  }
+
+  function _deviceInfo() {
+    const d = window.navigator;
+    return JSON.stringify({
+      userAgent: d.userAgent, platform: d.platform, language: d.language,
+      vendor: d.vendor || '', cookiesEnabled: d.cookieEnabled,
+      screen: screen.width + 'x' + screen.height,
+      colorDepth: screen.colorDepth, timezone: new Date().getTimezoneOffset(),
+      cores: (d.hardwareConcurrency || 'unknown'),
+      memory: (d.deviceMemory || 'unknown')
+    });
+  }
+
+  async function _getGeofence() {
+    const { data } = await db.supabase.from('office_geofence').select('*').eq('id', 1).limit(1).single();
+    return data || { lat: 18.5204, lng: 73.8567, radius_meters: 100, address: 'Main Office' };
+  }
+
+  async function _saveGeofence(body) {
+    const { error } = await db.supabase.from('office_geofence').update({
+      lat: body.lat, lng: body.lng, radius_meters: body.radius_meters,
+      address: body.address || 'Office', updated_at: new Date().toISOString()
+    }).eq('id', 1);
+    return error ? { error: error.message } : { success: true };
+  }
+
+  // Check if GPS point is inside geofence by fetching geofence from DB
+  async function _checkGeofence(lat, lng) {
+    const fence = await _getGeofence();
+    const dist = _haversine(lat, lng, fence.lat, fence.lng);
+    return { inOffice: dist <= fence.radius_meters, distance: dist, fence };
+  }
+
+  async function _getGPSLogs() {
+    const { data, error } = await db.supabase
+      .from('attendance_gps_logs')
+      .select('*')
+      .order('timestamp', { ascending: false });
+    return error ? [] : (data || []);
+  }
+
+  async function _addGPSLog(body) {
+    const { data, error } = await db.supabase.from('attendance_gps_logs').insert({
+      emp_id: body.emp_id, emp_name: body.emp_name,
+      lat: body.lat, lng: body.lng, accuracy: body.accuracy || 0,
+      event_type: body.event_type || 'location_update',
+      device_fingerprint: body.device_fingerprint || '',
+      device_info: body.device_info || '',
+      distance_from_office: body.distance_from_office || 0,
+      in_office: body.in_office || false
+    }).select().single();
+    return error ? { error: error.message } : { success: true, log: data };
+  }
+
+  // ── Attendance Approvals ──
+
+  async function _getApprovals() {
+    const { data, error } = await db.supabase
+      .from('attendance_approvals')
+      .select('*')
+      .order('created_at', { ascending: false });
+    return error ? [] : (data || []);
+  }
+
+  async function _submitApproval(body) {
+    const { data, error } = await db.supabase.from('attendance_approvals').insert({
+      attendance_log_id: body.attendance_log_id || null,
+      emp_id: body.emp_id, emp_name: body.emp_name, department: body.department,
+      login_time: new Date().toISOString(),
+      lat: body.lat || null, lng: body.lng || null,
+      distance_from_office: body.distance_from_office || null,
+      reason: body.reason, reason_type: body.reason_type || 'other',
+      note: body.note || '', photo_url: body.photo_url || '',
+      device_info: body.device_info || '',
+      status: 'pending'
+    }).select().single();
+    if (error) return { error: error.message };
+    // Notify admin
+    await _addNotification({
+      text: 'Remote attendance request from ' + body.emp_name + ' (' + body.reason_type + ')',
+      target: 'admin', user_id: ''
+    });
+    return { success: true, approval: data };
+  }
+
+  async function _reviewApproval(body) {
+    const { id, status, admin_note, reviewed_by } = body;
+    const { data, error } = await db.supabase.from('attendance_approvals').update({
+      status, admin_note: admin_note || '',
+      reviewed_by: reviewed_by || 'Admin',
+      reviewed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }).eq('id', id).select().single();
+    if (error) return { error: error.message };
+    // If approved, update the attendance log approval_status
+    if (data && data.attendance_log_id && status === 'approved') {
+      await db.supabase.from('attendance_logs').update({
+        approval_status: 'approved',
+        gps_status: data.reason_type === 'field_work' ? 'field' : 'remote',
+        attendance_type: data.reason_type
+      }).eq('id', data.attendance_log_id);
+    }
+    if (data && data.attendance_log_id && status === 'rejected') {
+      await db.supabase.from('attendance_logs').update({
+        approval_status: 'rejected'
+      }).eq('id', data.attendance_log_id);
+    }
+    // Notify employee
+    const statusMsg = status === 'approved' ? 'approved' : status === 'rejected' ? 'rejected' : 'updated';
+    await _addNotification({
+      text: 'Your attendance request has been ' + statusMsg + (admin_note ? ': ' + admin_note : ''),
+      target: 'emp', user_id: data.emp_id
+    });
+    return { success: true, approval: data };
+  }
+
+  // ── Employee Devices ──
+
+  async function _registerDevice(body) {
+    const fp = _deviceFingerprint();
+    const info = _deviceInfo();
+    // Check if device exists
+    const { data: existing } = await db.supabase.from('employee_devices')
+      .select('*').eq('emp_id', body.emp_id).eq('fingerprint', fp).limit(1);
+    if (existing && existing.length > 0) {
+      // Update last_seen
+      await db.supabase.from('employee_devices').update({
+        last_seen: new Date().toISOString(), device_info: info
+      }).eq('id', existing[0].id);
+      return { success: true, device: existing[0], isNew: false, isApproved: existing[0].is_approved };
+    }
+    // New device
+    const { data, error } = await db.supabase.from('employee_devices').insert({
+      emp_id: body.emp_id, fingerprint: fp, device_info: info,
+      first_seen: new Date().toISOString(), last_seen: new Date().toISOString(),
+      is_approved: false
+    }).select().single();
+    if (error) return { error: error.message };
+    // Notify admin about new device
+    await _addNotification({
+      text: 'New device detected for ' + body.emp_name + ' (' + body.emp_id + ')',
+      target: 'admin', user_id: ''
+    });
+    return { success: true, device: data, isNew: true, isApproved: false };
+  }
+
+  async function _checkDevice(body) {
+    const fp = _deviceFingerprint();
+    const { data } = await db.supabase.from('employee_devices')
+      .select('*').eq('emp_id', body.emp_id).eq('fingerprint', fp).limit(1);
+    if (data && data.length > 0) {
+      return { known: true, approved: data[0].is_approved, device: data[0] };
+    }
+    return { known: false, approved: false, device: null };
+  }
+
+  async function _getDevices(empId) {
+    const { data, error } = await db.supabase.from('employee_devices')
+      .select('*').eq('emp_id', empId).order('last_seen', { ascending: false });
+    return error ? [] : (data || []);
+  }
+
+  async function _approveDevice(body) {
+    const { id, is_approved } = body;
+    const { data, error } = await db.supabase.from('employee_devices').update({
+      is_approved: is_approved !== false
+    }).eq('id', id).select().single();
+    return error ? { error: error.message } : { success: true, device: data };
   }
 
   // ── Leave Requests ──

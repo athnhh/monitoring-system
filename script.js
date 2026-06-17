@@ -17,6 +17,7 @@ let pendingUndoArchiveName = null;
 let pendingUndoTimeout = null;
 let annSelectedPriority = 'normal';
 let serverAvailable = false;
+let _pendingTabSwitch = null;
 
 // Track nav badges cleared by user tab click — persisted in sessionStorage so they survive refresh
 const clearedNavBadges = new Set();
@@ -1873,25 +1874,30 @@ function toggleDarkMode() {
   document.querySelectorAll('.dark-toggle-btn').forEach(b => b.textContent = isDark ? 'L' : 'D');
 }
 
-async function switchTab(pageId, prefix, tabName, btnElement, onShow) {
+function switchTab(pageId, prefix, tabName, btnElement, onShow) {
+  // Cancel any pending render from a previous rapid tab switch
+  if (_pendingTabSwitch) {
+    cancelAnimationFrame(_pendingTabSwitch);
+    _pendingTabSwitch = null;
+  }
   const tabClass = prefix === 'admin' ? 'atab' : 'etab';
   const tabs = document.querySelectorAll(pageId + ' .' + tabClass);
-  const current = [...tabs].find(t => t.classList.contains('show'));
-  if (current) {
-    // Apply exit animation before removing
-    current.classList.add('tab-leaving');
-    await new Promise(r => setTimeout(r, 60));
-    tabs.forEach(t => t.classList.remove('show', 'tab-leaving'));
-  } else {
-    tabs.forEach(t => t.classList.remove('show'));
-  }
   const target = document.getElementById(prefix + '-' + tabName);
-  if (target) {
-    target.classList.add('show');
-    if (onShow) await onShow();
-  }
+  if (!target) return;
+  // Remove show from all tabs immediately — no delay
+  tabs.forEach(t => t.classList.remove('show', 'tab-leaving'));
+  // Show target tab instantly
+  target.classList.add('show');
+  // Update nav button active states instantly
   document.querySelectorAll(pageId + ' .nav-btn').forEach(b => b.classList.remove('active'));
   if (btnElement) btnElement.classList.add('active');
+  // Defer heavy data rendering to next frame so tab switch is instantaneous
+  if (onShow) {
+    _pendingTabSwitch = requestAnimationFrame(() => {
+      _pendingTabSwitch = null;
+      onShow();
+    });
+  }
 }
 
 function renderAll() {
@@ -2774,7 +2780,14 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
   logout_time TIMESTAMPTZ, working_hours REAL DEFAULT 0,
   status TEXT DEFAULT 'Active', computer_name TEXT DEFAULT '',
   login_date TEXT, event TEXT DEFAULT 'LOGIN',
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  -- GPS columns
+  gps_lat DOUBLE PRECISION, gps_lng DOUBLE PRECISION,
+  gps_accuracy REAL, gps_status TEXT DEFAULT 'unknown',
+  attendance_type TEXT DEFAULT 'office',
+  approval_status TEXT DEFAULT 'approved',
+  approval_reason TEXT, approval_note TEXT, approval_photo_url TEXT,
+  device_fingerprint TEXT, device_info TEXT
 );
 
 -- Partial unique index: at most one active session per employee (DB-level duplicate prevention)
@@ -2788,6 +2801,67 @@ CREATE INDEX IF NOT EXISTS idx_attendance_logs_active
 
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_date
   ON attendance_logs (login_date);
+
+-- GPS attendance logs for permanent tracking
+CREATE TABLE IF NOT EXISTS attendance_gps_logs (
+  id BIGSERIAL PRIMARY KEY,
+  emp_id TEXT NOT NULL, emp_name TEXT NOT NULL,
+  lat DOUBLE PRECISION NOT NULL, lng DOUBLE PRECISION NOT NULL,
+  accuracy REAL, timestamp TIMESTAMPTZ DEFAULT NOW(),
+  event_type TEXT NOT NULL, -- 'login', 'logout', 'location_update'
+  device_fingerprint TEXT, device_info TEXT,
+  distance_from_office REAL, -- meters
+  in_office BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_gps_emp_id ON attendance_gps_logs (emp_id);
+CREATE INDEX IF NOT EXISTS idx_gps_timestamp ON attendance_gps_logs (timestamp);
+
+-- Attendance approval requests for remote/field work
+CREATE TABLE IF NOT EXISTS attendance_approvals (
+  id BIGSERIAL PRIMARY KEY,
+  attendance_log_id BIGSERIAL,
+  emp_id TEXT NOT NULL, emp_name TEXT NOT NULL, department TEXT,
+  login_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lat DOUBLE PRECISION, lng DOUBLE PRECISION,
+  distance_from_office REAL, reason TEXT NOT NULL,
+  reason_type TEXT NOT NULL, -- 'wfh', 'client_visit', 'field_work', 'company_assignment', 'other'
+  note TEXT, photo_url TEXT, device_info TEXT,
+  status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'rejected', 'info_requested'
+  admin_note TEXT,
+  reviewed_by TEXT, reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_emp_id ON attendance_approvals (emp_id);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON attendance_approvals (status);
+
+-- Employee approved/known devices
+CREATE TABLE IF NOT EXISTS employee_devices (
+  id BIGSERIAL PRIMARY KEY,
+  emp_id TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  device_info TEXT, -- JSON string of browser/OS info
+  first_seen TIMESTAMPTZ DEFAULT NOW(),
+  last_seen TIMESTAMPTZ DEFAULT NOW(),
+  is_approved BOOLEAN DEFAULT true,
+  UNIQUE(emp_id, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_devices_emp_id ON employee_devices (emp_id);
+
+-- Office geofence configuration (singleton row)
+CREATE TABLE IF NOT EXISTS office_geofence (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  lat DOUBLE PRECISION NOT NULL DEFAULT 18.5204, -- default: Pune, India
+  lng DOUBLE PRECISION NOT NULL DEFAULT 73.8567,
+  radius_meters INTEGER NOT NULL DEFAULT 100,
+  address TEXT DEFAULT 'Office Address',
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+-- Insert default geofence if not exists
+INSERT INTO office_geofence (id, lat, lng, radius_meters, address)
+VALUES (1, 18.5204, 73.8567, 100, 'Main Office')
+ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS attendance (
   id TEXT, name TEXT, dept TEXT, date TEXT,
@@ -2838,6 +2912,10 @@ ALTER TABLE departments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE archived_employees DISABLE ROW LEVEL SECURITY;
 ALTER TABLE admin DISABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance DISABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_gps_logs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_approvals DISABLE ROW LEVEL SECURITY;
+ALTER TABLE employee_devices DISABLE ROW LEVEL SECURITY;
+ALTER TABLE office_geofence DISABLE ROW LEVEL SECURITY;
 `;
 
 // ══ Run SQL Setup — executes the schema SQL via Supabase RPC ══
