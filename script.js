@@ -622,7 +622,7 @@ async function confirmArchiveEmployee() {
       pendingUndoTimeout = null;
     }, 5000);
     showNotifBar('info', empName + ' has been archived.', {
-      label: '↩ Undo',
+      label: 'Undo',
       onClick() {
         undoArchive(empName);
       }
@@ -829,7 +829,7 @@ function leaveReqCard(l) {
   const typeColor = l.type === 'CL' ? 'c-eng' : l.type === 'SL' ? 'c-mkt' : 'c-it';
   const statusTag = l.status === 'Pending' ? '<span class="tag t-late">Pending</span>' : l.status === 'Approved' ? '<span class="tag t-present">Approved</span>' : '<span class="tag t-absent">Rejected</span>';
   const actions = l.status === 'Pending'
-    ? '<button class="btn btn-sm btn-success" onclick="handleLeave(\'' + l.id + '\',\'Approved\')">✓ Approve</button><button class="btn btn-sm btn-danger" onclick="handleLeave(\'' + l.id + '\',\'Rejected\')">✗ Reject</button>'
+    ? '<button class="btn btn-sm btn-success" onclick="handleLeave(\'' + l.id + '\',\'Approved\')">Approve</button><button class="btn btn-sm btn-danger" onclick="handleLeave(\'' + l.id + '\',\'Rejected\')">Reject</button>'
     : '';
   return '<div class="leave-req-card"><div class="av av-blue">' + l.empName.charAt(0) + '</div><div style="flex:1;">' +
     '<div style="font-size:13px;font-weight:600;">' + l.empName + ' <span class="chip ' + typeColor + '">' + l.type + '</span></div>' +
@@ -2230,10 +2230,10 @@ async function saveCalendarConfig() {
     body: { serviceAccountPath: saPath, calendarId: calId, enabled: !!(saPath) }
   });
   if (res && res.success) {
-    showNotifBar('success', 'Calendar config saved!', '💾');
+    showNotifBar('success', 'Calendar config saved!');
     loadCalendarConfig();
   } else {
-    showNotifBar('error', 'Failed to save calendar config.', '❌');
+    showNotifBar('error', 'Failed to save calendar config.');
   }
 }
 
@@ -2243,33 +2243,33 @@ async function syncBirthdaysToCalendar() {
     btn.disabled = true;
     btn.innerHTML = '<span class="loading-spinner-sm" style="margin-right:6px;vertical-align:middle;"></span> Syncing...';
   }
-  showNotifBar('info', 'Syncing birthdays to calendar…', '📅');
+  showNotifBar('info', 'Syncing birthdays to calendar…');
   const res = await api('/api/calendar/sync-birthdays', { method: 'POST' });
   if (btn) {
     btn.disabled = false;
-    btn.innerHTML = '📅 Sync All Birthdays';
+    btn.innerHTML = 'Sync All Birthdays';
   }
   if (res && res.success) {
     let msg = res.created + ' birthday event(s) created!';
     if (res.errors && res.errors.length > 0) {
-      msg += ' ⚠️ ' + res.errors.length + ' error(s)';
+      msg += ' (' + res.errors.length + ' error(s))';
     }
-    showNotifBar(res.errors && res.errors.length > 0 ? 'warning' : 'success', msg, '📅');
+    showNotifBar(res.errors && res.errors.length > 0 ? 'warning' : 'success', msg);
     if (res.errors && res.errors.length > 0) {
       console.warn('[Calendar] Sync errors:', res.errors);
     }
   } else {
-    showNotifBar('error', 'Calendar sync failed: ' + (res?.error || 'server unreachable'), '❌');
+    showNotifBar('error', 'Calendar sync failed: ' + (res?.error || 'server unreachable'));
   }
 }
 
 async function testCalendarConnection() {
-  showNotifBar('info', 'Testing calendar connection…', '🔌');
+  showNotifBar('info', 'Testing calendar connection…');
   const res = await api('/api/calendar-config');
   if (res && res.enabled) {
-    showNotifBar('success', 'Calendar connection OK!', '✅');
+    showNotifBar('success', 'Calendar connection OK!');
   } else {
-    showNotifBar('warning', 'Calendar not configured.', '⚠️');
+    showNotifBar('warning', 'Calendar not configured.');
   }
 }
 
@@ -2283,7 +2283,7 @@ function exportCSV() {
 }
 
 function exportExcel(type) {
-  if (typeof XLSX === 'undefined') { showNotifBar('warning', 'XLSX library not loaded.', '⚠️'); return; }
+  if (typeof XLSX === 'undefined') { showNotifBar('warning', 'XLSX library not loaded.'); return; }
   if (!appState) return;
   const logs = appState.attendanceLogs || [];
   const employees = appState.employees || [];
@@ -2301,9 +2301,9 @@ function exportExcel(type) {
       XLSX.utils.book_append_sheet(wb, ws, 'Employees');
       XLSX.writeFile(wb, 'employees.xlsx');
     }
-    showNotifBar('success', 'Excel file exported!', '📊');
+    showNotifBar('success', 'Excel file exported!');
   } catch (e) {
-    showNotifBar('error', 'Export failed: ' + e.message, '❌');
+    showNotifBar('error', 'Export failed: ' + e.message);
   }
 }
 
@@ -2320,7 +2320,7 @@ function exportEmpCSV() {
   });
   const csv = rows.map(r => r.join(',')).join('\n');
   downloadFile(csv, 'my_attendance_sessions.csv', 'text/csv');
-  showNotifBar('success', 'CSV exported!', '📄');
+  showNotifBar('success', 'CSV exported!');
 }
 
 function downloadFile(content, filename, mimeType) {
@@ -2380,7 +2380,7 @@ function handleRealtimeEvent(info) {
       appState.attendanceLogs = [...(appState.attendanceLogs || []), newData];
       if (isAdmin) {
         const time = formatTime(newData.login_time);
-        showNotifBar('info', '✅ ' + (newData.emp_name || 'Employee') + ' signed in at ' + time, '🟢');
+        showNotifBar('info', (newData.emp_name || 'Employee') + ' signed in at ' + time);
         updateDashboardStats();
         renderDashboardCards();
         if (document.getElementById('tab-records')?.classList.contains('active')) renderRecords();
@@ -2399,7 +2399,7 @@ function handleRealtimeEvent(info) {
       if (idx !== -1) { appState.attendanceLogs[idx] = { ...logs[idx], ...newData }; }
       if (isAdmin && newData.logout_time && (!oldData?.logout_time)) {
         const time = formatTime(newData.logout_time);
-        showNotifBar('info', '🔴 ' + (newData.emp_name || 'Employee') + ' signed out at ' + time, '🟤');
+        showNotifBar('info', (newData.emp_name || 'Employee') + ' signed out at ' + time);
         updateDashboardStats();
         renderDashboardCards();
         if (document.getElementById('tab-records')?.classList.contains('active')) renderRecords();
@@ -2431,13 +2431,13 @@ function handleRealtimeEvent(info) {
       };
       appState.leaveRequests = [...(appState.leaveRequests || []), lr];
       if (isAdmin) {
-        showNotifBar('info', '📋 New leave request from ' + (lr.empName || 'Employee'), '📩');
+        showNotifBar('info', 'New leave request from ' + (lr.empName || 'Employee'));
         renderLeaveRequests();
         renderLeaveHistory();
         updateNavBadges();
       }
       if (isEmp && lr.empId === sessionStorage.getItem('userId')) {
-        showNotifBar('info', 'Your leave request has been submitted. Waiting for approval.', '📋');
+        showNotifBar('info', 'Your leave request has been submitted. Waiting for approval.');
       }
       RenderQueue.schedule();
     } else if (event === 'UPDATE' && newData) {
@@ -2453,7 +2453,7 @@ function handleRealtimeEvent(info) {
         updateNavBadges();
       }
       if (isEmp && idx !== -1 && wasPending && reqs[idx].empId === sessionStorage.getItem('userId')) {
-        showNotifBar('info', 'Your leave was ' + (newData.status || 'updated') + '.', '📋');
+        showNotifBar('info', 'Your leave was ' + (newData.status || 'updated') + '.');
       }
       RenderQueue.schedule();
     } else if (event === 'DELETE') {
@@ -2567,26 +2567,26 @@ async function setNewPassword() {
   }
   statusEl.style.display = 'none';
   const btn = document.querySelector('#recovery-modal .btn-primary');
-  btn.disabled = true; btn.textContent = '⏳ Saving...';
+  btn.disabled = true; btn.textContent = 'Saving...';
   try {
     // Update Supabase Auth password
     const supabase = SupabaseDB.supabase;
     if (supabase?.auth) {
       const { error } = await supabase.auth.updateUser({ password: newPwd });
-      if (error) { showNotifBar('error', 'Auth update failed: ' + error.message, '❌'); btn.disabled = false; btn.textContent = '🔑 Set New Password'; return; }
+      if (error) { showNotifBar('error', 'Auth update failed: ' + error.message); btn.disabled = false; btn.textContent = 'Set New Password'; return; }
     }
     // Update admin table password
     await dbUpdateAdminPassword(newPwd);
-    showNotifBar('success', 'Password changed successfully. Please log in with your new password.', '✅');
+    showNotifBar('success', 'Password changed successfully. Please log in with your new password.');
     document.getElementById('recovery-modal').style.display = 'none';
     document.getElementById('rp-new-pwd').value = '';
     document.getElementById('rp-confirm-pwd').value = '';
     document.getElementById('forgot-modal').style.display = 'none';
     window.location.hash = '';
   } catch (e) {
-    showNotifBar('error', 'Error: ' + e.message, '❌');
+    showNotifBar('error', 'Error: ' + e.message);
   }
-  btn.disabled = false; btn.textContent = '🔑 Set New Password';
+  btn.disabled = false; btn.textContent = 'Set New Password';
 }
 
 async function dbUpdateAdminPassword(newPwd) {
@@ -2596,7 +2596,7 @@ async function dbUpdateAdminPassword(newPwd) {
 async function init() {
   if (localStorage.getItem('darkMode') === 'true') {
     document.body.classList.add('dark-mode');
-    document.querySelectorAll('.dark-toggle-btn').forEach(b => b.textContent = '☀️');
+    document.querySelectorAll('.dark-toggle-btn').forEach(b => b.textContent = 'L');
   }
 
   const remembered = localStorage.getItem('rememberedUser');
@@ -2664,7 +2664,7 @@ async function init() {
   const h = new Date().getHours();
   const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   const greetEl = document.getElementById('admin-greeting');
-  if (greetEl) greetEl.textContent = greet + ', Administrator 👋';
+  if (greetEl) greetEl.textContent = greet + ', Administrator';
 
   const today = new Date();
   const todayEl = document.getElementById('today-date');
@@ -2817,7 +2817,7 @@ async function runSqlSetup() {
   if (statusEl) statusEl.textContent = 'Connecting...';
 
   if (typeof SupabaseDB === 'undefined' || !SupabaseDB.supabase) {
-    log('❌ Supabase client not initialized. Check your configuration.', 'error');
+    log('Supabase client not initialized. Check your configuration.', 'error');
     if (statusEl) statusEl.textContent = 'Failed — not connected';
     setButtonLoading(btn, false);
     return;
@@ -2825,28 +2825,28 @@ async function runSqlSetup() {
 
   const sb = SupabaseDB.supabase;
 
-  log('🔍 Checking for exec_sql RPC function...', 'info');
+  log('Checking for exec_sql RPC function...', 'info');
   let execSqlExists = false;
   try {
     const { error } = await sb.rpc('exec_sql', { query: 'SELECT 1' });
     if (!error) {
       execSqlExists = true;
-      log('✅ exec_sql function found!', 'success');
+      log('exec_sql function found!', 'success');
     } else if (error.message && error.message.includes('function') && (error.message.includes('not found') || error.message.includes('does not exist'))) {
       execSqlExists = false;
-      log('ℹ️ exec_sql function not found.', 'info');
+      log('exec_sql function not found.', 'info');
     } else {
       execSqlExists = true;
-      log('⚠️ exec_sql RPC responded (continuing)...', 'info');
+      log('exec_sql RPC responded (continuing)...', 'info');
     }
   } catch (e) {
     execSqlExists = false;
-    log('ℹ️ exec_sql not available: ' + e.message.substring(0, 80), 'info');
+    log('exec_sql not available: ' + e.message.substring(0, 80), 'info');
   }
 
   if (!execSqlExists) {
     log('', 'info');
-    log('📋 First, create the exec_sql Postgres function. Copy and run this in Supabase SQL Editor:', 'info');
+    log('First, create the exec_sql Postgres function. Copy and run this in Supabase SQL Editor:', 'info');
     const createFn = `CREATE OR REPLACE FUNCTION exec_sql(query text)
 RETURNS void AS $$
 BEGIN
@@ -2855,27 +2855,27 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;`;
     logEl.innerHTML += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin:6px 0;font-family:var(--font-mono);font-size:11px;white-space:pre-wrap;color:var(--text);line-height:1.7;">' + createFn + '</div>';
     log('Then click "Run SQL Setup" again.', 'info');
-    logEl.innerHTML += '<div style="margin-top:6px;"><button class="btn btn-sm" onclick="window.open(\'https://supabase.com/dashboard/project/jrdfxkyhoutwzdbieefq/sql/new\',\'_blank\')">🔗 Open SQL Editor</button>' +
-      ' <button class="btn btn-sm" onclick="runSqlSetup()">🔄 Retry</button></div>';
+    logEl.innerHTML += '<div style="margin-top:6px;"><button class="btn btn-sm" onclick="window.open(\'https://supabase.com/dashboard/project/jrdfxkyhoutwzdbieefq/sql/new\',\'_blank\')">Open SQL Editor</button>' +
+      ' <button class="btn btn-sm" onclick="runSqlSetup()">Retry</button></div>';
     if (statusEl) statusEl.textContent = 'Requires exec_sql';
     setButtonLoading(btn, false);
     return;
   }
 
   if (statusEl) statusEl.textContent = 'Loading schema...';
-  log('📄 Loading schema SQL...', 'info');
+  log('Loading schema SQL...', 'info');
 
   let sqlText = '';
   try {
     const res = await fetch('supabase-schema.sql');
     if (res.ok) {
       sqlText = await res.text();
-      log('✅ Loaded from supabase-schema.sql (' + (sqlText.length / 1024).toFixed(1) + ' KB)', 'success');
+      log('Loaded from supabase-schema.sql (' + (sqlText.length / 1024).toFixed(1) + ' KB)', 'success');
     } else {
       throw new Error('HTTP ' + res.status);
     }
   } catch (e) {
-    log('⚠️ Using embedded fallback schema (' + e.message.substring(0, 60) + ')', 'info');
+    log('Using embedded fallback schema (' + e.message.substring(0, 60) + ')', 'info');
     sqlText = __SCHEMA_SQL;
   }
 
@@ -2884,7 +2884,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;`;
     .map(s => s.trim())
     .filter(s => s && s.length > 6 && !s.startsWith('--'));
 
-  log('📋 Found ' + statements.length + ' executable statements', 'info');
+  log('Found ' + statements.length + ' executable statements', 'info');
   if (statusEl) statusEl.textContent = 'Running ' + statements.length + ' statements...';
 
   let successCount = 0;
@@ -2893,25 +2893,25 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;`;
   for (let i = 0; i < statements.length; i++) {
     const stmt = statements[i];
     const preview = stmt.substring(0, 65).replace(/\n/g, ' ').trim();
-    log((i + 1) + '/' + statements.length + ' ⏳ ' + preview + '...', 'info');
+    log((i + 1) + '/' + statements.length + ' ' + preview + '...', 'info');
 
     try {
       const { error } = await sb.rpc('exec_sql', { query: stmt + ';' });
       if (error) {
         const msg = error.message || '';
         if (msg.includes('already exists') || msg.includes('duplicate key') || msg.includes('unique constraint')) {
-          log('   ⚠️ Already exists (skipped)', 'info');
+          log('   Already exists (skipped)', 'info');
           successCount++;
         } else {
-          log('   ❌ ' + msg.substring(0, 120), 'error');
+          log('   ' + msg.substring(0, 120), 'error');
           failCount++;
         }
       } else {
-        log('   ✅ Done', 'success');
+        log('   Done', 'success');
         successCount++;
       }
     } catch (e) {
-      log('   ❌ ' + e.message.substring(0, 100), 'error');
+      log('   ' + e.message.substring(0, 100), 'error');
       failCount++;
     }
 
@@ -2920,19 +2920,19 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;`;
 
   log('', 'info');
   log('═══════════════════════════════', 'info');
-  const summaryMsg = '📊 Complete: ✅ ' + successCount + ' OK, ❌ ' + failCount + ' errors';
+  const summaryMsg = 'Complete: ' + successCount + ' OK, ' + failCount + ' errors';
   log(summaryMsg, failCount > 0 ? 'error' : 'success');
 
   if (failCount === 0) {
-    log('🎉 All statements executed successfully!', 'success');
-    if (statusEl) statusEl.textContent = '✅ Complete — ' + successCount + ' OK';
-    log('🔄 Refreshing application state...', 'info');
+    log('All statements executed successfully!', 'success');
+    if (statusEl) statusEl.textContent = 'Complete — ' + successCount + ' OK';
+    log('Refreshing application state...', 'info');
     await refreshStateAndRender();
-    log('✅ State refreshed!', 'success');
+    log('State refreshed!', 'success');
   } else {
-    if (statusEl) statusEl.textContent = '⚠️ ' + successCount + ' OK, ' + failCount + ' errors';
+    if (statusEl) statusEl.textContent = successCount + ' OK, ' + failCount + ' errors';
   }
 
-  setButtonLoading(btn, false, '⚡ Run SQL Setup');
+  setButtonLoading(btn, false, 'Run SQL Setup');
 }
 
