@@ -545,7 +545,7 @@ input,select,textarea{font-family:var(--font);}
 /* ── TABS ── */
 .atab,.etab{display:none;}
 .atab.show,.etab.show{display:block;animation:tabEnter 0.3s cubic-bezier(0.22,1,0.36,1);}
-.atab.tab-leaving,.etab.tab-leaving{display:block;animation:tabExit 0.18s cubic-bezier(0.55,0,1,0.25) forwards;pointer-events:none;}
+.atab.tab-leaving,.etab.tab-leaving{display:block;animation:tabExit 0.06s cubic-bezier(0.55,0,1,0.25) forwards;pointer-events:none;}
 @keyframes tabEnter{
   0%{opacity:0;transform:translateY(12px) scale(0.98);}
   100%{opacity:1;transform:translateY(0) scale(1);}
