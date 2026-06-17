@@ -834,8 +834,6 @@ tbody tr{
 .pbtn-in:hover{background:var(--primary-mid);}
 .pbtn-out{background:var(--red);color:#fff;}
 .pbtn-out:hover{background:#b91c1c;}
-.pbtn-break{background:var(--surface);color:var(--text);border:1px solid var(--border);}
-.pbtn-break:hover{background:var(--surface2);}
 
 /* ── STATUS PILL ── */
 .status-pill{
@@ -868,7 +866,6 @@ tbody tr{
 
 /* ── BIG CLOCK ── */
 .big-clock{font-family:var(--font-mono);font-size:28px;font-weight:600;color:var(--text);}
-.break-timer-display{font-family:var(--font-mono);font-size:24px;font-weight:600;color:var(--amber);}
 
 /* ── DEPT TAG LIST ── */
 .dept-tag-list{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px;}
@@ -1868,12 +1865,10 @@ body.dark-mode .pbtn-out{
 body.dark-mode .pbtn-out:hover{
   background:#dc2626;
 }
-body.dark-mode .pbtn-break{
   background:var(--surface2);
   color:var(--text);
   border:1px solid var(--border);
 }
-body.dark-mode .pbtn-break:hover{
   background:var(--border);
 }
 

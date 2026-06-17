@@ -541,7 +541,13 @@
     const session = active[0];
     const now = new Date();
     const loginTime = new Date(session.login_time);
-    const workingHours = Math.max(0, (now - loginTime) / (1000 * 60 * 60));
+    let workingHours = Math.max(0, (now - loginTime) / (1000 * 60 * 60));
+    // Auto-deduct 1 hour lunch break (13:00-14:00) if the shift spans the lunch period
+    const loginHour = loginTime.getHours() + loginTime.getMinutes() / 60;
+    const logoutHour = now.getHours() + now.getMinutes() / 60;
+    if (loginHour < 14 && logoutHour > 13) {
+      workingHours = Math.max(0, workingHours - 1);
+    }
 
     const updateData = {
       logout_time: now.toISOString(),
