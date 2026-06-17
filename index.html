@@ -506,15 +506,15 @@ body.dark-mode .skel-act-row {
     </div>
   </div>
   <div class="nav">
-    <button class="nav-btn active" onclick="adminTab('dashboard',this)">📊 Dashboard<span class="nav-badge hidden" id="nav-badge-dash"></span></button>
-    <button class="nav-btn" onclick="adminTab('records',this)">📋 Records</button>
-    <button class="nav-btn" onclick="adminTab('employees',this)">👥 Employees<span class="nav-badge hidden" id="nav-badge-emps"></span></button>
-    <button class="nav-btn" onclick="adminTab('leaves',this)">📅 Leave Mgmt<span class="nav-badge hidden" id="nav-badge-leaves"></span></button>
-    <button class="nav-btn" onclick="adminTab('calendar',this)">🗓 Calendar</button>
-    <button class="nav-btn" onclick="adminTab('reports',this)">📈 Reports</button>
-    <button class="nav-btn" onclick="adminTab('departments',this)">🏬 Departments</button>
-    <button class="nav-btn" onclick="adminTab('announcements',this)">📢 Announce<span class="nav-badge hidden" id="nav-badge-ann"></span></button>
-    <button class="nav-btn" onclick="adminTab('settings',this)">⚙️ Settings</button>
+    <button class="nav-btn active" onclick="adminTab('dashboard',this)">Dashboard<span class="nav-badge hidden" id="nav-badge-dash"></span></button>
+    <button class="nav-btn" onclick="adminTab('records',this)">Records</button>
+    <button class="nav-btn" onclick="adminTab('employees',this)">Employees<span class="nav-badge hidden" id="nav-badge-emps"></span></button>
+    <button class="nav-btn" onclick="adminTab('leaves',this)">Leave Mgmt<span class="nav-badge hidden" id="nav-badge-leaves"></span></button>
+    <button class="nav-btn" onclick="adminTab('calendar',this)">Calendar</button>
+    <button class="nav-btn" onclick="adminTab('reports',this)">Reports</button>
+    <button class="nav-btn" onclick="adminTab('departments',this)">Departments</button>
+    <button class="nav-btn" onclick="adminTab('announcements',this)">Announce<span class="nav-badge hidden" id="nav-badge-ann"></span></button>
+    <button class="nav-btn" onclick="adminTab('settings',this)">Settings</button>
   </div>
   <div class="content">
 
@@ -786,31 +786,10 @@ body.dark-mode .skel-act-row {
               <input type="text" id="ann-subject" placeholder="e.g. Republic Day Holiday — 26 Jan 2026" class="ann-input">
             </div>
             <div class="field">
-              <label>Recipients</label>
-              <div class="ann-recipient-selector">
-                <button class="ann-recip-btn active" data-val="all" onclick="selectAnnRecipient(this,'all')">
-                  <span class="ann-recip-icon">👥</span>
-                  <span>All Employees</span>
-                </button>
-                <button class="ann-recip-btn" data-val="dept" onclick="selectAnnRecipient(this,'dept')">
-                  <span class="ann-recip-icon">🏬</span>
-                  <span>By Department</span>
-                </button>
-                <button class="ann-recip-btn" data-val="individual" onclick="selectAnnRecipient(this,'individual')">
-                  <span class="ann-recip-icon">👤</span>
-                  <span>Individual</span>
-                </button>
-              </div>
-              <div id="ann-dept-select-wrap" style="display:none;margin-top:10px;">
-                <select id="ann-dept-select" class="ann-input">
-                  <option value="Engineering">Engineering</option>
-                  <option value="HR">HR</option>
-                  <option value="IT">IT</option>
-                  <option value="Marketing">Marketing</option>
-                  <option value="Finance">Finance</option>
-                  <option value="Operations">Operations</option>
-                </select>
-              </div>
+              <label>Send To</label>
+              <select id="ann-recipient-select" class="ann-input">
+                <option value="all">All Employees</option>
+              </select>
             </div>
             <div class="field">
               <label>Priority</label>
@@ -994,11 +973,11 @@ body.dark-mode .skel-act-row {
     </div>
   </div>
   <div class="nav">
-    <button class="nav-btn active" onclick="empTab('dashboard',this)">🏠 My Dashboard</button>
-    <button class="nav-btn" onclick="empTab('history',this)">📋 History</button>
-    <button class="nav-btn" onclick="empTab('leaves',this)">📅 My Leaves<span class="nav-badge hidden" id="nav-badge-emp-leaves"></span></button>
-    <button class="nav-btn" onclick="empTab('calendar',this)">🗓 Calendar</button>
-    <button class="nav-btn" onclick="empTab('settings',this)">⚙️ Settings</button>
+    <button class="nav-btn active" onclick="empTab('dashboard',this)">My Dashboard</button>
+    <button class="nav-btn" onclick="empTab('history',this)">History</button>
+    <button class="nav-btn" onclick="empTab('leaves',this)">My Leaves<span class="nav-badge hidden" id="nav-badge-emp-leaves"></span></button>
+    <button class="nav-btn" onclick="empTab('calendar',this)">Calendar</button>
+    <button class="nav-btn" onclick="empTab('settings',this)">Settings</button>
   </div>
   <div class="content">
 

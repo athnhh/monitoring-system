@@ -15,7 +15,6 @@ let removeTargetId = null;
 let pendingUndoArchiveId = null;
 let pendingUndoArchiveName = null;
 let pendingUndoTimeout = null;
-let annSelectedRecipient = 'all';
 let annSelectedPriority = 'normal';
 let serverAvailable = false;
 
@@ -1999,11 +1998,13 @@ function renderDeptHeadcount() {
 function renderDepartments() {
   if (!appState) return;
   const departments = appState.departments || [];
-  const selects = ['f-dept', 'rec-dept', 'emp-dept-filter', 'active-now-dept-filter'];
+  const selects = ['f-dept', 'rec-dept', 'emp-dept-filter', 'active-now-dept-filter', 'ann-recipient-select'];
   selects.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    const allOption = id !== 'f-dept' ? '<option value="">All Departments</option>' : '';
+    let allOption = '';
+    if (id === 'ann-recipient-select') allOption = '<option value="all">All Employees</option>';
+    else if (id !== 'f-dept') allOption = '<option value="">All Departments</option>';
     el.innerHTML = allOption + departments.map(d => '<option value="' + d + '">' + d + '</option>').join('');
   });
   const tagList = document.getElementById('dept-tag-list');
@@ -2034,10 +2035,7 @@ async function removeDept(name) {
 }
 
 function selectAnnRecipient(btn, val) {
-  document.querySelectorAll('.ann-recip-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  annSelectedRecipient = val;
-  document.getElementById('ann-dept-select-wrap').style.display = val === 'dept' ? 'block' : 'none';
+  // No-op: recipient selection handled via <select id="ann-recipient-select">
 }
 
 function selectAnnPriority(btn, val) {
@@ -2051,7 +2049,8 @@ function sendAnnouncement() {
   const body = document.getElementById('ann-body').value.trim();
   if (!subject || !body) { showNotifBar('warning', 'Please enter subject and message.', '⚠️'); return; }
   const today = new Date().toISOString().split('T')[0];
-  const ann = { date: today, subject, body, by: 'Admin', priority: annSelectedPriority, recipient: annSelectedRecipient === 'all' ? 'All Employees' : 'Department: ' + (document.getElementById('ann-dept-select')?.value || '') };
+  const recipVal = document.getElementById('ann-recipient-select')?.value || 'all';
+  const ann = { date: today, subject, body, by: 'Admin', priority: annSelectedPriority, recipient: recipVal === 'all' ? 'All Employees' : 'Department: ' + recipVal };
   api('/api/announcements', { method: 'POST', body: ann }).then(async () => {
     await refreshStateAndRender();
     document.getElementById('ann-subject').value = '';

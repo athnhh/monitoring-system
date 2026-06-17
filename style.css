@@ -1024,37 +1024,6 @@ tbody tr{
   border-color:var(--accent);
   box-shadow:0 0 0 3px rgba(59,130,246,0.12);
 }
-.ann-recipient-selector{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-}
-.ann-recip-btn{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  padding:9px 16px;
-  border:1px solid var(--border);
-  border-radius:9px;
-  background:var(--surface);
-  color:var(--muted);
-  font-size:13px;
-  font-weight:500;
-  cursor:pointer;
-  transition:all 0.15s;
-  font-family:var(--font);
-}
-.ann-recip-btn:hover{
-  border-color:var(--accent);
-  color:var(--text);
-}
-.ann-recip-btn.active{
-  background:#eff6ff;
-  border-color:var(--accent);
-  color:var(--accent);
-  font-weight:600;
-}
-.ann-recip-icon{font-size:16px;}
 .ann-priority-selector{
   display:flex;
   gap:8px;
@@ -1335,9 +1304,6 @@ body.dark-mode .ann-input{background:var(--surface2);color:var(--text);border-co
 body.dark-mode .ann-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,0.12);}
 body.dark-mode .ann-list-card{background:var(--surface);border-color:var(--border);}
 body.dark-mode .ann-list-header{background:linear-gradient(135deg,rgba(217,119,6,0.1) 0%,rgba(245,158,11,0.06) 100%);border-bottom-color:var(--border);}
-body.dark-mode .ann-recip-btn{background:var(--surface2);border-color:var(--border);color:var(--muted);}
-body.dark-mode .ann-recip-btn:hover{border-color:var(--accent);color:var(--text);}
-body.dark-mode .ann-recip-btn.active{background:rgba(59,130,246,0.1);border-color:var(--accent);}
 body.dark-mode .ann-prior-btn{background:var(--surface2);border-color:var(--border);color:var(--muted);}
 body.dark-mode .ann-prior-btn.active{background:var(--surface);border-color:var(--border-mid);color:var(--text);}
 body.dark-mode .ann-textarea{background:var(--surface2);color:var(--text);border-color:var(--border);}
@@ -2255,8 +2221,6 @@ body.dark-mode .loading-sub {
   .ann-list-header{padding:16px;}
   .ann-list-body{padding:12px;max-height:300px;}
   .ann-form-actions{flex-direction:column;}
-  .ann-recipient-selector{flex-direction:column;}
-  .ann-recip-btn{width:100%;justify-content:center;}
   .ann-priority-selector{flex-wrap:wrap;gap:5px;}
   .ann-prior-btn{flex:1;justify-content:center;min-width:0;padding:7px 10px;font-size:13px;}
   .leave-req-card{flex-wrap:wrap;}
