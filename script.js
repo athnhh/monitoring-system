@@ -1571,7 +1571,6 @@ function renderAdminNotifPanel() {
     '</div>',
     n => n._id || n.id || n.text + (n.time || '')
   );
-  }
 }
 
 function dismissAdminNotif(key) {
@@ -1606,7 +1605,6 @@ function renderEmpNotifPanel() {
     '</div>',
     n => n._id || n.id || n.text + (n.time || '')
   );
-  }
 }
 
 function dismissEmpNotif(key) {
