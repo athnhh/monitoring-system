@@ -286,7 +286,7 @@ input,select,textarea{font-family:var(--font);}
   border-color:#f59e0b;
 }
 .remember-row input[type="checkbox"]:checked + .remember-check::after{
-  content:'✓';
+  content:'';
   color:#1a1a1a;
   font-size:12px;
   font-weight:700;

@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS archived_employees (
 );
 
 -- 9. Row Level Security (RLS)
--- ⚠️ Supabase enables RLS by default on new tables via the dashboard.
+-- Supabase enables RLS by default on new tables via the dashboard.
 -- When RLS is ON but no policy exists, ALL operations are blocked.
 -- To fix the "violates row-level security policy" error, run:
 --

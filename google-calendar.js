@@ -84,7 +84,7 @@ async function createBirthdayEvent(name, birthday, calendarId) {
   const eventDate = `${currentYear}-${month}-${day}`;
 
   const event = {
-    summary: `🎂 ${name}'s Birthday`,
+    summary: `${name}'s Birthday`,
     description: `Birthday of ${name} — auto-created by Quemahtech EMS`,
     start: {
       date: eventDate,

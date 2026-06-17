@@ -214,10 +214,10 @@
     const tempPwd = Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     await db.supabase.from('admin').update({ password: tempPwd }).eq('username', 'quemahtech');
 
-    const warningMessage = '⚠️ Your admin password has been RESET. Your previous password will no longer work. Use the temporary password below to log in, then change your password in Settings.';
+    const warningMessage = 'Your admin password has been RESET. Your previous password will no longer work. Use the temporary password below to log in, then change your password in Settings.';
 
     if (emailSent) {
-      return { success: true, message: '📧 Password reset email sent. ' + warningMessage, tempPassword: tempPwd };
+      return { success: true, message: 'Password reset email sent. ' + warningMessage, tempPassword: tempPwd };
     }
     return { success: true, message: warningMessage, tempPassword: tempPwd };
   }

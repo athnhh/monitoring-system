@@ -35,7 +35,7 @@ function __checkHTMLTemplate(html, label) {
   let valid = true;
   for (const tag of allTags) {
     if (oCount[tag] !== cCount[tag]) {
-      console.warn('⚠️ [HTML Validation] Tag mismatch in "' + label + '": <' + tag + '> opened ' + (oCount[tag] || 0) + '×, closed ' + (cCount[tag] || 0) + '×');
+      console.warn('[HTML Validation] Tag mismatch in "' + label + '": <' + tag + '> opened ' + (oCount[tag] || 0) + '×, closed ' + (cCount[tag] || 0) + '×');
       console.warn('   Context: ' + html.substring(0, 300));
       valid = false;
     }
@@ -360,7 +360,7 @@ function renderDashboardCards() {
   const activeNowCount = presentLogs.filter(l => !l.logout_time).length;
   const pEl = document.getElementById('a-present');
   const aEl = document.getElementById('a-absent');
-  setText('title-present-count', 'Present (' + presentLogs.length + ')' + (activeNowCount > 0 ? '  •  🟢 ' + activeNowCount + ' Active Now' : ''));
+  setText('title-present-count', 'Present (' + presentLogs.length + ')' + (activeNowCount > 0 ? '  •  ' + activeNowCount + ' Active Now' : ''));
   setText('title-absent-count', 'Absent / On Leave (' + absentEmps.length + ')');
   // Smart sync for present list
   if (pEl) {
@@ -464,7 +464,7 @@ function renderActiveNow(todayLogs, employees) {
       '</div>' +
       '<div class="active-now-meta">' +
         '<div class="active-now-time">' + formatTime(l.login_time) + '</div>' +
-        '<div class="active-now-duration">⏱ ' + calcActiveDuration(l.login_time) + '</div>' +
+        '<div class="active-now-duration">' + calcActiveDuration(l.login_time) + '</div>' +
       '</div>' +
     '</div>';
   }, l => l.emp_id);
@@ -565,9 +565,9 @@ function renderEmpTable() {
     '<td style="font-size:13px;">' + emp.email + '</td>' +
     '<td style="font-size:13px;">' + (emp.phone || '—') + '</td>' +
     '<td style="font-size:13px;">' + (emp.bday ? formatDate(emp.bday) : '—') + '</td>' +
-    '<td><button class="btn btn-sm" onclick="openEditEmpModal(\'' + emp.id + '\')" title="Edit">✏️</button> ' +
-    '<button class="btn btn-sm" onclick="archiveEmployee(\'' + emp.id + '\')" title="Archive">📦</button> ' +
-    '<button class="btn btn-sm btn-danger" onclick="openRemoveEmpModal(\'' + emp.id + '\')" title="Remove">🗑</button></td></tr>',
+    '<td><button class="btn btn-sm" onclick="openEditEmpModal(\'' + emp.id + '\')" title="Edit">Edit</button> ' +
+    '<button class="btn btn-sm" onclick="archiveEmployee(\'' + emp.id + '\')" title="Archive">Archive</button> ' +
+    '<button class="btn btn-sm btn-danger" onclick="openRemoveEmpModal(\'' + emp.id + '\')" title="Remove">Remove</button></td></tr>',
     emp => emp.id
   );
 }
@@ -583,16 +583,16 @@ function archiveEmployee(empId) {
   if (!emp) return;
   archiveTargetId = empId;
   removeTargetId = null;
-  setModalHeader('📦 Archive Employee');
+  setModalHeader('Archive Employee');
   document.getElementById('delete-emp-modal').dataset.mode = 'archive';
   const modalBody = document.querySelector('#delete-emp-modal .modal-body');
   if (modalBody) {
     modalBody.innerHTML = '' +
       '<p style="font-size:16px;margin-bottom:8px;">Archive <strong>' + emp.name + '</strong>?</p>' +
-      '<p style="font-size:13px;color:var(--amber-text, #92400e);margin-bottom:16px;">📦 They will be moved to the archived employees section. Data preserved for compliance.</p>' +
+      '<p style="font-size:13px;color:var(--amber-text, #92400e);margin-bottom:16px;">They will be moved to the archived employees section. Data preserved for compliance.</p>' +
       '<div style="display:flex;gap:10px;justify-content:center;">' +
         '<button class="btn" onclick="closeDeleteEmpModal()" style="flex:1;">Cancel</button>' +
-        '<button class="btn btn-primary" id="archive-confirm-btn" onclick="confirmArchiveEmployee()" style="flex:1;">📦 Archive Employee</button>' +
+        '<button class="btn btn-primary" id="archive-confirm-btn" onclick="confirmArchiveEmployee()" style="flex:1;">Archive Employee</button>' +
       '</div>';
   }
   document.getElementById('delete-emp-modal').style.display = 'flex';
@@ -601,7 +601,7 @@ function archiveEmployee(empId) {
 async function confirmArchiveEmployee() {
   if (!archiveTargetId || !appState) return;
   const emp = (appState.employees || []).find(e => e.id === archiveTargetId);
-  if (!emp) { showNotifBar('error', 'Employee not found.', '❌'); closeDeleteEmpModal(); return; }
+  if (!emp) { showNotifBar('error', 'Employee not found.'); closeDeleteEmpModal(); return; }
   const confirmBtn = document.getElementById('archive-confirm-btn');
   if (confirmBtn) {
     confirmBtn.disabled = true;
@@ -621,14 +621,14 @@ async function confirmArchiveEmployee() {
       pendingUndoArchiveName = null;
       pendingUndoTimeout = null;
     }, 5000);
-    showNotifBar('info', empName + ' has been archived.', '📦', {
+    showNotifBar('info', empName + ' has been archived.', {
       label: '↩ Undo',
       onClick() {
         undoArchive(empName);
       }
     });
   } else {
-    showNotifBar('error', 'Failed to archive ' + emp.name + '.', '❌');
+    showNotifBar('error', 'Failed to archive ' + emp.name + '.');
   }
   archiveTargetId = null;
 }
@@ -668,16 +668,16 @@ function openRemoveEmpModal(empId) {
   if (!emp) return;
   removeTargetId = empId;
   archiveTargetId = null;
-  setModalHeader('🗑 Remove Employee');
+  setModalHeader('Remove Employee');
   document.getElementById('delete-emp-modal').dataset.mode = 'remove';
   const modalBody = document.querySelector('#delete-emp-modal .modal-body');
   if (modalBody) {
     modalBody.innerHTML = '' +
       '<p style="font-size:16px;margin-bottom:8px;">Permanently remove <strong>' + emp.name + '</strong>?</p>' +
-      '<p style="font-size:13px;color:var(--red);margin-bottom:16px;">⚠️ This will delete all attendance records and leave requests for <strong>' + emp.id + '</strong>. This action <strong>cannot</strong> be undone.</p>' +
+      '<p style="font-size:13px;color:var(--red);margin-bottom:16px;">This will delete all attendance records and leave requests for <strong>' + emp.id + '</strong>. This action <strong>cannot</strong> be undone.</p>' +
       '<div style="display:flex;gap:10px;justify-content:center;">' +
         '<button class="btn" onclick="closeDeleteEmpModal()" style="flex:1;">Cancel</button>' +
-        '<button class="btn btn-danger" id="remove-confirm-btn" onclick="confirmRemoveEmployee()" style="flex:1;">🗑 Remove Permanently</button>' +
+        '<button class="btn btn-danger" id="remove-confirm-btn" onclick="confirmRemoveEmployee()" style="flex:1;">Remove Permanently</button>' +
       '</div>';
   }
   document.getElementById('delete-emp-modal').style.display = 'flex';
@@ -686,7 +686,7 @@ function openRemoveEmpModal(empId) {
 async function confirmRemoveEmployee() {
   if (!removeTargetId || !appState) return;
   const emp = (appState.employees || []).find(e => e.id === removeTargetId);
-  if (!emp) { showNotifBar('error', 'Employee not found.', '❌'); closeDeleteEmpModal(); return; }
+  if (!emp) { showNotifBar('error', 'Employee not found.'); closeDeleteEmpModal(); return; }
   const confirmBtn = document.getElementById('remove-confirm-btn');
   if (confirmBtn) {
     confirmBtn.disabled = true;
@@ -698,9 +698,9 @@ async function confirmRemoveEmployee() {
   closeDeleteEmpModal();
   await refreshStateAndRender();
   if (res && res.success) {
-    showNotifBar('info', emp.name + ' has been removed.', '🗑');
+    showNotifBar('info', emp.name + ' has been removed.');
   } else {
-    showNotifBar('error', (res && res.error) || 'Failed to remove ' + emp.name + '.', '❌');
+    showNotifBar('error', (res && res.error) || 'Failed to remove ' + emp.name + '.');
   }
   removeTargetId = null;
 }
@@ -715,13 +715,13 @@ async function undoArchive(empName) {
   }
   pendingUndoArchiveId = null;
   pendingUndoArchiveName = null;
-  showNotifBar('info', 'Restoring ' + empName + '…', '⏳');
+  showNotifBar('info', 'Restoring ' + empName + '…');
   const res = await api('/api/employees/' + id + '/unarchive', { method: 'POST' });
   await refreshStateAndRender();
   if (res && res.success) {
-    showNotifBar('success', empName + ' has been restored.', '↩');
+    showNotifBar('success', empName + ' has been restored.');
   } else {
-    showNotifBar('error', 'Failed to restore ' + empName + '.', '❌');
+    showNotifBar('error', 'Failed to restore ' + empName + '.');
   }
 }
 
@@ -735,8 +735,8 @@ function closeDeleteEmpModal() {
 function openAddEmpModal() {
   document.getElementById('add-emp-modal').dataset.mode = 'add';
   document.getElementById('add-emp-modal').dataset.editId = '';
-  document.getElementById('add-emp-title').innerText = '👤 Add New Employee';
-  document.getElementById('add-emp-save-btn').innerText = '💾 Save Employee';
+  document.getElementById('add-emp-title').innerText = 'Add New Employee';
+  document.getElementById('add-emp-save-btn').innerText = 'Save Employee';
   document.getElementById('add-emp-modal').style.display = 'flex';
   document.getElementById('f-name').value = '';
   document.getElementById('f-id').value = '';
@@ -762,8 +762,8 @@ function openEditEmpModal(empId) {
   if (!emp) return;
   document.getElementById('add-emp-modal').dataset.mode = 'edit';
   document.getElementById('add-emp-modal').dataset.editId = empId;
-  document.getElementById('add-emp-title').innerText = '✏️ Edit Employee';
-  document.getElementById('add-emp-save-btn').innerText = '💾 Update Employee';
+  document.getElementById('add-emp-title').innerText = 'Edit Employee';
+  document.getElementById('add-emp-save-btn').innerText = 'Update Employee';
   document.getElementById('add-emp-modal').style.display = 'flex';
   document.getElementById('f-name').value = emp.name;
   document.getElementById('f-id').value = emp.id;
@@ -800,16 +800,16 @@ function saveEmployee() {
   const pwd = document.getElementById('f-pwd').value.trim();
   const cl = parseFloat(document.getElementById('f-cl').value) || 0;
   const sl = parseFloat(document.getElementById('f-sl').value) || 0;
-  if (!name || !id || !dept) { showNotifBar('warning', 'Please fill in all required fields (*)', '⚠️'); return; }
+  if (!name || !id || !dept) { showNotifBar('warning', 'Please fill in all required fields (*)'); return; }
   if (mode === 'add') {
-    if (appState && (appState.employees || []).some(e => e.id === id)) { showNotifBar('warning', 'Employee ID already exists.', '⚠️'); return; }
+    if (appState && (appState.employees || []).some(e => e.id === id)) { showNotifBar('warning', 'Employee ID already exists.'); return; }
     api('/api/employees', { method: 'POST', body: { id, name, dept, email, phone, bday, joining, designation, cl, sl, password: pwd || 'emp123' } }).then(async res => {
       if (res && res.success) {
         closeAddEmpModal();
         await refreshStateAndRender();
-        showNotifBar('success', 'Employee ' + name + ' added successfully!', '✓');
+        showNotifBar('success', 'Employee ' + name + ' added successfully!');
       } else {
-        showNotifBar('error', (res && res.error) || 'Failed to add employee.', '❌');
+        showNotifBar('error', (res && res.error) || 'Failed to add employee.');
       }
     });
   } else {
@@ -817,9 +817,9 @@ function saveEmployee() {
       if (res && res.success) {
         closeAddEmpModal();
         await refreshStateAndRender();
-        showNotifBar('success', 'Employee ' + name + ' updated successfully!', '✓');
+        showNotifBar('success', 'Employee ' + name + ' updated successfully!');
       } else {
-        showNotifBar('error', (res && res.error) || 'Failed to update employee.', '❌');
+        showNotifBar('error', (res && res.error) || 'Failed to update employee.');
       }
     });
   }
@@ -843,7 +843,7 @@ function renderLeaveRequests(leaveRequests) {
   if (!el) return;
   const leaveReqs = leaveRequests || (appState ? appState.leaveRequests : []) || [];
   const pending = leaveReqs.filter(l => l.status === 'Pending');
-  if (!pending.length) { el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No pending requests 🎉</p>'; return; }
+  if (!pending.length) { el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No pending requests</p>'; return; }
   smartListSync(el, pending, l => leaveReqCard(l), l => l.id || l.empId + '-' + l.from);
 }
 
@@ -855,13 +855,13 @@ function handleLeave(idxOrId, decision) {
   api('/api/leave-requests/' + (req.id || req.idx), { method: 'PUT', body: { status: decision } }).then(async (res) => {
     await refreshStateAndRender();
     if (decision === 'Approved') {
-      if (res && res.warning) showNotifBar('warning', res.warning, '⚠️');
-      showNotifBar('success', 'Leave for ' + req.empName + ' Approved!', '✓');
+      if (res && res.warning) showNotifBar('warning', res.warning);
+      showNotifBar('success', 'Leave for ' + req.empName + ' Approved!');
       addAdminNotif('Leave request from ' + req.empName + ' has been Approved.');
-      addEmpNotif('Your ' + req.type + ' leave request has been ✅ Approved!', req.empId);
+      addEmpNotif('Your ' + req.type + ' leave request has been Approved!', req.empId);
     } else {
-      showNotifBar('info', 'Leave for ' + req.empName + ' Rejected.', 'ℹ');
-      addEmpNotif('Your ' + req.type + ' leave request has been ❌ Rejected.', req.empId);
+      showNotifBar('info', 'Leave for ' + req.empName + ' Rejected.');
+      addEmpNotif('Your ' + req.type + ' leave request has been Rejected.', req.empId);
     }
   });
 }
@@ -923,7 +923,7 @@ function saveLeaveBalance() {
   document.getElementById('leave-manage-modal').style.display = 'none';
   api('/api/employees/' + emp.id, { method: 'PUT', body: { cl: emp.cl, sl: emp.sl, ul: emp.ul } }).then(async () => {
     await refreshStateAndRender();
-    showNotifBar('success', 'Leave balances updated for ' + emp.name + '.', '✓');
+    showNotifBar('success', 'Leave balances updated for ' + emp.name + '.');
   });
 }
 
@@ -998,9 +998,9 @@ function changeAdminPwd() {
   const cur = document.getElementById('a-cur-pwd').value.trim();
   const newPwd = document.getElementById('a-new-pwd').value.trim();
   const conf = document.getElementById('a-conf-pwd').value.trim();
-  if (!cur || !newPwd || !conf) { showNotifBar('warning', 'Please fill in all fields.', '⚠️'); return; }
-  if (newPwd.length < 6) { showNotifBar('warning', 'New password must be at least 6 characters.', '⚠️'); return; }
-  if (newPwd !== conf) { showNotifBar('warning', 'Passwords do not match.', '⚠️'); return; }
+  if (!cur || !newPwd || !conf) { showNotifBar('warning', 'Please fill in all fields.'); return; }
+  if (newPwd.length < 6) { showNotifBar('warning', 'New password must be at least 6 characters.'); return; }
+  if (newPwd !== conf) { showNotifBar('warning', 'Passwords do not match.'); return; }
   const btn = document.querySelector('#admin-settings .btn-primary');
   setButtonLoading(btn, true);
   api('/api/auth/password', {
@@ -1013,9 +1013,9 @@ function changeAdminPwd() {
       document.getElementById('a-new-pwd').value = '';
       document.getElementById('a-conf-pwd').value = '';
       document.getElementById('a-strength').style.width = '0%';
-      showNotifBar('success', 'Admin password updated successfully!', '✓');
+      showNotifBar('success', 'Admin password updated successfully!');
     } else {
-      showNotifBar('error', (res && res.error) || 'Failed to update password.', '❌');
+      showNotifBar('error', (res && res.error) || 'Failed to update password.');
     }
   });
 }
@@ -1122,14 +1122,14 @@ function empPunchIn() {
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
   const h = now.getHours();
   if (h >= 18) {
-    showNotifBar('error', 'Cannot sign in after 6:00 PM. Contact admin if you need a correction.', '⛔');
+    showNotifBar('error', 'Cannot sign in after 6:00 PM. Contact admin if you need a correction.');
     return;
   }
-  if (!appState) { showNotifBar('error', 'App data not loaded. Please refresh the page.', '❌'); return; }
+  if (!appState) { showNotifBar('error', 'App data not loaded. Please refresh the page.'); return; }
   const uid = sessionStorage.getItem('userId');
-  if (!uid) { showNotifBar('error', 'Session expired. Please log in again.', '❌'); return; }
+  if (!uid) { showNotifBar('error', 'Session expired. Please log in again.'); return; }
   const emp = (appState.employees || []).find(e => e.id === uid);
-  if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.', '❌'); return; }
+  if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.'); return; }
   api('/api/attendance/login', {
     method: 'POST',
     body: { empId: emp.id, empName: emp.name, department: emp.dept, computerName: navigator.platform || 'Web Browser' }
@@ -1137,11 +1137,11 @@ function empPunchIn() {
     if (res && res.success) {
       const pill = document.getElementById('emp-pill');
       if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
-      showNotifBar('success', 'Signed In at ' + timeStr, '✓');
+      showNotifBar('success', 'Signed In at ' + timeStr);
       appendTimeline('in', 'Signed In', timeStr);
-      if (h >= 14) showNotifBar('warning', 'Login after 2:00 PM — this session is flagged as Half-Day.', '⚠️');
+      if (h >= 14) showNotifBar('warning', 'Login after 2:00 PM — this session is flagged as Half-Day.');
     } else {
-      showNotifBar('error', (res && res.error) || 'Failed to sign in.', '❌');
+      showNotifBar('error', (res && res.error) || 'Failed to sign in.');
     }
     await refreshStateAndRender();
   });
@@ -1150,11 +1150,11 @@ function empPunchIn() {
 function empPunchOut() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
-  if (!appState) { showNotifBar('error', 'App data not loaded. Please refresh the page.', '❌'); return; }
+  if (!appState) { showNotifBar('error', 'App data not loaded. Please refresh the page.'); return; }
   const uid = sessionStorage.getItem('userId');
-  if (!uid) { showNotifBar('error', 'Session expired. Please log in again.', '❌'); return; }
+  if (!uid) { showNotifBar('error', 'Session expired. Please log in again.'); return; }
   const emp = (appState.employees || []).find(e => e.id === uid);
-  if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.', '❌'); return; }
+  if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.'); return; }
   api('/api/attendance/logout', {
     method: 'POST',
     body: { empId: emp.id }
@@ -1162,11 +1162,11 @@ function empPunchOut() {
     if (res && res.success) {
       const pill = document.getElementById('emp-pill');
       if (pill) { pill.className = 'status-pill sp-out'; pill.innerHTML = '<div class="status-dot sd-r"></div>Signed Out'; }
-      if (breakInterval) { clearInterval(breakInterval); breakInterval = null; document.getElementById('break-btn').innerText = '☕ Start Break'; document.getElementById('break-timer-wrap').style.display = 'none'; }
-      showNotifBar('info', 'Signed Out at ' + timeStr, '←');
+      if (breakInterval) { clearInterval(breakInterval); breakInterval = null; document.getElementById('break-btn').innerText = 'Start Break'; document.getElementById('break-timer-wrap').style.display = 'none'; }
+      showNotifBar('info', 'Signed Out at ' + timeStr);
       appendTimeline('out', 'Signed Out', timeStr);
     } else {
-      showNotifBar('error', (res && res.error) || 'Failed to sign out.', '❌');
+      showNotifBar('error', (res && res.error) || 'Failed to sign out.');
     }
     await refreshStateAndRender();
   });
@@ -1178,7 +1178,7 @@ function toggleBreak() {
   const disp = document.getElementById('break-timer');
   if (!btn) return;
   if (btn.innerText.includes('Start')) {
-    btn.innerText = '☕ Stop Break';
+    btn.innerText = 'Stop Break';
     if (wrap) wrap.style.display = 'block';
     breakInterval = setInterval(() => {
       breakSeconds++;
@@ -1191,13 +1191,13 @@ function toggleBreak() {
     const pillEl = document.getElementById('emp-pill');
     if (pillEl) { pillEl.className = 'status-pill sp-break'; pillEl.innerHTML = '<div class="status-dot sd-a"></div>On Break'; }
   } else {
-    btn.innerText = '☕ Start Break';
+    btn.innerText = 'Start Break';
     clearInterval(breakInterval);
     breakInterval = null;
     const dur = disp?.innerText || '0:00';
     if (wrap) wrap.style.display = 'none';
     breakSeconds = 0;
-    showNotifBar('info', 'Break ended — Duration: ' + dur, '☕');
+    showNotifBar('info', 'Break ended — Duration: ' + dur);
     const now = new Date().toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
     appendTimeline('in', 'Break ended', now);
     const pillEl = document.getElementById('emp-pill');
@@ -1256,7 +1256,7 @@ function calcLeaveDays() {
   const emp = employees.find(e => e.id === uid) || employees[0];
   if (!emp) return;
   let msg = days + ' working day(s) requested.';
-  if (currentLeaveType === 'CL') msg += ' Your CL balance: ' + emp.cl + ' days.' + (emp.cl < days ? ' ⚠️ ' + (days - emp.cl) + ' day(s) will become Unpaid.' : '');
+  if (currentLeaveType === 'CL') msg += ' Your CL balance: ' + emp.cl + ' days.' + (emp.cl < days ? ' (' + (days - emp.cl) + ' day(s) will become Unpaid).' : '');
   else if (currentLeaveType === 'SL') msg += ' Your SL balance: ' + emp.sl + ' days. Note: Each SL day = 0.5 SL + 0.5 Unpaid.';
   note.innerText = msg;
 }
@@ -1265,20 +1265,20 @@ function submitLeaveRequest() {
   const from = document.getElementById('leave-from')?.value;
   const to = document.getElementById('leave-to')?.value;
   const reason = document.getElementById('leave-reason')?.value.trim();
-  if (!from || !to) { showNotifBar('warning', 'Please select leave dates.', '⚠️'); return; }
-  if (!reason) { showNotifBar('warning', 'Please provide a reason.', '⚠️'); return; }
+  if (!from || !to) { showNotifBar('warning', 'Please select leave dates.'); return; }
+  if (!reason) { showNotifBar('warning', 'Please provide a reason.'); return; }
   if (!appState) return;
   const employees = appState.employees || [];
   const uid = sessionStorage.getItem('userId');
   const emp = employees.find(e => e.id === uid) || employees[0];
-  if (!emp) { showNotifBar('error', 'Employee not found. Please log in again.', '❌'); return; }
+  if (!emp) { showNotifBar('error', 'Employee not found. Please log in again.'); return; }
   let days = 0;
   const d1 = new Date(from), d2 = new Date(to);
   for (let d = new Date(d1); d <= d2; d.setDate(d.getDate() + 1)) { if (d.getDay() !== 0 && d.getDay() !== 6) days++; }
   const newReq = { empId: emp.id, empName: emp.name, dept: emp.dept, type: currentLeaveType, from, to, days, reason, status: 'Pending' };
   api('/api/leave-requests', { method: 'POST', body: newReq }).then(async () => {
     await refreshStateAndRender();
-    showNotifBar('success', 'Leave request submitted! Awaiting admin approval.', '✓');
+    showNotifBar('success', 'Leave request submitted! Awaiting admin approval.');
     addAdminNotif('New leave request from ' + emp.name + ' (' + currentLeaveType + ') for ' + formatDate(from) + '.');
     document.getElementById('leave-reason').value = '';
   });
@@ -1306,8 +1306,8 @@ function changeEmpPwd() {
   const uid = sessionStorage.getItem('userId');
   const emp = employees.find(e => e.id === uid);
   if (!emp) return;
-  if (newPwd.length < 6) { showNotifBar('warning', 'New password must be at least 6 characters.', '⚠️'); return; }
-  if (newPwd !== conf) { showNotifBar('warning', 'Passwords do not match.', '⚠️'); return; }
+  if (newPwd.length < 6) { showNotifBar('warning', 'New password must be at least 6 characters.'); return; }
+  if (newPwd !== conf) { showNotifBar('warning', 'Passwords do not match.'); return; }
   const btn = document.querySelector('#emp-settings .btn-primary');
   setButtonLoading(btn, true);
   api('/api/auth/password', { method: 'PUT', body: { userId: uid, currentPwd: cur, newPwd } }).then(res => {
@@ -1318,9 +1318,9 @@ function changeEmpPwd() {
       document.getElementById('e-new-pwd').value = '';
       document.getElementById('e-conf-pwd').value = '';
       document.getElementById('e-strength').style.width = '0%';
-      showNotifBar('success', 'Password updated successfully!', '✓');
+      showNotifBar('success', 'Password updated successfully!');
     } else {
-      showNotifBar('error', (res && res.error) || 'Failed to update password.', '❌');
+      showNotifBar('error', (res && res.error) || 'Failed to update password.');
     }
   });
 }
@@ -1342,7 +1342,7 @@ async function sendAdminReset() {
   const sendBtn = document.querySelector('#forgot-modal .btn-primary');
   if (sendBtn) {
     sendBtn.disabled = true;
-    sendBtn.textContent = '⏳ Generating...';
+    sendBtn.textContent = 'Generating...';
   }
   try {
     const res = await api('/api/auth/forgot-password', {
@@ -1352,7 +1352,7 @@ async function sendAdminReset() {
     if (res && res.success && res.tempPassword) {
       const statusEl = document.getElementById('fp-status-message');
       if (statusEl) {
-        statusEl.innerHTML = '✅ <strong>' + (res.message || 'Temporary password generated. Use it to log in.') + '</strong>';
+        statusEl.innerHTML = '<strong>' + (res.message || 'Temporary password generated. Use it to log in.') + '</strong>';
         statusEl.style.display = 'block';
         statusEl.style.color = 'var(--green-text, #166534)';
         statusEl.style.background = 'var(--green-bg, #dcfce7)';
@@ -1365,20 +1365,20 @@ async function sendAdminReset() {
       }
       if (sendBtn) {
         sendBtn.disabled = false;
-        sendBtn.textContent = '🔑 Generate New Password';
+        sendBtn.textContent = 'Generate New Password';
       }
     } else {
-      showNotifBar('error', (res && res.error) || 'Failed to generate reset password.', '❌');
+      showNotifBar('error', (res && res.error) || 'Failed to generate reset password.');
       if (sendBtn) {
         sendBtn.disabled = false;
-        sendBtn.textContent = '🔑 Generate Reset Password';
+        sendBtn.textContent = 'Generate Reset Password';
       }
     }
   } catch (e) {
-    showNotifBar('error', 'Server unreachable: ' + e.message, '❌');
+    showNotifBar('error', 'Server unreachable: ' + e.message);
     if (sendBtn) {
       sendBtn.disabled = false;
-      sendBtn.textContent = '🔑 Generate Reset Password';
+      sendBtn.textContent = 'Generate Reset Password';
     }
   }
 }
@@ -1482,22 +1482,28 @@ function addEmpNotif(text, userId) {
 
 function toggleNotifPanel() {
   adminNotifPanelOpen = !adminNotifPanelOpen;
-  document.getElementById('notif-panel').classList.toggle('open', adminNotifPanelOpen);
+  const panel = document.getElementById('notif-panel');
   if (adminNotifPanelOpen) {
+    // Render content first, then trigger slide transition on next frame
     renderAdminNotifPanel();
     markAdminNotifsRead();
+    requestAnimationFrame(() => { if (adminNotifPanelOpen) panel.classList.add('open'); });
   } else {
+    panel.classList.remove('open');
     closeNotifPanels();
   }
 }
 
 function toggleEmpNotifPanel() {
   empNotifPanelOpen = !empNotifPanelOpen;
-  document.getElementById('emp-notif-panel').classList.toggle('open', empNotifPanelOpen);
+  const panel = document.getElementById('emp-notif-panel');
   if (empNotifPanelOpen) {
+    // Render content first, then trigger slide transition on next frame
     renderEmpNotifPanel();
     markEmpNotifsRead();
+    requestAnimationFrame(() => { if (empNotifPanelOpen) panel.classList.add('open'); });
   } else {
+    panel.classList.remove('open');
     closeNotifPanels();
   }
 }
@@ -1601,7 +1607,7 @@ function showNotifBar(type, msg, icon, actionBtn) {
   const textEl = document.getElementById('notif-text');
   if (!bar || !textEl) return;
   bar.className = 'notif-bar ' + type;
-  if (iconEl) iconEl.textContent = icon || '✓';
+  if (iconEl) iconEl.textContent = icon || '';
   textEl.textContent = msg;
   // Add or update action button
   let actionEl = document.getElementById('notif-action-btn');
@@ -1735,7 +1741,7 @@ async function doLogin() {
       currentRole = 'employee';
 
       if (res.timeBlock && res.timeBlock.isHalfDay) {
-        showNotifBar('warning', '⚠️ First login after 2:00 PM — today will be flagged as Half-Day.', '⚠️');
+        showNotifBar('warning', 'First login after 2:00 PM — today will be flagged as Half-Day.');
       }
 
       const emp = appState && (appState.employees || []).find(e => e.id === res.user.id);
@@ -1744,7 +1750,7 @@ async function doLogin() {
         hideLoading();
       } else {
         hideLoading();
-        showNotifBar('error', 'Employee data not found. Check database connection.', '❌');
+        showNotifBar('error', 'Employee data not found. Check database connection.');
       }
     }
     return;
@@ -1802,7 +1808,7 @@ function showEmployeePage(emp) {
   document.getElementById('page-login').classList.remove('active');
   document.getElementById('page-employee').classList.add('active');
   document.getElementById('emp-topbar-name').textContent = emp.name;
-  document.getElementById('emp-badge').textContent = '👤 ' + emp.id;
+  document.getElementById('emp-badge').textContent = emp.id;
   document.getElementById('emp-fullname').textContent = emp.name;
   document.getElementById('emp-details').textContent = emp.dept + (emp.designation ? ' — ' + emp.designation : '');
   document.getElementById('emp-av').textContent = emp.name.charAt(0);
@@ -1832,13 +1838,21 @@ function toggleDarkMode() {
   document.body.classList.toggle('dark-mode');
   const isDark = document.body.classList.contains('dark-mode');
   localStorage.setItem('darkMode', isDark ? 'true' : 'false');
-  document.querySelectorAll('.dark-toggle-btn').forEach(b => b.textContent = isDark ? '☀️' : '🌙');
+  document.querySelectorAll('.dark-toggle-btn').forEach(b => b.textContent = isDark ? 'L' : 'D');
 }
 
 async function switchTab(pageId, prefix, tabName, btnElement, onShow) {
   const tabClass = prefix === 'admin' ? 'atab' : 'etab';
   const tabs = document.querySelectorAll(pageId + ' .' + tabClass);
-  tabs.forEach(t => t.classList.remove('show'));
+  const current = [...tabs].find(t => t.classList.contains('show'));
+  if (current) {
+    // Apply exit animation before removing
+    current.classList.add('tab-leaving');
+    await new Promise(r => setTimeout(r, 180));
+    tabs.forEach(t => t.classList.remove('show', 'tab-leaving'));
+  } else {
+    tabs.forEach(t => t.classList.remove('show'));
+  }
   const target = document.getElementById(prefix + '-' + tabName);
   if (target) {
     target.classList.add('show');
@@ -1897,7 +1911,7 @@ function renderArchivedTable() {
     '<td><span class="tag t-' + (a.status === 'Archived' ? 'leave' : 'absent') + '">' + a.status + '</span></td>' +
     '<td style="font-size:13px;">' + (a.joining ? formatDate(a.joining) : '—') + '</td>' +
     '<td style="font-size:13px;">' + (a.exit ? formatDate(a.exit) : '—') + '</td>' +
-    '<td><button class="btn btn-sm" onclick="viewArchivedEmployee(\'' + (a.id || '') + '\')">👁 View</button></td></tr>',
+    '<td><button class="btn btn-sm" onclick="viewArchivedEmployee(\'' + (a.id || '') + '\')">View</button></td></tr>',
     a => a.id || a.name
   );
 }
@@ -1905,14 +1919,14 @@ function renderArchivedTable() {
 function viewArchivedEmployee(archivedId) {
   if (!appState) return;
   const archived = (appState.archivedEmployees || []).find(a => a.id === archivedId);
-  if (!archived) { showNotifBar('error', 'Archived employee not found.', '❌'); return; }
+  if (!archived) { showNotifBar('error', 'Archived employee not found.'); return; }
   const ed = archived.employee_data || {};
   // Use the add-emp-modal in read-only view mode
   const modal = document.getElementById('add-emp-modal');
   modal.dataset.mode = 'view';
   modal.dataset.editId = '';
-  document.getElementById('add-emp-title').innerText = '📋 Archived Employee — ' + archived.name;
-  document.getElementById('add-emp-save-btn').innerText = '🔒 Read-Only';
+  document.getElementById('add-emp-title').innerText = 'Archived Employee — ' + archived.name;
+  document.getElementById('add-emp-save-btn').innerText = 'Read-Only';
   document.getElementById('add-emp-save-btn').disabled = true;
   modal.style.display = 'flex';
   // Populate all fields with archived data
@@ -1931,7 +1945,7 @@ function viewArchivedEmployee(archivedId) {
   document.getElementById('f-designation').value = ed.designation || '';
   document.getElementById('f-designation').disabled = true;
   document.getElementById('f-pwd').value = '';
-  document.getElementById('f-pwd').placeholder = '🔒 Data archived — password hidden';
+  document.getElementById('f-pwd').placeholder = 'Data archived — password hidden';
   document.getElementById('f-pwd').disabled = true;
   document.getElementById('f-cl').value = ed.cl || 0;
   document.getElementById('f-cl').disabled = true;
@@ -1951,7 +1965,7 @@ function viewArchivedEmployee(archivedId) {
     const banner = document.createElement('div');
     banner.id = 'archived-view-banner';
     banner.style.cssText = 'background:var(--amber-bg, #fef3c7);border:1px solid var(--amber-border, #fde68a);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--amber-text, #92400e);line-height:1.6;';
-    banner.innerHTML = '⚠️ <strong>Archived / Past Employee</strong> — This data is read-only for compliance and audit purposes. ' +
+    banner.innerHTML = '<strong>Archived / Past Employee</strong> — This data is read-only for compliance and audit purposes. ' +
       'Archived on: <strong>' + (archived.exit ? formatDate(archived.exit) : '—') + '</strong> | ' +
       'Status: <strong>' + (archived.status || 'Archived') + '</strong>';
     modalBody.insertBefore(banner, modalBody.firstChild);
@@ -2020,18 +2034,18 @@ async function addDept() {
   const input = document.getElementById('new-dept-input');
   if (!input || !input.value.trim()) return;
   const name = input.value.trim();
-  if (appState && appState.departments && appState.departments.includes(name)) { showNotifBar('warning', 'Department already exists.', '⚠️'); return; }
+  if (appState && appState.departments && appState.departments.includes(name)) { showNotifBar('warning', 'Department already exists.'); return; }
   input.value = '';
   await api('/api/departments', { method: 'POST', body: { name } });
   await refreshStateAndRender();
-  showNotifBar('success', 'Department \'' + name + '\' added.', '✓');
+  showNotifBar('success', 'Department \'' + name + '\' added.');
 }
 
 async function removeDept(name) {
   if (!confirm('Remove department \'' + name + '\'?')) return;
   await api('/api/departments/' + encodeURIComponent(name), { method: 'DELETE' });
   await refreshStateAndRender();
-  showNotifBar('info', 'Department \'' + name + '\' removed.', '🗑');
+  showNotifBar('info', 'Department \'' + name + '\' removed.');
 }
 
 function selectAnnRecipient(btn, val) {
@@ -2047,7 +2061,7 @@ function selectAnnPriority(btn, val) {
 function sendAnnouncement() {
   const subject = document.getElementById('ann-subject').value.trim();
   const body = document.getElementById('ann-body').value.trim();
-  if (!subject || !body) { showNotifBar('warning', 'Please enter subject and message.', '⚠️'); return; }
+  if (!subject || !body) { showNotifBar('warning', 'Please enter subject and message.'); return; }
   const today = new Date().toISOString().split('T')[0];
   const recipVal = document.getElementById('ann-recipient-select')?.value || 'all';
   const ann = { date: today, subject, body, by: 'Admin', priority: annSelectedPriority, recipient: recipVal === 'all' ? 'All Employees' : 'Department: ' + recipVal };
@@ -2056,9 +2070,9 @@ function sendAnnouncement() {
     document.getElementById('ann-subject').value = '';
     document.getElementById('ann-body').value = '';
     document.getElementById('ann-charcount').textContent = '0';
-    showNotifBar('success', 'Announcement sent!', '📢');
+    showNotifBar('success', 'Announcement sent!');
     // Broadcast announcement notification to all employees (single notification, no per-emp loop)
-    api('/api/notifications', { method: 'POST', body: { text: '📢 New announcement: ' + subject, target: 'emp', userId: '' } }).then(async () => {
+    api('/api/notifications', { method: 'POST', body: { text: 'New announcement: ' + subject, target: 'emp', userId: '' } }).then(async () => {
       await refreshStateAndRender();
     });
   });
@@ -2067,7 +2081,7 @@ function sendAnnouncement() {
 function previewAnnouncement() {
   const subject = document.getElementById('ann-subject').value.trim() || '(No subject)';
   const body = document.getElementById('ann-body').value.trim() || '(No message)';
-  showNotifBar('info', '📢 ' + subject + ' — ' + body.substring(0, 100) + (body.length > 100 ? '…' : ''), '👁');
+  showNotifBar('info', subject + ' — ' + body.substring(0, 100) + (body.length > 100 ? '…' : ''));
 }
 
 function renderAnnouncements() {
@@ -2078,13 +2092,13 @@ function renderAnnouncements() {
   const badge = document.getElementById('ann-count-badge');
   if (badge) badge.textContent = announcements.length;
   if (!announcements.length) {
-    el.innerHTML = '<div class="ann-empty-state"><span class="ann-empty-icon">📭</span><div class="ann-empty-text">No announcements yet</div><div class="ann-empty-sub">Your first announcement will appear here</div></div>';
+    el.innerHTML = '<div class="ann-empty-state"><span class="ann-empty-icon"></span><div class="ann-empty-text">No announcements yet</div><div class="ann-empty-sub">Your first announcement will appear here</div></div>';
     return;
   }
   smartListSync(el, announcements, a => {
     const cat = a.priority === 'urgent' ? 'ann-cat-urgent' : a.priority === 'high' ? 'ann-cat-high' : a.priority === 'low' ? 'ann-cat-general' : 'ann-cat-event';
     const pClass = 'priority-' + (a.priority || 'normal');
-    return '<div class="announcement-card ' + pClass + '"><div class="ann-header"><div class="ann-header-left"><span class="ann-category-badge ' + cat + '">' + (a.priority || 'normal') + '</span><div class="ann-subject">' + a.subject + '</div></div></div><div class="ann-meta"><span class="ann-meta-item">📅 ' + formatDate(a.date) + '</span><span class="ann-meta-item">👤 ' + (a.by || 'Admin') + '</span><span class="ann-meta-item">👥 ' + (a.recipient || 'All Employees') + '</span></div><div class="ann-body">' + a.body.replace(/\n/g, '<br>') + '</div></div>';
+    return '<div class="announcement-card ' + pClass + '"><div class="ann-header"><div class="ann-header-left"><span class="ann-category-badge ' + cat + '">' + (a.priority || 'normal') + '</span><div class="ann-subject">' + a.subject + '</div></div></div><div class="ann-meta"><span class="ann-meta-item">' + formatDate(a.date) + '</span><span class="ann-meta-item">' + (a.by || 'Admin') + '</span><span class="ann-meta-item">' + (a.recipient || 'All Employees') + '</span></div><div class="ann-body">' + a.body.replace(/\n/g, '<br>') + '</div></div>';
   }, a => a.date + '-' + (a.subject || '').substring(0, 20));
 }
 
@@ -2102,7 +2116,7 @@ function renderBirthdayModule() {
       const year = today.getFullYear();
       const bday = e.bday.split('-');
       const calendarUrl = 'https://www.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(e.name + '\'s Birthday') + '&dates=' + year + bday[1] + bday[2] + '/' + year + bday[1] + bday[2] + '&details=Birthday+of+' + encodeURIComponent(e.name);
-      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;"><span>🎂</span><span><strong>' + e.name + '</strong>\'s Birthday today!</span><a href="' + calendarUrl + '" target="_blank" style="margin-left:auto;font-size:12px;color:var(--accent);">📅 Add to Calendar</a></div>';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;"><span></span><span><strong>' + e.name + '</strong>\'s Birthday today!</span><a href="' + calendarUrl + '" target="_blank" style="margin-left:auto;font-size:12px;color:var(--accent);">Add to Calendar</a></div>';
     }).join('');
   } else {
     birthdayModule.style.display = 'none';
@@ -2138,10 +2152,10 @@ function sendCustomEmail() {
   const to = document.getElementById('compose-to').value.trim();
   const subject = document.getElementById('compose-subject').value.trim();
   const body = document.getElementById('compose-body').value.trim();
-  if (!to || !subject) { showNotifBar('warning', 'Please fill in To and Subject.', '⚠️'); return; }
-  const text = '📧 [' + subject + '] to ' + to + ': ' + (body || '').replace(/<[^>]*>/g, '').substring(0, 100);
+  if (!to || !subject) { showNotifBar('warning', 'Please fill in To and Subject.'); return; }
+  const text = '[' + subject + '] to ' + to + ': ' + (body || '').replace(/<[^>]*>/g, '').substring(0, 100);
   addAdminNotif(text);
-  showNotifBar('success', 'Notification sent to admin panel!', '📨');
+  showNotifBar('success', 'Notification sent to admin panel!');
   closeComposeModal();
 }
 
@@ -2186,7 +2200,7 @@ function loadEmailConfig() {
   const serviceEl = document.getElementById('email-config-service');
   if (!statusEl) return;
   if (serviceEl) serviceEl.textContent = 'In-App';
-  statusEl.textContent = '✅ Real-time delivery active';
+  statusEl.textContent = 'Real-time delivery active';
   statusEl.style.color = 'var(--green)';
 }
 
@@ -2196,7 +2210,7 @@ function loadCalendarConfig() {
   const idEl = document.getElementById('calendar-config-id');
   api('/api/calendar-config').then(cfg => {
     if (cfg) {
-      if (statusEl) statusEl.textContent = cfg.enabled ? '✅ Connected' : 'Not configured';
+      if (statusEl) statusEl.textContent = cfg.enabled ? 'Connected' : 'Not configured';
       if (statusEl) statusEl.style.color = cfg.enabled ? 'var(--green)' : 'var(--amber)';
       if (saEl) saEl.textContent = cfg.serviceAccountPath || '—';
       if (idEl) idEl.textContent = cfg.calendarId || '—';
@@ -2378,6 +2392,7 @@ function handleRealtimeEvent(info) {
         const pill = document.getElementById('emp-pill');
         if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
       }
+      RenderQueue.schedule();
     } else if (event === 'UPDATE' && newData) {
       const logs = appState?.attendanceLogs || [];
       const idx = logs.findIndex(l => l.id === newData.id);
@@ -2396,6 +2411,7 @@ function handleRealtimeEvent(info) {
         const pill = document.getElementById('emp-pill');
         if (pill) { pill.className = 'status-pill sp-out'; pill.innerHTML = '<div class="status-dot sd-r"></div>Signed Out'; }
       }
+      RenderQueue.schedule();
     } else if (event === 'DELETE') {
       RenderQueue.schedule();
     }
@@ -2423,6 +2439,7 @@ function handleRealtimeEvent(info) {
       if (isEmp && lr.empId === sessionStorage.getItem('userId')) {
         showNotifBar('info', 'Your leave request has been submitted. Waiting for approval.', '📋');
       }
+      RenderQueue.schedule();
     } else if (event === 'UPDATE' && newData) {
       const reqs = appState.leaveRequests || [];
       const idx = reqs.findIndex(l => String(l.id) === String(newData.id));
@@ -2438,6 +2455,7 @@ function handleRealtimeEvent(info) {
       if (isEmp && idx !== -1 && wasPending && reqs[idx].empId === sessionStorage.getItem('userId')) {
         showNotifBar('info', 'Your leave was ' + (newData.status || 'updated') + '.', '📋');
       }
+      RenderQueue.schedule();
     } else if (event === 'DELETE') {
       RenderQueue.schedule();
     }
@@ -2464,6 +2482,7 @@ function handleRealtimeEvent(info) {
         updateNavBadges();
         renderEmpNotifPanel();
       }
+      RenderQueue.schedule();
       return;
     }
 
@@ -2489,6 +2508,7 @@ function handleRealtimeEvent(info) {
           renderEmpNotifPanel();
         }
       }
+      RenderQueue.schedule();
       return;
     }
   }
@@ -2506,6 +2526,7 @@ function handleRealtimeEvent(info) {
       appState.employees = (appState.employees || []).filter(e => e.id !== oldData.id);
     }
     if (isAdmin) { renderEmpTable(); renderLeaveBalances(); updateNavBadges(); }
+    RenderQueue.schedule();
     return;
   }
 

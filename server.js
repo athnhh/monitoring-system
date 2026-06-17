@@ -243,7 +243,7 @@ server.listen(PORT, () => {
   console.log(`║   http://localhost:${PORT}                     ║`);
   console.log(`║   Port: ${PORT}                               ║`);
   const hasCreds = !!process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS;
-  console.log(`║   Calendar: ${hasCreds ? '✅ Configured' : '❌ Not configured (set GOOGLE_SERVICE_ACCOUNT_CREDENTIALS)'}  ║`);
+  console.log(`║   Calendar: ${hasCreds ? 'Configured' : 'Not configured (set GOOGLE_SERVICE_ACCOUNT_CREDENTIALS)'}  ║`);
   console.log('╚══════════════════════════════════════════════╝');
   console.log('');
 });
