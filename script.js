@@ -1484,9 +1484,8 @@ function toggleNotifPanel() {
   adminNotifPanelOpen = !adminNotifPanelOpen;
   const panel = document.getElementById('notif-panel');
   if (adminNotifPanelOpen) {
-    // Render content first, then trigger slide transition on next frame
-    renderAdminNotifPanel();
     markAdminNotifsRead();
+    renderAdminNotifPanel();
     requestAnimationFrame(() => { if (adminNotifPanelOpen) panel.classList.add('open'); });
   } else {
     panel.classList.remove('open');
@@ -1498,9 +1497,8 @@ function toggleEmpNotifPanel() {
   empNotifPanelOpen = !empNotifPanelOpen;
   const panel = document.getElementById('emp-notif-panel');
   if (empNotifPanelOpen) {
-    // Render content first, then trigger slide transition on next frame
-    renderEmpNotifPanel();
     markEmpNotifsRead();
+    renderEmpNotifPanel();
     requestAnimationFrame(() => { if (empNotifPanelOpen) panel.classList.add('open'); });
   } else {
     panel.classList.remove('open');
@@ -1530,20 +1528,20 @@ function markEmpNotifsRead() {
 function renderAdminNotifPanel() {
   const body = document.getElementById('notif-panel-body');
   if (!body) return;
-  const notifs = (appState && appState.adminNotifications) || [];
+  const all = (appState && appState.adminNotifications) || [];
+  const notifs = all.filter(n => !n.isRead);
   if (!notifs.length) {
-    body.innerHTML = '<p style="color:var(--subtle);font-size:13px;text-align:center;padding:20px;">No notifications yet.</p>';
+    body.innerHTML = '<p style="color:var(--subtle);font-size:13px;text-align:center;padding:20px;">No new notifications.</p>';
     return;
   }
   smartListSync(body, notifs, n =>
-    '<div class="notif-item' + (!n.isRead ? ' unread' : '') + '" onclick="dismissAdminNotif(\'' + (n._id || n.id || n.text) + '\')">' +
+    '<div class="notif-item unread" onclick="dismissAdminNotif(\'' + (n._id || n.id || n.text) + '\')">' +
       '<div style="flex:1">' + n.text + '</div>' +
       '<div class="notif-item-time">' + (n.time || '') + '</div>' +
       '<span class="notif-dismiss" title="Dismiss">&times;</span>' +
     '</div>',
     n => n._id || n.id || n.text + (n.time || '')
   );
-  // Auto-dismiss if panel is already open
   if (document.getElementById('notif-panel')?.classList.contains('open')) {
     markAdminNotifsRead();
   }
@@ -1568,13 +1566,13 @@ function renderEmpNotifPanel() {
   if (!body) return;
   const uid = sessionStorage.getItem('userId');
   const allNotifs = (appState && appState.empNotifications) || [];
-  const notifs = allNotifs.filter(n => n.target === 'emp' || n.user_id === uid);
+  const notifs = allNotifs.filter(n => (n.target === 'emp' || n.user_id === uid) && !n.isRead);
   if (!notifs.length) {
-    body.innerHTML = '<p style="color:var(--subtle);font-size:13px;text-align:center;padding:20px;">No notifications yet.</p>';
+    body.innerHTML = '<p style="color:var(--subtle);font-size:13px;text-align:center;padding:20px;">No new notifications.</p>';
     return;
   }
   smartListSync(body, notifs, n =>
-    '<div class="notif-item' + (!n.isRead ? ' unread' : '') + '" onclick="dismissEmpNotif(\'' + (n._id || n.id || n.text) + '\')">' +
+    '<div class="notif-item unread" onclick="dismissEmpNotif(\'' + (n._id || n.id || n.text) + '\')">' +
       '<div style="flex:1">' + n.text + '</div>' +
       '<div class="notif-item-time">' + (n.time || '') + '</div>' +
       '<span class="notif-dismiss" title="Dismiss">&times;</span>' +

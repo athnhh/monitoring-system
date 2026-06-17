@@ -1295,23 +1295,18 @@ tbody tr{
 }
 .ann-count-badge{
   margin-left:auto;
-  background:var(--accent);
-  color:#fff;
-  font-size:12px;
-  font-weight:700;
-  min-width:24px;
-  height:24px;
-  border-radius:12px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding:0 8px;
+  color:var(--muted);
+  font-size:13px;
+  font-weight:600;
+  display:inline;
+  padding:0;
 }
 .ann-count-badge-sm{
-  min-width:20px;
-  height:20px;
+  color:var(--muted);
   font-size:11px;
-  padding:0 6px;
+  font-weight:600;
+  display:inline;
+  padding:0;
 }
 .ann-list-body{
   flex:1;
@@ -2177,7 +2172,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover{
 
 /* Dark mode: announcement count badge */
 body.dark-mode .ann-count-badge{
-  color:#fff;
+  color:var(--subtle);
 }
 
 /* Dark mode: empty state text */

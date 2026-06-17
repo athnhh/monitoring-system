@@ -1119,23 +1119,18 @@ tbody tr{
 }
 .ann-count-badge{
   margin-left:auto;
-  background:var(--accent);
-  color:#fff;
-  font-size:12px;
-  font-weight:700;
-  min-width:24px;
-  height:24px;
-  border-radius:12px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding:0 8px;
+  color:var(--muted);
+  font-size:13px;
+  font-weight:600;
+  display:inline;
+  padding:0;
 }
 .ann-count-badge-sm{
-  min-width:20px;
-  height:20px;
+  color:var(--muted);
   font-size:11px;
-  padding:0 6px;
+  font-weight:600;
+  display:inline;
+  padding:0;
 }
 .ann-list-body{
   flex:1;
@@ -1346,7 +1341,7 @@ body.dark-mode .settings-section .field select{background:var(--surface2);}
 body.dark-mode .act-row{border-bottom-color:var(--border);}
 body.dark-mode ::-webkit-scrollbar-thumb{background:var(--border-mid);}
 body.dark-mode ::-webkit-scrollbar-thumb:hover{background:var(--subtle);}
-body.dark-mode .ann-count-badge{color:#fff;}
+body.dark-mode .ann-count-badge{color:var(--subtle);}
 body.dark-mode .ann-empty-text{color:var(--muted);}
 body.dark-mode .ann-empty-sub{color:var(--subtle);}
 
