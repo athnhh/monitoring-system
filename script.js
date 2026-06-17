@@ -33,10 +33,7 @@ _loadClearedBadges();
 
 let appState = null;
 
-// GPS state
-let lastGPSPosition = null;
-let lastGPSWatchId = null;
-let gpsCaptureInProgress = false;
+
 
 // ══ HTML Template Validation (dev-only) ══
 // Catches unclosed tags in template strings before they break the DOM
@@ -321,7 +318,7 @@ function adminTab(tabName, btnElement) {
   sessionStorage.setItem('adminLastTab', tabName);
   if (tabName === 'dashboard') markAdminNotifsRead();
   // Clear the nav badge for this tab on click
-  const badgeMap = { dashboard: 'nav-badge-dash', employees: 'nav-badge-emps', leaves: 'nav-badge-leaves', announcements: 'nav-badge-ann', approvals: 'nav-badge-approvals' };
+  const badgeMap = { dashboard: 'nav-badge-dash', employees: 'nav-badge-emps', leaves: 'nav-badge-leaves', announcements: 'nav-badge-ann' };
   if (badgeMap[tabName]) {
     clearedNavBadges.add(badgeMap[tabName]); _saveClearedBadges();
     const el = document.getElementById(badgeMap[tabName]);
@@ -334,7 +331,6 @@ function adminTab(tabName, btnElement) {
     if (tabName === 'reports') setReport('daily', document.querySelector('.rtab.active'));
     if (tabName === 'settings') { loadCalendarConfig(); }
     if (tabName === 'employees') renderAll();
-    if (tabName === 'approvals') { renderApprovalsPanel(); loadGeofenceConfig(); }
   });
 }
 
@@ -362,12 +358,6 @@ function updateDashboardStats() {
   setText('stat-present-today', present);
   setText('stat-absent-today', Math.max(0, absent));
   setText('stat-late-today', late);
-
-  // GPS / remote stats
-  const inOffice = todayLogs.filter(l => l.gps_status === 'in_office').length;
-  const remoteCount = todayLogs.filter(l => l.attendance_type && l.attendance_type !== 'in_office').length;
-  setText('stat-gps-inoffice', inOffice || 0);
-  setText('stat-gps-remote', remoteCount || 0);
 }
 
 function renderDashboardCards() {
@@ -1166,7 +1156,7 @@ function renderEmpHistory() {
   }
 }
 
-async function empPunchIn() {
+function empPunchIn() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
   const h = now.getHours();
@@ -1179,109 +1169,24 @@ async function empPunchIn() {
   if (!uid) { showNotifBar('error', 'Session expired. Please log in again.'); return; }
   const emp = (appState.employees || []).find(e => e.id === uid);
   if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.'); return; }
-
-  // Capture GPS position
-  const gps = await autoCaptureGPS();
-
-  // If GPS available and outside geofence — show remote attendance modal
-  if (gps) {
-    try {
-      const fence = await api('/api/geofence', { method: 'GET' });
-      if (fence && fence.lat) {
-        // Haversine distance
-        const R = 6371000;
-        const toRad = a => a * Math.PI / 180;
-        const dLat = toRad(gps.lat - fence.lat);
-        const dLng = toRad(gps.lng - fence.lng);
-        const a = Math.sin(dLat / 2) ** 2 +
-          Math.cos(toRad(fence.lat)) * Math.cos(toRad(gps.lat)) * Math.sin(dLng / 2) ** 2;
-        const distFromOffice = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        if (distFromOffice > fence.radius_meters && h < 14) {
-          // Outside geofence — show remote attendance modal
-          // Store GPS data so submitRemoteAttendance can use it
-          window._pendingPunchGPS = gps;
-          window._pendingPunchEmp = emp;
-          document.getElementById('remote-attendance-modal').style.display = 'flex';
-          return;
-        }
-      }
-    } catch (_) {
-      // Geofence check failed, proceed with normal punch
+  api('/api/attendance/login', {
+    method: 'POST',
+    body: { empId: emp.id, empName: emp.name, department: emp.dept, computerName: navigator.platform || 'Web Browser' }
+  }).then(async res => {
+    if (res && res.success) {
+      const pill = document.getElementById('emp-pill');
+      if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
+      showNotifBar('success', 'Signed In at ' + timeStr);
+      appendTimeline('in', 'Signed In', timeStr);
+      if (h >= 14) showNotifBar('warning', 'Login after 2:00 PM — this session is flagged as Half-Day.');
+    } else {
+      showNotifBar('error', (res && res.error) || 'Failed to sign in.');
     }
-  }
-
-  // Normal in-office punch
-  await doPunchIn(emp, gps, timeStr, h);
+    await refreshStateAndRender();
+  });
 }
 
-async function doPunchIn(emp, gps, timeStr, h) {
-  const body = {
-    empId: emp.id, empName: emp.name, department: emp.dept,
-    computerName: navigator.platform || 'Web Browser'
-  };
-  if (gps) {
-    body.gpsLat = gps.lat;
-    body.gpsLng = gps.lng;
-    body.gpsAccuracy = gps.accuracy;
-  }
-  const res = await api('/api/attendance/login', { method: 'POST', body });
-  if (res && res.success) {
-    const pill = document.getElementById('emp-pill');
-    if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
-    showNotifBar('success', 'Signed In at ' + timeStr);
-    appendTimeline('in', 'Signed In', timeStr);
-    if (h >= 14) showNotifBar('warning', 'Login after 2:00 PM — this session is flagged as Half-Day.');
-  } else {
-    showNotifBar('error', (res && res.error) || 'Failed to sign in.');
-  }
-  await refreshStateAndRender();
-}
-
-async function submitRemoteAttendance() {
-  const gps = window._pendingPunchGPS;
-  const emp = window._pendingPunchEmp;
-  if (!gps || !emp) {
-    showNotifBar('error', 'GPS data or employee info missing. Please try again.');
-    return;
-  }
-  const attType = document.getElementById('remote-att-type')?.value || 'other';
-  const attNote = document.getElementById('remote-att-note')?.value || '';
-  const timeStr = new Date().toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
-  const body = {
-    empId: emp.id, empName: emp.name, department: emp.dept,
-    computerName: navigator.platform || 'Web Browser',
-    gpsLat: gps.lat, gpsLng: gps.lng, gpsAccuracy: gps.accuracy,
-    attendanceType: attType, approvalReason: attNote || attType
-  };
-  const res = await api('/api/attendance/login', { method: 'POST', body });
-  if (res && res.success) {
-    // Also submit a formal approval request
-    await api('/api/attendance/approvals', {
-      method: 'POST',
-      body: {
-        attendance_log_id: res.log.id,
-        emp_id: emp.id, emp_name: emp.name, department: emp.dept,
-        lat: gps.lat, lng: gps.lng,
-        distance_from_office: null,
-        reason_type: attType, reason: attNote || attType,
-        note: attNote, device_info: navigator.userAgent
-      }
-    });
-    const pill = document.getElementById('emp-pill');
-    if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
-    showNotifBar('info', 'Remote attendance submitted — awaiting admin approval.');
-    appendTimeline('in', 'Signed In (remote)', timeStr);
-  } else {
-    showNotifBar('error', (res && res.error) || 'Failed to sign in.');
-  }
-  document.getElementById('remote-attendance-modal').style.display = 'none';
-  window._pendingPunchGPS = null;
-  window._pendingPunchEmp = null;
-  document.getElementById('remote-att-note').value = '';
-  await refreshStateAndRender();
-}
-
-async function empPunchOut() {
+function empPunchOut() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
   if (!appState) { showNotifBar('error', 'App data not loaded. Please refresh the page.'); return; }
@@ -1289,26 +1194,21 @@ async function empPunchOut() {
   if (!uid) { showNotifBar('error', 'Session expired. Please log in again.'); return; }
   const emp = (appState.employees || []).find(e => e.id === uid);
   if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.'); return; }
-
-  // Capture GPS on logout
-  const gps = await autoCaptureGPS();
-
-  const body = { empId: emp.id };
-  if (gps) {
-    body.gpsLat = gps.lat;
-    body.gpsLng = gps.lng;
-    body.gpsAccuracy = gps.accuracy;
-  }
-
-  const res = await api('/api/attendance/logout', { method: 'POST', body });
-  if (res && res.success) {
-    const pill = document.getElementById('emp-pill');
-    if (pill) { pill.className = 'status-pill sp-out'; pill.innerHTML = '<div class="status-dot sd-r"></div>Signed Out'; }      showNotifBar('info', 'Signed Out at ' + timeStr);
-    appendTimeline('out', 'Signed Out', timeStr);
-  } else {
-    showNotifBar('error', (res && res.error) || 'Failed to sign out.');
-  }
-  await refreshStateAndRender();
+  api('/api/attendance/logout', {
+    method: 'POST',
+    body: { empId: emp.id }
+  }).then(async res => {
+    if (res && res.success) {
+      const pill = document.getElementById('emp-pill');
+      if (pill) { pill.className = 'status-pill sp-out'; pill.innerHTML = '<div class="status-dot sd-r"></div>Signed Out'; }
+      if (breakInterval) { clearInterval(breakInterval); breakInterval = null; document.getElementById('break-btn').innerText = 'Start Break'; document.getElementById('break-timer-wrap').style.display = 'none'; }
+      showNotifBar('info', 'Signed Out at ' + timeStr);
+      appendTimeline('out', 'Signed Out', timeStr);
+    } else {
+      showNotifBar('error', (res && res.error) || 'Failed to sign out.');
+    }
+    await refreshStateAndRender();
+  });
 }
 
 function appendTimeline(type, text, time) {
@@ -1320,57 +1220,6 @@ function appendTimeline(type, text, time) {
   item.className = 'timeline-item';
   item.innerHTML = '<div class="timeline-dot td-' + type + '" style="background:' + (colors[type] || colors.in) + '"></div><div class="timeline-content">' + text + '<div class="timeline-time">' + time + '</div></div>';
   tl.prepend(item);
-}
-
-// ── GPS Capture ──
-
-function captureGPS(highAccuracy) {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      updateGPSStatus('GPS not available');
-      resolve(null);
-      return;
-    }
-    gpsCaptureInProgress = true;
-    updateGPSStatus('Acquiring GPS...');
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        lastGPSPosition = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: Math.round(pos.coords.accuracy)
-        };
-        gpsCaptureInProgress = false;
-        const accStr = lastGPSPosition.accuracy > 50 ? ' (low accuracy)' : '';
-        updateGPSStatus('GPS: ' + lastGPSPosition.lat.toFixed(4) + ', ' + lastGPSPosition.lng.toFixed(4) + accStr);
-        resolve(lastGPSPosition);
-      },
-      (err) => {
-        gpsCaptureInProgress = false;
-        let msg = 'GPS error';
-        if (err.code === 1) msg = 'GPS: permission denied';
-        else if (err.code === 2) msg = 'GPS: unavailable';
-        else if (err.code === 3) msg = 'GPS: timed out';
-        updateGPSStatus(msg);
-        resolve(null);
-      },
-      { enableHighAccuracy: highAccuracy !== false, timeout: 10000, maximumAge: 60000 }
-    );
-  });
-}
-
-function updateGPSStatus(text) {
-  const el = document.getElementById('gps-status-text');
-  if (el) el.textContent = text;
-}
-
-function autoCaptureGPS() {
-  if (lastGPSPosition) return Promise.resolve(lastGPSPosition);
-  return captureGPS(false);
-}
-
-function autoCaptureGPSHigh() {
-  return captureGPS(true);
 }
 
 function autoAttendancePunchIn(emp) {
@@ -1850,98 +1699,6 @@ function checkPwdStrength(inputId, barId) {
 function toggleAdminReset() {
 }
 
-// ── Approvals Panel ──
-
-async function renderApprovalsPanel() {
-  const approvals = await api('/api/attendance/approvals', { method: 'GET' });
-  if (!approvals || !Array.isArray(approvals)) return;
-  const filter = document.getElementById('apr-filter')?.value || 'pending';
-  let filtered = approvals;
-  if (filter !== 'all') filtered = approvals.filter(a => a.status === filter);
-
-  const pendingCount = approvals.filter(a => a.status === 'pending').length;
-  const approvedCount = approvals.filter(a => a.status === 'approved').length;
-  const rejectedCount = approvals.filter(a => a.status === 'rejected').length;
-  setText('apr-pending-count', pendingCount);
-  setText('apr-approved-count', approvedCount);
-  setText('apr-rejected-count', rejectedCount);
-
-  const tbody = document.getElementById('approvals-table');
-  if (!tbody) return;
-  if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--subtle);padding:20px;">No approval requests found.</td></tr>';
-    return;
-  }
-  smartTableSync(tbody, filtered, a => {
-    const timeStr = a.created_at ? formatTime(a.created_at) : '';
-    const distStr = a.distance_from_office ? (a.distance_from_office > 1000 ? (a.distance_from_office / 1000).toFixed(1) + 'km' : Math.round(a.distance_from_office) + 'm') : '—';
-    const statusTag = '<span class="tag t-' + a.status + '">' + a.status.charAt(0).toUpperCase() + a.status.slice(1) + '</span>';
-    const actionBtns = a.status === 'pending'
-      ? '<div style="display:flex;gap:4px;"><button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;" onclick="reviewApproval(\'' + a.id + '\',\'approved\')">Approve</button><button class="btn btn-sm" style="background:#dc2626;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;" onclick="reviewApproval(\'' + a.id + '\',\'rejected\')">Reject</button></div>'
-      : '<span style="font-size:11px;color:var(--subtle);">' + (a.reviewed_by || '') + '</span>';
-    // GPS map link
-    const gpsLink = (a.lat && a.lng)
-      ? '<a href="#" onclick="event.preventDefault();window.open(\'https://www.openstreetmap.org/?mlat=' + a.lat + '&mlon=' + a.lng + '&zoom=15\',\'_blank\')" style="font-size:11px;color:var(--accent);">Map</a>'
-      : '—';
-    return '<tr>' +
-      '<td><strong>' + (a.emp_name || '') + '</strong></td>' +
-      '<td style="font-size:12px;color:var(--muted);">' + (a.reason_type || '—') + '</td>' +
-      '<td style="font-size:12px;">' + timeStr + '</td>' +
-      '<td style="font-size:12px;">' + distStr + '</td>' +
-      '<td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (a.reason || '') + '">' + (a.reason || '—') + '</td>' +
-      '<td>' + statusTag + '</td>' +
-      '<td>' + actionBtns + ' ' + gpsLink + '</td></tr>';
-  }, a => a.id);
-}
-
-async function reviewApproval(id, status) {
-  const note = prompt('Optional note for ' + status + ' decision:');
-  const res = await api('/api/attendance/approvals/review', {
-    method: 'POST',
-    body: { id, status, admin_note: note || '' }
-  });
-  if (res && res.success) {
-    showNotifBar('info', 'Attendance request ' + status + '.');
-  } else {
-    showNotifBar('error', (res && res.error) || 'Failed to update.');
-  }
-  await refreshStateAndRender();
-  renderApprovalsPanel();
-}
-
-async function loadGeofenceConfig() {
-  const fence = await api('/api/geofence', { method: 'GET' });
-  if (!fence) return;
-  const latEl = document.getElementById('geofence-lat');
-  const lngEl = document.getElementById('geofence-lng');
-  const radEl = document.getElementById('geofence-radius');
-  const addrEl = document.getElementById('geofence-address');
-  if (latEl) latEl.value = fence.lat || '';
-  if (lngEl) lngEl.value = fence.lng || '';
-  if (radEl) radEl.value = fence.radius_meters || 100;
-  if (addrEl) addrEl.value = fence.address || '';
-}
-
-async function saveGeofence() {
-  const lat = parseFloat(document.getElementById('geofence-lat')?.value);
-  const lng = parseFloat(document.getElementById('geofence-lng')?.value);
-  const radius = parseInt(document.getElementById('geofence-radius')?.value) || 100;
-  const address = document.getElementById('geofence-address')?.value || '';
-  if (isNaN(lat) || isNaN(lng)) {
-    showNotifBar('error', 'Please enter valid coordinates.');
-    return;
-  }
-  const res = await api('/api/geofence', {
-    method: 'POST',
-    body: { lat, lng, radius_meters: radius, address }
-  });
-  if (res && res.success) {
-    showNotifBar('info', 'Geofence updated.');
-  } else {
-    showNotifBar('error', (res && res.error) || 'Failed to save.');
-  }
-}
-
 async function doLogin() {
   const uid = document.getElementById('uid').value.trim();
   const pwd = document.getElementById('pwd').value.trim();
@@ -1968,26 +1725,20 @@ async function doLogin() {
   const loginBtn = document.querySelector('.login-btn');
   setButtonLoading(loginBtn, true);
 
-  // Ensure SupabaseClient is initialized before login
-  if (typeof SupabaseClient !== 'undefined' && !SupabaseClient.ready) {
-    const inited = SupabaseClient.init();
-    if (inited) {
-      console.log('[Auth] SupabaseClient initialized on-demand during login');
-    } else {
-      console.error('[Auth] SupabaseClient init FAILED');
-      setButtonLoading(loginBtn, false, 'Sign In');
-      document.getElementById('err-msg').style.display = 'flex';
-      document.getElementById('err-msg-text').textContent = 'Database not connected. Check your Supabase configuration.';
-      return;
-    }
-  }
-
+  // api() auto-initializes SupabaseClient if not ready
   const res = await api('/api/auth/login', {
     method: 'POST',
     body: { uid, pwd }
   });
 
-  if (res && res.error === 'TIME_BLOCK') {
+  if (!res) {
+    setButtonLoading(loginBtn, false, 'Sign In');
+    document.getElementById('err-msg').style.display = 'flex';
+    document.getElementById('err-msg-text').textContent = 'Cannot connect to database. Check Supabase config and ensure tables exist.';
+    return;
+  }
+
+  if (res.success === false && res.error === 'TIME_BLOCK') {
     setButtonLoading(loginBtn, false, 'Sign In');
     document.getElementById('err-msg').style.display = 'flex';
     document.getElementById('err-msg-text').textContent = res.message || 'Employee logins are blocked after 6:00 PM IST.';
@@ -2025,14 +1776,6 @@ async function doLogin() {
       if (res.timeBlock && res.timeBlock.isHalfDay) {
         showNotifBar('warning', 'First login after 2:00 PM — today will be flagged as Half-Day.');
       }
-
-      // Register device on login
-      try {
-        await api('/api/devices/register', {
-          method: 'POST',
-          body: { emp_id: res.user.id, emp_name: res.user.name || res.user.id }
-        });
-      } catch (_) {}
 
       const emp = appState && (appState.employees || []).find(e => e.id === res.user.id);
       if (emp) {
@@ -3042,14 +2785,7 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
   logout_time TIMESTAMPTZ, working_hours REAL DEFAULT 0,
   status TEXT DEFAULT 'Active', computer_name TEXT DEFAULT '',
   login_date TEXT, event TEXT DEFAULT 'LOGIN',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  -- GPS columns
-  gps_lat DOUBLE PRECISION, gps_lng DOUBLE PRECISION,
-  gps_accuracy REAL, gps_status TEXT DEFAULT 'unknown',
-  attendance_type TEXT DEFAULT 'office',
-  approval_status TEXT DEFAULT 'approved',
-  approval_reason TEXT, approval_note TEXT, approval_photo_url TEXT,
-  device_fingerprint TEXT, device_info TEXT
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Partial unique index: at most one active session per employee (DB-level duplicate prevention)
@@ -3063,67 +2799,6 @@ CREATE INDEX IF NOT EXISTS idx_attendance_logs_active
 
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_date
   ON attendance_logs (login_date);
-
--- GPS attendance logs for permanent tracking
-CREATE TABLE IF NOT EXISTS attendance_gps_logs (
-  id BIGSERIAL PRIMARY KEY,
-  emp_id TEXT NOT NULL, emp_name TEXT NOT NULL,
-  lat DOUBLE PRECISION NOT NULL, lng DOUBLE PRECISION NOT NULL,
-  accuracy REAL, timestamp TIMESTAMPTZ DEFAULT NOW(),
-  event_type TEXT NOT NULL, -- 'login', 'logout', 'location_update'
-  device_fingerprint TEXT, device_info TEXT,
-  distance_from_office REAL, -- meters
-  in_office BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_gps_emp_id ON attendance_gps_logs (emp_id);
-CREATE INDEX IF NOT EXISTS idx_gps_timestamp ON attendance_gps_logs (timestamp);
-
--- Attendance approval requests for remote/field work
-CREATE TABLE IF NOT EXISTS attendance_approvals (
-  id BIGSERIAL PRIMARY KEY,
-  attendance_log_id BIGSERIAL,
-  emp_id TEXT NOT NULL, emp_name TEXT NOT NULL, department TEXT,
-  login_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  lat DOUBLE PRECISION, lng DOUBLE PRECISION,
-  distance_from_office REAL, reason TEXT NOT NULL,
-  reason_type TEXT NOT NULL, -- 'wfh', 'client_visit', 'field_work', 'company_assignment', 'other'
-  note TEXT, photo_url TEXT, device_info TEXT,
-  status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'rejected', 'info_requested'
-  admin_note TEXT,
-  reviewed_by TEXT, reviewed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_approvals_emp_id ON attendance_approvals (emp_id);
-CREATE INDEX IF NOT EXISTS idx_approvals_status ON attendance_approvals (status);
-
--- Employee approved/known devices
-CREATE TABLE IF NOT EXISTS employee_devices (
-  id BIGSERIAL PRIMARY KEY,
-  emp_id TEXT NOT NULL,
-  fingerprint TEXT NOT NULL,
-  device_info TEXT, -- JSON string of browser/OS info
-  first_seen TIMESTAMPTZ DEFAULT NOW(),
-  last_seen TIMESTAMPTZ DEFAULT NOW(),
-  is_approved BOOLEAN DEFAULT true,
-  UNIQUE(emp_id, fingerprint)
-);
-CREATE INDEX IF NOT EXISTS idx_devices_emp_id ON employee_devices (emp_id);
-
--- Office geofence configuration (singleton row)
-CREATE TABLE IF NOT EXISTS office_geofence (
-  id INTEGER PRIMARY KEY DEFAULT 1,
-  lat DOUBLE PRECISION NOT NULL DEFAULT 18.5204, -- default: Pune, India
-  lng DOUBLE PRECISION NOT NULL DEFAULT 73.8567,
-  radius_meters INTEGER NOT NULL DEFAULT 100,
-  address TEXT DEFAULT 'Office Address',
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
--- Insert default geofence if not exists
-INSERT INTO office_geofence (id, lat, lng, radius_meters, address)
-VALUES (1, 18.5204, 73.8567, 100, 'Main Office')
-ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS attendance (
   id TEXT, name TEXT, dept TEXT, date TEXT,
@@ -3174,10 +2849,6 @@ ALTER TABLE departments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE archived_employees DISABLE ROW LEVEL SECURITY;
 ALTER TABLE admin DISABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance DISABLE ROW LEVEL SECURITY;
-ALTER TABLE attendance_gps_logs DISABLE ROW LEVEL SECURITY;
-ALTER TABLE attendance_approvals DISABLE ROW LEVEL SECURITY;
-ALTER TABLE employee_devices DISABLE ROW LEVEL SECURITY;
-ALTER TABLE office_geofence DISABLE ROW LEVEL SECURITY;
 `;
 
 // ══ Run SQL Setup — executes the schema SQL via Supabase RPC ══
@@ -3318,3 +2989,77 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;`;
   setButtonLoading(btn, false, 'Run SQL Setup');
 }
 
+
+// ═══════════════════════════════════
+// SESSION RESTORATION — Auto-initialize on page load
+// ═══════════════════════════════════
+
+async function initApp() {
+  console.log('[EMS] Initializing application...');
+
+  if (typeof SupabaseClient !== 'undefined') {
+    const inited = SupabaseClient.init();
+    if (inited) {
+      console.log('[EMS] SupabaseClient initialized successfully');
+    } else {
+      console.warn('[EMS] SupabaseClient init returned false');
+    }
+  }
+
+  const userId = sessionStorage.getItem('userId');
+  const userRole = sessionStorage.getItem('userRole');
+
+  if (userId && userRole) {
+    console.log('[EMS] Session found:', userId, 'role:', userRole);
+    showLoading('Restoring session...', 'Loading your data');
+    try {
+      if (typeof SupabaseClient !== 'undefined' && !SupabaseClient.ready) {
+        SupabaseClient.init();
+      }
+      const loaded = await loadStateFromServer();
+      if (loaded && appState) {
+        if (userRole === 'admin') {
+          console.log('[EMS] Restoring admin session');
+          currentUser = { name: 'Administrator' };
+          currentRole = 'admin';
+          showAdminPage();
+          hideLoading();
+          return;
+        } else if (userRole === 'employee') {
+          console.log('[EMS] Restoring employee session:', userId);
+          currentRole = 'employee';
+          const emp = (appState.employees || []).find(e => e.id === userId);
+          if (emp) {
+            currentUser = emp;
+            showEmployeePage(emp);
+            console.log('[EMS] Employee session restored:', emp.name);
+            hideLoading();
+            return;
+          } else {
+            console.warn('[EMS] Employee not found:', userId);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[EMS] Session restoration error:', e.message);
+    }
+    currentUser = null;
+    currentRole = '';
+    sessionStorage.removeItem('userId');
+    sessionStorage.removeItem('userRole');
+    hideLoading();
+  } else {
+    console.log('[EMS] No session, showing login page');
+    const rememberedUser = localStorage.getItem('rememberedUser');
+    if (rememberedUser) {
+      document.getElementById('uid').value = rememberedUser;
+      document.getElementById('remember-me').checked = true;
+    }
+  }
+}
+
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  setTimeout(initApp, 100);
+} else {
+  document.addEventListener('DOMContentLoaded', () => setTimeout(initApp, 100));
+}

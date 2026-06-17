@@ -50,19 +50,7 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
   computer_name TEXT DEFAULT '',
   login_date TEXT,
   event TEXT DEFAULT 'LOGIN',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  -- GPS fields
-  gps_lat DOUBLE PRECISION,
-  gps_lng DOUBLE PRECISION,
-  gps_accuracy REAL,
-  gps_status TEXT DEFAULT 'unknown',
-  attendance_type TEXT DEFAULT 'office',
-  approval_status TEXT DEFAULT 'approved',
-  approval_reason TEXT,
-  approval_note TEXT,
-  approval_photo_url TEXT,
-  device_fingerprint TEXT,
-  device_info TEXT
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Partial unique index: at most one active session per employee (DB-level duplicate prevention)
@@ -155,78 +143,7 @@ CREATE TABLE IF NOT EXISTS archived_employees (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 9. GPS attendance logs for permanent tracking
-CREATE TABLE IF NOT EXISTS attendance_gps_logs (
-  id BIGSERIAL PRIMARY KEY,
-  emp_id TEXT NOT NULL,
-  emp_name TEXT NOT NULL,
-  lat DOUBLE PRECISION NOT NULL,
-  lng DOUBLE PRECISION NOT NULL,
-  accuracy REAL,
-  timestamp TIMESTAMPTZ DEFAULT NOW(),
-  event_type TEXT NOT NULL,
-  device_fingerprint TEXT,
-  device_info TEXT,
-  distance_from_office REAL,
-  in_office BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_gps_emp_id ON attendance_gps_logs (emp_id);
-CREATE INDEX IF NOT EXISTS idx_gps_timestamp ON attendance_gps_logs (timestamp);
-
--- 10. Attendance approval requests for remote/field work
-CREATE TABLE IF NOT EXISTS attendance_approvals (
-  id BIGSERIAL PRIMARY KEY,
-  attendance_log_id BIGSERIAL,
-  emp_id TEXT NOT NULL,
-  emp_name TEXT NOT NULL,
-  department TEXT,
-  login_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  lat DOUBLE PRECISION,
-  lng DOUBLE PRECISION,
-  distance_from_office REAL,
-  reason TEXT NOT NULL,
-  reason_type TEXT NOT NULL,
-  note TEXT,
-  photo_url TEXT,
-  device_info TEXT,
-  status TEXT DEFAULT 'pending',
-  admin_note TEXT,
-  reviewed_by TEXT,
-  reviewed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_approvals_emp_id ON attendance_approvals (emp_id);
-CREATE INDEX IF NOT EXISTS idx_approvals_status ON attendance_approvals (status);
-
--- 11. Employee approved/known devices
-CREATE TABLE IF NOT EXISTS employee_devices (
-  id BIGSERIAL PRIMARY KEY,
-  emp_id TEXT NOT NULL,
-  fingerprint TEXT NOT NULL,
-  device_info TEXT,
-  first_seen TIMESTAMPTZ DEFAULT NOW(),
-  last_seen TIMESTAMPTZ DEFAULT NOW(),
-  is_approved BOOLEAN DEFAULT true,
-  UNIQUE(emp_id, fingerprint)
-);
-CREATE INDEX IF NOT EXISTS idx_devices_emp_id ON employee_devices (emp_id);
-
--- 12. Office geofence configuration
-CREATE TABLE IF NOT EXISTS office_geofence (
-  id INTEGER PRIMARY KEY DEFAULT 1,
-  lat DOUBLE PRECISION NOT NULL DEFAULT 18.5204,
-  lng DOUBLE PRECISION NOT NULL DEFAULT 73.8567,
-  radius_meters INTEGER NOT NULL DEFAULT 100,
-  address TEXT DEFAULT 'Office Address',
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-INSERT INTO office_geofence (id, lat, lng, radius_meters, address)
-VALUES (1, 18.5204, 73.8567, 100, 'Main Office')
-ON CONFLICT (id) DO NOTHING;
-
--- 13. Row Level Security (RLS)
+-- 9. Row Level Security (RLS)
 -- Supabase enables RLS by default on new tables via the dashboard.
 -- When RLS is ON but no policy exists, ALL operations are blocked.
 -- To fix the "violates row-level security policy" error, run:
@@ -240,10 +157,7 @@ ON CONFLICT (id) DO NOTHING;
 --   ALTER TABLE archived_employees DISABLE ROW LEVEL SECURITY;
 --   ALTER TABLE admin DISABLE ROW LEVEL SECURITY;
 --   ALTER TABLE attendance DISABLE ROW LEVEL SECURITY;
---   ALTER TABLE attendance_gps_logs DISABLE ROW LEVEL SECURITY;
---   ALTER TABLE attendance_approvals DISABLE ROW LEVEL SECURITY;
---   ALTER TABLE employee_devices DISABLE ROW LEVEL SECURITY;
---   ALTER TABLE office_geofence DISABLE ROW LEVEL SECURITY;
+
 
 -- Or grant permissive policies (example for attendance_logs):
 --   CREATE POLICY "anon_all" ON attendance_logs FOR ALL
@@ -262,7 +176,4 @@ ON CONFLICT (id) DO NOTHING;
 -- ALTER PUBLICATION supabase_realtime ADD TABLE departments;
 -- ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
 -- ALTER PUBLICATION supabase_realtime ADD TABLE archived_employees;
--- ALTER PUBLICATION supabase_realtime ADD TABLE attendance_gps_logs;
--- ALTER PUBLICATION supabase_realtime ADD TABLE attendance_approvals;
--- ALTER PUBLICATION supabase_realtime ADD TABLE employee_devices;
--- ALTER PUBLICATION supabase_realtime ADD TABLE office_geofence;
+

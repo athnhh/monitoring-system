@@ -515,7 +515,6 @@ body.dark-mode .skel-act-row {
     <button class="nav-btn" onclick="adminTab('reports',this)">Reports</button>
     <button class="nav-btn" onclick="adminTab('departments',this)">Departments</button>
     <button class="nav-btn" onclick="adminTab('announcements',this)">Announce<span class="nav-badge hidden" id="nav-badge-ann"></span></button>
-    <button class="nav-btn" onclick="adminTab('approvals',this)">Approvals<span class="nav-badge hidden" id="nav-badge-approvals"></span></button>
     <button class="nav-btn" onclick="adminTab('settings',this)">Settings</button>
   </div>
   <div class="content">
@@ -550,18 +549,6 @@ body.dark-mode .skel-act-row {
           <div class="stat-label">Late Arrivals</div>
           <div class="stat-val amber-v" id="stat-late-today">0</div>
           <div class="stat-sub">After 9:15 AM today</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-card-accent blue"></div>
-          <div class="stat-label">In-Office</div>
-          <div class="stat-val blue-v" id="stat-gps-inoffice">0</div>
-          <div class="stat-sub">GPS verified on-site</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-card-accent purple"></div>
-          <div class="stat-label">Remote / Field</div>
-          <div class="stat-val purple-v" id="stat-gps-remote">0</div>
-          <div class="stat-sub">Awaiting / Approved remote</div>
         </div>
       </div>
       <div class="card" id="birthday-module" style="display:none;">
@@ -858,64 +845,6 @@ body.dark-mode .skel-act-row {
       </div>
     </div>
 
-    <!-- APPROVALS TAB -->
-    <div id="admin-approvals" class="atab">
-      <div class="welcome-header">
-        <h2>Attendance Approvals</h2>
-        <p id="approvals-count">Review remote / field work attendance requests</p>
-      </div>
-      <div class="stats-grid" style="margin-bottom:16px;">
-        <div class="stat-card">
-          <div class="stat-card-accent amber"></div>
-          <div class="stat-label">Pending</div>
-          <div class="stat-val amber-v" id="apr-pending-count">0</div>
-          <div class="stat-sub">Awaiting review</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-card-accent green"></div>
-          <div class="stat-label">Approved Today</div>
-          <div class="stat-val green-v" id="apr-approved-count">0</div>
-          <div class="stat-sub">Approved requests</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-card-accent red"></div>
-          <div class="stat-label">Rejected Today</div>
-          <div class="stat-val red-v" id="apr-rejected-count">0</div>
-          <div class="stat-sub">Rejected requests</div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-header">
-          <div class="sec-title" style="margin:0;">Approval Requests</div>
-          <select id="apr-filter" onchange="renderApprovalsPanel()" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);outline:none;">
-            <option value="all">All</option>
-            <option value="pending" selected>Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Employee</th><th>Type</th><th>Time</th><th>Distance</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody id="approvals-table"></tbody>
-          </table>
-        </div>
-      </div>
-      <!-- Geofence Settings -->
-      <div class="card" style="margin-top:16px;">
-        <div class="sec-title">Office Geofence Configuration</div>
-        <div class="two-col">
-          <div class="field"><label>Latitude</label><input type="number" id="geofence-lat" step="any" placeholder="18.5204"></div>
-          <div class="field"><label>Longitude</label><input type="number" id="geofence-lng" step="any" placeholder="73.8567"></div>
-        </div>
-        <div class="two-col">
-          <div class="field"><label>Radius (meters)</label><input type="number" id="geofence-radius" value="100" min="10"></div>
-          <div class="field"><label>Address</label><input type="text" id="geofence-address" placeholder="Office address"></div>
-        </div>
-        <button class="btn btn-primary" onclick="saveGeofence()">Save Geofence</button>
-      </div>
-    </div>
-
     <!-- SETTINGS TAB -->
     <div id="admin-settings" class="atab">
       <div class="two-col">
@@ -1071,10 +1000,7 @@ body.dark-mode .skel-act-row {
             <div class="status-dot sd-r"></div>Not signed in
           </div>
           <p>Tap a button to mark your attendance for today</p>
-          <div style="margin:10px 0;">
-            <div id="gps-status" style="font-size:12px;color:var(--muted);margin-bottom:8px;">
-              <span id="gps-status-text">GPS: not captured</span>
-            </div>
+          <div style="margin:14px 0;">
             <button class="pbtn pbtn-in" onclick="empPunchIn()">Sign In</button>
             <button class="pbtn pbtn-out" onclick="empPunchOut()">Sign Out</button>
           </div>
@@ -1466,42 +1392,6 @@ body.dark-mode .skel-act-row {
       <div class="compose-modal-footer-right">
         <span id="compose-smtp-status" style="color:var(--green);">In-App delivery</span>
       </div>
-    </div>
-  </div>
-</div>
-
-<!-- ═══ REMOTE ATTENDANCE MODAL ═══ -->
-<div id="remote-attendance-modal" class="modal-overlay" style="display:none;">
-  <div class="modal-box" style="max-width:480px;">
-    <div class="modal-header">
-      <div class="modal-title" id="remote-modal-title">Remote / Field Work Attendance</div>
-      <button class="close-modal-btn" onclick="document.getElementById('remote-attendance-modal').style.display='none'">x</button>
-    </div>
-    <div class="modal-body">
-      <div style="background:var(--amber-bg, #fef3c7);border:1px solid var(--amber-border, #fde68a);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--amber-text, #92400e);line-height:1.6;">
-        You are outside the office geofence. Please select the reason for remote attendance.
-      </div>
-      <div class="field">
-        <label>Attendance Type</label>
-        <select id="remote-att-type" style="width:100%;">
-          <option value="wfh">Work From Home</option>
-          <option value="client_visit">Client Visit</option>
-          <option value="field_work">Field Work</option>
-          <option value="company_assignment">Company Assignment</option>
-          <option value="other">Other</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Reason / Notes</label>
-        <textarea id="remote-att-note" rows="3" style="width:100%;resize:vertical;" placeholder="Brief description..."></textarea>
-      </div>
-      <div style="font-size:11px;color:var(--subtle);margin-top:8px;">
-        Your GPS location will be recorded. Admin approval may be required.
-      </div>
-    </div>
-    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;">
-      <button class="btn" onclick="document.getElementById('remote-attendance-modal').style.display='none'">Cancel</button>
-      <button class="btn btn-primary" onclick="submitRemoteAttendance()">Submit</button>
     </div>
   </div>
 </div>
