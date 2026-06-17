@@ -7,8 +7,7 @@ let currentLeaveType = 'CL';
 let archivedVisible = false;
 let adminNotifPanelOpen = false;
 let empNotifPanelOpen = false;
-let breakInterval = null;
-let breakSeconds = 0;
+
 let selectedLeaveManageIdx = null;
 let archiveTargetId = null;
 let removeTargetId = null;
@@ -33,6 +32,11 @@ function _loadClearedBadges() {
 _loadClearedBadges();
 
 let appState = null;
+
+// GPS state
+let lastGPSPosition = null;
+let lastGPSWatchId = null;
+let gpsCaptureInProgress = false;
 
 // ══ HTML Template Validation (dev-only) ══
 // Catches unclosed tags in template strings before they break the DOM
@@ -317,7 +321,7 @@ function adminTab(tabName, btnElement) {
   sessionStorage.setItem('adminLastTab', tabName);
   if (tabName === 'dashboard') markAdminNotifsRead();
   // Clear the nav badge for this tab on click
-  const badgeMap = { dashboard: 'nav-badge-dash', employees: 'nav-badge-emps', leaves: 'nav-badge-leaves', announcements: 'nav-badge-ann' };
+  const badgeMap = { dashboard: 'nav-badge-dash', employees: 'nav-badge-emps', leaves: 'nav-badge-leaves', announcements: 'nav-badge-ann', approvals: 'nav-badge-approvals' };
   if (badgeMap[tabName]) {
     clearedNavBadges.add(badgeMap[tabName]); _saveClearedBadges();
     const el = document.getElementById(badgeMap[tabName]);
@@ -330,6 +334,7 @@ function adminTab(tabName, btnElement) {
     if (tabName === 'reports') setReport('daily', document.querySelector('.rtab.active'));
     if (tabName === 'settings') { loadCalendarConfig(); }
     if (tabName === 'employees') renderAll();
+    if (tabName === 'approvals') { renderApprovalsPanel(); loadGeofenceConfig(); }
   });
 }
 
@@ -357,7 +362,12 @@ function updateDashboardStats() {
   setText('stat-present-today', present);
   setText('stat-absent-today', Math.max(0, absent));
   setText('stat-late-today', late);
-  setText('stat-present-rate', rate + '% attendance');
+
+  // GPS / remote stats
+  const inOffice = todayLogs.filter(l => l.gps_status === 'in_office').length;
+  const remoteCount = todayLogs.filter(l => l.attendance_type && l.attendance_type !== 'in_office').length;
+  setText('stat-gps-inoffice', inOffice || 0);
+  setText('stat-gps-remote', remoteCount || 0);
 }
 
 function renderDashboardCards() {
@@ -1144,7 +1154,7 @@ function renderEmpHistory() {
   }
 }
 
-function empPunchIn() {
+async function empPunchIn() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
   const h = now.getHours();
@@ -1157,24 +1167,109 @@ function empPunchIn() {
   if (!uid) { showNotifBar('error', 'Session expired. Please log in again.'); return; }
   const emp = (appState.employees || []).find(e => e.id === uid);
   if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.'); return; }
-  api('/api/attendance/login', {
-    method: 'POST',
-    body: { empId: emp.id, empName: emp.name, department: emp.dept, computerName: navigator.platform || 'Web Browser' }
-  }).then(async res => {
-    if (res && res.success) {
-      const pill = document.getElementById('emp-pill');
-      if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
-      showNotifBar('success', 'Signed In at ' + timeStr);
-      appendTimeline('in', 'Signed In', timeStr);
-      if (h >= 14) showNotifBar('warning', 'Login after 2:00 PM — this session is flagged as Half-Day.');
-    } else {
-      showNotifBar('error', (res && res.error) || 'Failed to sign in.');
+
+  // Capture GPS position
+  const gps = await autoCaptureGPS();
+
+  // If GPS available and outside geofence — show remote attendance modal
+  if (gps) {
+    try {
+      const fence = await api('/api/geofence', { method: 'GET' });
+      if (fence && fence.lat) {
+        // Haversine distance
+        const R = 6371000;
+        const toRad = a => a * Math.PI / 180;
+        const dLat = toRad(gps.lat - fence.lat);
+        const dLng = toRad(gps.lng - fence.lng);
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRad(fence.lat)) * Math.cos(toRad(gps.lat)) * Math.sin(dLng / 2) ** 2;
+        const distFromOffice = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        if (distFromOffice > fence.radius_meters && h < 14) {
+          // Outside geofence — show remote attendance modal
+          // Store GPS data so submitRemoteAttendance can use it
+          window._pendingPunchGPS = gps;
+          window._pendingPunchEmp = emp;
+          document.getElementById('remote-attendance-modal').style.display = 'flex';
+          return;
+        }
+      }
+    } catch (_) {
+      // Geofence check failed, proceed with normal punch
     }
-    await refreshStateAndRender();
-  });
+  }
+
+  // Normal in-office punch
+  await doPunchIn(emp, gps, timeStr, h);
 }
 
-function empPunchOut() {
+async function doPunchIn(emp, gps, timeStr, h) {
+  const body = {
+    empId: emp.id, empName: emp.name, department: emp.dept,
+    computerName: navigator.platform || 'Web Browser'
+  };
+  if (gps) {
+    body.gpsLat = gps.lat;
+    body.gpsLng = gps.lng;
+    body.gpsAccuracy = gps.accuracy;
+  }
+  const res = await api('/api/attendance/login', { method: 'POST', body });
+  if (res && res.success) {
+    const pill = document.getElementById('emp-pill');
+    if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
+    showNotifBar('success', 'Signed In at ' + timeStr);
+    appendTimeline('in', 'Signed In', timeStr);
+    if (h >= 14) showNotifBar('warning', 'Login after 2:00 PM — this session is flagged as Half-Day.');
+  } else {
+    showNotifBar('error', (res && res.error) || 'Failed to sign in.');
+  }
+  await refreshStateAndRender();
+}
+
+async function submitRemoteAttendance() {
+  const gps = window._pendingPunchGPS;
+  const emp = window._pendingPunchEmp;
+  if (!gps || !emp) {
+    showNotifBar('error', 'GPS data or employee info missing. Please try again.');
+    return;
+  }
+  const attType = document.getElementById('remote-att-type')?.value || 'other';
+  const attNote = document.getElementById('remote-att-note')?.value || '';
+  const timeStr = new Date().toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
+  const body = {
+    empId: emp.id, empName: emp.name, department: emp.dept,
+    computerName: navigator.platform || 'Web Browser',
+    gpsLat: gps.lat, gpsLng: gps.lng, gpsAccuracy: gps.accuracy,
+    attendanceType: attType, approvalReason: attNote || attType
+  };
+  const res = await api('/api/attendance/login', { method: 'POST', body });
+  if (res && res.success) {
+    // Also submit a formal approval request
+    await api('/api/attendance/approvals', {
+      method: 'POST',
+      body: {
+        attendance_log_id: res.log.id,
+        emp_id: emp.id, emp_name: emp.name, department: emp.dept,
+        lat: gps.lat, lng: gps.lng,
+        distance_from_office: null,
+        reason_type: attType, reason: attNote || attType,
+        note: attNote, device_info: navigator.userAgent
+      }
+    });
+    const pill = document.getElementById('emp-pill');
+    if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
+    showNotifBar('info', 'Remote attendance submitted — awaiting admin approval.');
+    appendTimeline('in', 'Signed In (remote)', timeStr);
+  } else {
+    showNotifBar('error', (res && res.error) || 'Failed to sign in.');
+  }
+  document.getElementById('remote-attendance-modal').style.display = 'none';
+  window._pendingPunchGPS = null;
+  window._pendingPunchEmp = null;
+  document.getElementById('remote-att-note').value = '';
+  await refreshStateAndRender();
+}
+
+async function empPunchOut() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
   if (!appState) { showNotifBar('error', 'App data not loaded. Please refresh the page.'); return; }
@@ -1182,54 +1277,26 @@ function empPunchOut() {
   if (!uid) { showNotifBar('error', 'Session expired. Please log in again.'); return; }
   const emp = (appState.employees || []).find(e => e.id === uid);
   if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.'); return; }
-  api('/api/attendance/logout', {
-    method: 'POST',
-    body: { empId: emp.id }
-  }).then(async res => {
-    if (res && res.success) {
-      const pill = document.getElementById('emp-pill');
-      if (pill) { pill.className = 'status-pill sp-out'; pill.innerHTML = '<div class="status-dot sd-r"></div>Signed Out'; }
-      if (breakInterval) { clearInterval(breakInterval); breakInterval = null; document.getElementById('break-btn').innerText = 'Start Break'; document.getElementById('break-timer-wrap').style.display = 'none'; }
-      showNotifBar('info', 'Signed Out at ' + timeStr);
-      appendTimeline('out', 'Signed Out', timeStr);
-    } else {
-      showNotifBar('error', (res && res.error) || 'Failed to sign out.');
-    }
-    await refreshStateAndRender();
-  });
-}
 
-function toggleBreak() {
-  const btn = document.getElementById('break-btn');
-  const wrap = document.getElementById('break-timer-wrap');
-  const disp = document.getElementById('break-timer');
-  if (!btn) return;
-  if (btn.innerText.includes('Start')) {
-    btn.innerText = 'Stop Break';
-    if (wrap) wrap.style.display = 'block';
-    breakInterval = setInterval(() => {
-      breakSeconds++;
-      const m = String(Math.floor(breakSeconds / 60)).padStart(2, '0');
-      const s = String(breakSeconds % 60).padStart(2, '0');
-      if (disp) disp.innerText = m + ':' + s;
-    }, 1000);
-    const now = new Date().toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
-    appendTimeline('break', 'Break started', now);
-    const pillEl = document.getElementById('emp-pill');
-    if (pillEl) { pillEl.className = 'status-pill sp-break'; pillEl.innerHTML = '<div class="status-dot sd-a"></div>On Break'; }
-  } else {
-    btn.innerText = 'Start Break';
-    clearInterval(breakInterval);
-    breakInterval = null;
-    const dur = disp?.innerText || '0:00';
-    if (wrap) wrap.style.display = 'none';
-    breakSeconds = 0;
-    showNotifBar('info', 'Break ended — Duration: ' + dur);
-    const now = new Date().toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
-    appendTimeline('in', 'Break ended', now);
-    const pillEl = document.getElementById('emp-pill');
-    if (pillEl) { pillEl.className = 'status-pill sp-in'; pillEl.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
+  // Capture GPS on logout
+  const gps = await autoCaptureGPS();
+
+  const body = { empId: emp.id };
+  if (gps) {
+    body.gpsLat = gps.lat;
+    body.gpsLng = gps.lng;
+    body.gpsAccuracy = gps.accuracy;
   }
+
+  const res = await api('/api/attendance/logout', { method: 'POST', body });
+  if (res && res.success) {
+    const pill = document.getElementById('emp-pill');
+    if (pill) { pill.className = 'status-pill sp-out'; pill.innerHTML = '<div class="status-dot sd-r"></div>Signed Out'; }      showNotifBar('info', 'Signed Out at ' + timeStr);
+    appendTimeline('out', 'Signed Out', timeStr);
+  } else {
+    showNotifBar('error', (res && res.error) || 'Failed to sign out.');
+  }
+  await refreshStateAndRender();
 }
 
 function appendTimeline(type, text, time) {
@@ -1241,6 +1308,57 @@ function appendTimeline(type, text, time) {
   item.className = 'timeline-item';
   item.innerHTML = '<div class="timeline-dot td-' + type + '" style="background:' + (colors[type] || colors.in) + '"></div><div class="timeline-content">' + text + '<div class="timeline-time">' + time + '</div></div>';
   tl.prepend(item);
+}
+
+// ── GPS Capture ──
+
+function captureGPS(highAccuracy) {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      updateGPSStatus('GPS not available');
+      resolve(null);
+      return;
+    }
+    gpsCaptureInProgress = true;
+    updateGPSStatus('Acquiring GPS...');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        lastGPSPosition = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: Math.round(pos.coords.accuracy)
+        };
+        gpsCaptureInProgress = false;
+        const accStr = lastGPSPosition.accuracy > 50 ? ' (low accuracy)' : '';
+        updateGPSStatus('GPS: ' + lastGPSPosition.lat.toFixed(4) + ', ' + lastGPSPosition.lng.toFixed(4) + accStr);
+        resolve(lastGPSPosition);
+      },
+      (err) => {
+        gpsCaptureInProgress = false;
+        let msg = 'GPS error';
+        if (err.code === 1) msg = 'GPS: permission denied';
+        else if (err.code === 2) msg = 'GPS: unavailable';
+        else if (err.code === 3) msg = 'GPS: timed out';
+        updateGPSStatus(msg);
+        resolve(null);
+      },
+      { enableHighAccuracy: highAccuracy !== false, timeout: 10000, maximumAge: 60000 }
+    );
+  });
+}
+
+function updateGPSStatus(text) {
+  const el = document.getElementById('gps-status-text');
+  if (el) el.textContent = text;
+}
+
+function autoCaptureGPS() {
+  if (lastGPSPosition) return Promise.resolve(lastGPSPosition);
+  return captureGPS(false);
+}
+
+function autoCaptureGPSHigh() {
+  return captureGPS(true);
 }
 
 function autoAttendancePunchIn(emp) {
@@ -1714,6 +1832,98 @@ function checkPwdStrength(inputId, barId) {
 function toggleAdminReset() {
 }
 
+// ── Approvals Panel ──
+
+async function renderApprovalsPanel() {
+  const approvals = await api('/api/attendance/approvals', { method: 'GET' });
+  if (!approvals || !Array.isArray(approvals)) return;
+  const filter = document.getElementById('apr-filter')?.value || 'pending';
+  let filtered = approvals;
+  if (filter !== 'all') filtered = approvals.filter(a => a.status === filter);
+
+  const pendingCount = approvals.filter(a => a.status === 'pending').length;
+  const approvedCount = approvals.filter(a => a.status === 'approved').length;
+  const rejectedCount = approvals.filter(a => a.status === 'rejected').length;
+  setText('apr-pending-count', pendingCount);
+  setText('apr-approved-count', approvedCount);
+  setText('apr-rejected-count', rejectedCount);
+
+  const tbody = document.getElementById('approvals-table');
+  if (!tbody) return;
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--subtle);padding:20px;">No approval requests found.</td></tr>';
+    return;
+  }
+  smartTableSync(tbody, filtered, a => {
+    const timeStr = a.created_at ? formatTime(a.created_at) : '';
+    const distStr = a.distance_from_office ? (a.distance_from_office > 1000 ? (a.distance_from_office / 1000).toFixed(1) + 'km' : Math.round(a.distance_from_office) + 'm') : '—';
+    const statusTag = '<span class="tag t-' + a.status + '">' + a.status.charAt(0).toUpperCase() + a.status.slice(1) + '</span>';
+    const actionBtns = a.status === 'pending'
+      ? '<div style="display:flex;gap:4px;"><button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;" onclick="reviewApproval(\'' + a.id + '\',\'approved\')">Approve</button><button class="btn btn-sm" style="background:#dc2626;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;" onclick="reviewApproval(\'' + a.id + '\',\'rejected\')">Reject</button></div>'
+      : '<span style="font-size:11px;color:var(--subtle);">' + (a.reviewed_by || '') + '</span>';
+    // GPS map link
+    const gpsLink = (a.lat && a.lng)
+      ? '<a href="#" onclick="event.preventDefault();window.open(\'https://www.openstreetmap.org/?mlat=' + a.lat + '&mlon=' + a.lng + '&zoom=15\',\'_blank\')" style="font-size:11px;color:var(--accent);">Map</a>'
+      : '—';
+    return '<tr>' +
+      '<td><strong>' + (a.emp_name || '') + '</strong></td>' +
+      '<td style="font-size:12px;color:var(--muted);">' + (a.reason_type || '—') + '</td>' +
+      '<td style="font-size:12px;">' + timeStr + '</td>' +
+      '<td style="font-size:12px;">' + distStr + '</td>' +
+      '<td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (a.reason || '') + '">' + (a.reason || '—') + '</td>' +
+      '<td>' + statusTag + '</td>' +
+      '<td>' + actionBtns + ' ' + gpsLink + '</td></tr>';
+  }, a => a.id);
+}
+
+async function reviewApproval(id, status) {
+  const note = prompt('Optional note for ' + status + ' decision:');
+  const res = await api('/api/attendance/approvals/review', {
+    method: 'POST',
+    body: { id, status, admin_note: note || '' }
+  });
+  if (res && res.success) {
+    showNotifBar('info', 'Attendance request ' + status + '.');
+  } else {
+    showNotifBar('error', (res && res.error) || 'Failed to update.');
+  }
+  await refreshStateAndRender();
+  renderApprovalsPanel();
+}
+
+async function loadGeofenceConfig() {
+  const fence = await api('/api/geofence', { method: 'GET' });
+  if (!fence) return;
+  const latEl = document.getElementById('geofence-lat');
+  const lngEl = document.getElementById('geofence-lng');
+  const radEl = document.getElementById('geofence-radius');
+  const addrEl = document.getElementById('geofence-address');
+  if (latEl) latEl.value = fence.lat || '';
+  if (lngEl) lngEl.value = fence.lng || '';
+  if (radEl) radEl.value = fence.radius_meters || 100;
+  if (addrEl) addrEl.value = fence.address || '';
+}
+
+async function saveGeofence() {
+  const lat = parseFloat(document.getElementById('geofence-lat')?.value);
+  const lng = parseFloat(document.getElementById('geofence-lng')?.value);
+  const radius = parseInt(document.getElementById('geofence-radius')?.value) || 100;
+  const address = document.getElementById('geofence-address')?.value || '';
+  if (isNaN(lat) || isNaN(lng)) {
+    showNotifBar('error', 'Please enter valid coordinates.');
+    return;
+  }
+  const res = await api('/api/geofence', {
+    method: 'POST',
+    body: { lat, lng, radius_meters: radius, address }
+  });
+  if (res && res.success) {
+    showNotifBar('info', 'Geofence updated.');
+  } else {
+    showNotifBar('error', (res && res.error) || 'Failed to save.');
+  }
+}
+
 async function doLogin() {
   const uid = document.getElementById('uid').value.trim();
   const pwd = document.getElementById('pwd').value.trim();
@@ -1776,6 +1986,14 @@ async function doLogin() {
       if (res.timeBlock && res.timeBlock.isHalfDay) {
         showNotifBar('warning', 'First login after 2:00 PM — today will be flagged as Half-Day.');
       }
+
+      // Register device on login
+      try {
+        await api('/api/devices/register', {
+          method: 'POST',
+          body: { emp_id: res.user.id, emp_name: res.user.name || res.user.id }
+        });
+      } catch (_) {}
 
       const emp = appState && (appState.employees || []).find(e => e.id === res.user.id);
       if (emp) {
