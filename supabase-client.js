@@ -168,86 +168,92 @@
       return { success: false, message: 'Incorrect admin password.' };
     }
 
-    // Employee check - query by ID (case-insensitive)
+    // ── Employee check: fetch ALL active employees, match in JavaScript ──
     console.log('[Auth] Employee login attempt for ID/email:', normalized);
-    // First try exact match (preserving original case the user typed)
-    const originalUid = (uid || '').trim();
-    let { data: emps, error } = await db.supabase
-      .from('employees').select('*').eq('id', originalUid).eq('active', true).limit(1);
-    if (error) {
-      console.error('[Auth] Employee ID exact query error:', error.message);
-    }
     
-    // If not found by exact ID, try case-insensitive ID match
-    if (!emps || emps.length === 0) {
-      console.log('[Auth] Employee not found by exact ID, trying case-insensitive match:', normalized);
-      const { data: empsIl, error: ilError } = await db.supabase
-        .from('employees').select('*').ilike('id', normalized).eq('active', true).limit(1);
-      if (ilError) {
-        console.error('[Auth] Employee ID ilike query error:', ilError.message);
-      }
-      emps = empsIl;
-    }
-    
-    if (emps && emps.length > 0) {
-      console.log('[Auth] Employee found:', emps[0].id, '-', emps[0].name);
-      if (emps[0].password === pwd) {
-        console.log('[Auth] Employee login SUCCESS:', emps[0].id);
-        const hr = new Date().getHours();
-        return {
-          success: true, role: 'employee',
-          user: { id: emps[0].id, name: emps[0].name, dept: emps[0].dept,
-                  designation: emps[0].designation, cl: emps[0].cl, sl: emps[0].sl, ul: emps[0].ul || 0 },
-          timeBlock: { isHalfDay: hr >= 14 }
-        };
-      } else {
-        console.log('[Auth] Password MISMATCH for employee:', emps[0].id);
-        return { success: false, message: 'Invalid credentials. Please check your password.' };
-      }
-    }
-    
-    console.log('[Auth] No employee found with ID:', normalized);
-    
-    // ── Diagnostic: check if employee exists but is inactive ──
     try {
-      // Query WITHOUT active filter to see if employee exists at all
-      const { data: found } = await db.supabase
-        .from('employees').select('id,active').ilike('id', normalized).limit(1);
+      // Fetch ALL active employees in one query (no filter on ID — avoids any encoding/RLS issues)
+      const { data: allEmps, error: fetchError } = await db.supabase
+        .from('employees').select('*').eq('active', true);
       
-      if (found && found.length > 0) {
-        const emp = found[0];
-        console.log('[Auth] DIAGNOSTIC: Employee', normalized, 'exists with active =', emp.active);
+      if (fetchError) {
+        console.error('[Auth] Error fetching employees:', fetchError.message);
+        return { success: false, message: 'Database error. Please contact admin.' };
+      }
+      
+      if (!allEmps || allEmps.length === 0) {
+        console.log('[Auth] No active employees found in the database!');
+        return { success: false, message: 'No employees found in the system. Contact admin.' };
+      }
+      
+      console.log('[Auth] Found', allEmps.length, 'active employees in DB');
+      
+      // Try to find the employee by matching in JavaScript
+      const originalUid = (uid || '').trim();
+      const normalizedUid = originalUid.toLowerCase();
+      
+      // Strategy 1: Exact ID match (preserving case)
+      let matchedEmp = allEmps.find(e => e.id === originalUid);
+      
+      // Strategy 2: Case-insensitive ID match
+      if (!matchedEmp) {
+        console.log('[Auth] No exact ID match, trying case-insensitive...');
+        matchedEmp = allEmps.find(e => e.id.toLowerCase() === normalizedUid);
+      }
+      
+      // Strategy 3: Email match (case-insensitive)
+      if (!matchedEmp) {
+        console.log('[Auth] No ID match, trying email...');
+        matchedEmp = allEmps.find(e => e.email && e.email.toLowerCase() === normalizedUid);
+      }
+      
+      if (matchedEmp) {
+        console.log('[Auth] Employee matched:', matchedEmp.id, '-', matchedEmp.name, '(strategy:', matchedEmp.id === originalUid ? 'exact ID' : matchedEmp.id.toLowerCase() === normalizedUid ? 'case-insensitive ID' : 'email', ')');
+        
+        if (matchedEmp.password === pwd) {
+          console.log('[Auth] Employee login SUCCESS:', matchedEmp.id);
+          const hr = new Date().getHours();
+          return {
+            success: true, role: 'employee',
+            user: { id: matchedEmp.id, name: matchedEmp.name, dept: matchedEmp.dept,
+                    designation: matchedEmp.designation, cl: matchedEmp.cl, sl: matchedEmp.sl, ul: matchedEmp.ul || 0 },
+            timeBlock: { isHalfDay: hr >= 14 }
+          };
+        } else {
+          console.log('[Auth] Password MISMATCH for employee:', matchedEmp.id);
+          return { success: false, message: 'Invalid credentials. Please check your password.' };
+        }
+      }
+      
+      // Employee not found by any strategy
+      console.log('[Auth] No matching employee found for:', originalUid);
+      
+      // ── Diagnostic: log available employee IDs ──
+      console.log('[Auth] DIAGNOSTIC: Available employee IDs:', allEmps.map(e => e.id).join(', '));
+      
+      // Check if employee exists but is inactive (active = false or null)
+      const { data: inactiveEmps } = await db.supabase
+        .from('employees').select('id,active').ilike('id', normalizedUid).limit(1);
+      
+      if (inactiveEmps && inactiveEmps.length > 0) {
+        const emp = inactiveEmps[0];
+        console.log('[Auth] DIAGNOSTIC: Employee', normalizedUid, 'exists but active =', emp.active);
         
         if (emp.active === null || emp.active === undefined) {
-          // Employee exists but active flag is NULL — auto-fix and retry
-          console.log('[Auth] DIAGNOSTIC: active is NULL — auto-fixing and retrying login...');
-          const { error: fixErr } = await db.supabase
-            .from('employees').update({ active: true }).ilike('id', normalized);
-          if (!fixErr) {
-            console.log('[Auth] DIAGNOSTIC: Auto-fixed active flag for', normalized, '- retrying login...');
-            return await _login(uid, pwd);
-          }
+          console.log('[Auth] DIAGNOSTIC: active is NULL — auto-fixing...');
+          await db.supabase.from('employees').update({ active: true }).ilike('id', normalizedUid);
+          console.log('[Auth] DIAGNOSTIC: Fixed active flag — please try again');
         } else if (emp.active === false) {
-          // Admin intentionally deactivated this employee
           return { success: false, message: 'Employee "' + originalUid + '" has been deactivated. Contact admin to reactivate your account.' };
         }
-        // If active === true but 3 lookups failed, log extra context (edge case)
-      } else {
-        // Employee doesn't exist — log available IDs for debugging
-        const { data: allEmps } = await db.supabase
-          .from('employees').select('id,active').limit(20);
-        if (allEmps && allEmps.length > 0) {
-          const ids = allEmps.map(e => e.id + '(active:' + e.active + ')').join(', ');
-          console.log('[Auth] DIAGNOSTIC: Available employees in DB:', ids);
-        } else {
-          console.log('[Auth] DIAGNOSTIC: No employees found in the employees table at all!');
-        }
       }
-    } catch (diagErr) {
-      console.warn('[Auth] Diagnostic query failed:', diagErr.message);
+      
+    } catch (err) {
+      console.error('[Auth] Employee lookup error:', err.message);
+      return { success: false, message: 'Error looking up employee. Check database connection.' };
     }
     
-    return { success: false, message: 'Employee not found. Please use your Employee ID to login.' };
+    return { success: false, message: 'Employee not found. Check your Employee ID or contact admin.' };
   }
 
   async function _changePassword(userId, currentPwd, newPwd) {
@@ -686,7 +692,8 @@
       : all.filter(n => (n.target === 'emp' || n.user_id === userId) && n.is_read !== true);
 
     for (const n of targets) {
-      await db.supabase.from('notifications').update({ unread: false, is_read: true }).eq('id', n.id);
+      const ok = await db.update('notifications', 'id', n.id, { unread: false, is_read: true });
+      if (!ok) console.warn('[SBClient] Failed to mark notification', n.id, 'as read');
     }
     return { success: true };
   }
