@@ -835,22 +835,34 @@ function saveEmployee() {
   if (!name || !id || !dept) { showNotifBar('warning', 'Please fill in all required fields (*)'); return; }
   if (mode === 'add') {
     if (appState && (appState.employees || []).some(e => e.id === id)) { showNotifBar('warning', 'Employee ID already exists.'); return; }
+    console.log('[Auth] Creating employee:', id, name);
     api('/api/employees', { method: 'POST', body: { id, name, dept, email, phone, bday, joining, designation, cl, sl, password: pwd || 'emp123' } }).then(async res => {
       if (res && res.success) {
+        console.log('[Auth] Employee created successfully:', id);
         closeAddEmpModal();
         await refreshStateAndRender();
         showNotifBar('success', 'Employee ' + name + ' added successfully!');
       } else {
-        showNotifBar('error', (res && res.error) || 'Failed to add employee.');
+        console.error('[Auth] Failed to create employee:', id, res);
+        showNotifBar('error', (res && res.error) || 'Failed to add employee. Check database connection.');
       }
     });
   } else {
-    api('/api/employees/' + editId, { method: 'PUT', body: { name, dept, email, phone, bday, joining, designation, cl, sl, password: pwd || undefined } }).then(async res => {
+    // Build update body - only include password if a new one was entered
+    const updateBody = { name, dept, email, phone, bday, joining, designation, cl, sl };
+    if (pwd && pwd.length > 0) {
+      updateBody.password = pwd;
+      console.log('[Auth] Including password change for employee:', editId);
+    }
+    console.log('[Auth] Updating employee:', editId, 'fields:', Object.keys(updateBody));
+    api('/api/employees/' + editId, { method: 'PUT', body: updateBody }).then(async res => {
       if (res && res.success) {
+        console.log('[Auth] Employee updated successfully:', editId);
         closeAddEmpModal();
         await refreshStateAndRender();
         showNotifBar('success', 'Employee ' + name + ' updated successfully!');
       } else {
+        console.error('[Auth] Failed to update employee:', editId, res);
         showNotifBar('error', (res && res.error) || 'Failed to update employee.');
       }
     });
@@ -1529,12 +1541,18 @@ async function sendAdminReset() {
 }
 
 async function api(url, opts = {}) {
+  // Auto-initialize SupabaseClient if not ready yet
+  if (typeof SupabaseClient !== 'undefined' && !SupabaseClient.ready) {
+    const inited = SupabaseClient.init();
+    if (inited) {
+      console.log('[SBClient] Auto-initialized on first API call');
+    }
+  }
   // Use SupabaseClient directly (stateless, no server needed)
   if (typeof SupabaseClient !== 'undefined' && SupabaseClient.ready) {
     const result = await SupabaseClient.call(opts.method || 'GET', url, opts.body || null);
     if (result) return result;
   }
-  // Fallback: return null (SupabaseClient handles all API calls)
   return null;
 }
 
@@ -1929,6 +1947,8 @@ async function doLogin() {
   const pwd = document.getElementById('pwd').value.trim();
   const rememberMe = document.getElementById('remember-me')?.checked || false;
 
+  console.log('[Auth] Login attempt for user:', uid, '(remember:', rememberMe, ')');
+
   if (!uid || !pwd) {
     document.getElementById('err-msg').style.display = 'flex';
     document.getElementById('err-msg-text').textContent = 'Please fill in all fields.';
@@ -1939,6 +1959,7 @@ async function doLogin() {
 
   const currentHour = new Date().getHours();
   if (uid !== ADMIN_USERNAME && uid.toLowerCase() !== ADMIN_EMAIL && currentHour >= 18) {
+    console.log('[Auth] Login blocked: time restriction (hour=' + currentHour + ')');
     document.getElementById('err-msg').style.display = 'flex';
     document.getElementById('err-msg-text').textContent = 'Employee logins are blocked after 6:00 PM IST.';
     return;
@@ -1946,6 +1967,20 @@ async function doLogin() {
 
   const loginBtn = document.querySelector('.login-btn');
   setButtonLoading(loginBtn, true);
+
+  // Ensure SupabaseClient is initialized before login
+  if (typeof SupabaseClient !== 'undefined' && !SupabaseClient.ready) {
+    const inited = SupabaseClient.init();
+    if (inited) {
+      console.log('[Auth] SupabaseClient initialized on-demand during login');
+    } else {
+      console.error('[Auth] SupabaseClient init FAILED');
+      setButtonLoading(loginBtn, false, 'Sign In');
+      document.getElementById('err-msg').style.display = 'flex';
+      document.getElementById('err-msg-text').textContent = 'Database not connected. Check your Supabase configuration.';
+      return;
+    }
+  }
 
   const res = await api('/api/auth/login', {
     method: 'POST',
@@ -1960,12 +1995,16 @@ async function doLogin() {
   }
 
   if (res && res.success) {
+    console.log('[Auth] Login SUCCESS for:', uid, 'role:', res.role);
     sessionStorage.setItem('userId', uid);
     sessionStorage.setItem('userRole', res.role);
     if (rememberMe) {
       localStorage.setItem('rememberedUser', uid);
+      localStorage.setItem('rememberedRole', res.role);
+      console.log('[Auth] Remember-me set for:', uid);
     } else {
       localStorage.removeItem('rememberedUser');
+      localStorage.removeItem('rememberedRole');
     }
 
     if (res.role === 'admin') {
@@ -1997,9 +2036,12 @@ async function doLogin() {
 
       const emp = appState && (appState.employees || []).find(e => e.id === res.user.id);
       if (emp) {
+        console.log('[Auth] Employee data found, showing page for:', emp.name);
         showEmployeePage(emp);
         hideLoading();
       } else {
+        console.error('[Auth] Employee NOT found in appState after login. ID:', res.user.id);
+        console.log('[Auth] Available employees:', (appState?.employees || []).map(e => e.id).join(', '));
         hideLoading();
         showNotifBar('error', 'Employee data not found. Check database connection.');
       }
@@ -2008,12 +2050,14 @@ async function doLogin() {
   }
 
   if (res) {
+    console.log('[Auth] Login FAILED:', res.message || res.error);
     setButtonLoading(loginBtn, false, 'Sign In');
     document.getElementById('err-msg').style.display = 'flex';
     document.getElementById('err-msg-text').textContent = res.message || res.error || 'Invalid credentials. Please try again.';
     return;
   }
 
+  console.error('[Auth] Login FAILED - no response from API (Supabase not reachable)');
   setButtonLoading(loginBtn, false, 'Sign In');
   document.getElementById('err-msg').style.display = 'flex';
   document.getElementById('err-msg-text').textContent = 'Unable to connect to database. Check your Supabase configuration.';

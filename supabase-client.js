@@ -175,24 +175,48 @@
 
     // Admin check
     if (normalized === ADMIN_USERNAME || normalized === ADMIN_EMAIL.toLowerCase()) {
+      console.log('[Auth] Admin login attempt:', normalized);
       const { data: admins, error } = await db.supabase
         .from('admin').select('*').eq('username', ADMIN_USERNAME).limit(1);
-      if (!error && admins && admins.length > 0 && admins[0].password === pwd) {
+      if (error) {
+        console.error('[Auth] Admin DB query error:', error.message);
+        return { success: false, message: 'Database error. Check Supabase connection.' };
+      }
+      if (!admins || admins.length === 0) {
+        console.error('[Auth] Admin account not found in DB!');
+        return { success: false, message: 'Admin account not found in database. Run SQL setup.' };
+      }
+      if (admins[0].password === pwd) {
+        console.log('[Auth] Admin login SUCCESS');
         return { success: true, role: 'admin', user: { id: ADMIN_USERNAME, name: 'Administrator' } };
       }
+      console.log('[Auth] Admin login FAILED - incorrect password');
       return { success: false, message: 'Incorrect admin password.' };
     }
 
-    // Employee check
+    // Employee check - query by ID first
+    console.log('[Auth] Employee login attempt for ID/email:', normalized);
     let { data: emps, error } = await db.supabase
       .from('employees').select('*').eq('id', normalized).eq('active', true).limit(1);
+    if (error) {
+      console.error('[Auth] Employee ID query error:', error.message);
+    }
+    
+    // If not found by ID, try by email
     if (!emps || emps.length === 0) {
-      const { data: emps2 } = await db.supabase
+      console.log('[Auth] Employee not found by ID, trying email lookup:', normalized);
+      const { data: emps2, error: emailError } = await db.supabase
         .from('employees').select('*').eq('email', normalized).eq('active', true).limit(1);
+      if (emailError) {
+        console.error('[Auth] Employee email query error:', emailError.message);
+      }
       emps = emps2;
     }
+    
     if (emps && emps.length > 0) {
+      console.log('[Auth] Employee found:', emps[0].id, '-', emps[0].name);
       if (emps[0].password === pwd) {
+        console.log('[Auth] Employee login SUCCESS:', emps[0].id);
         const hr = new Date().getHours();
         return {
           success: true, role: 'employee',
@@ -200,9 +224,14 @@
                   designation: emps[0].designation, cl: emps[0].cl, sl: emps[0].sl, ul: emps[0].ul || 0 },
           timeBlock: { isHalfDay: hr >= 14 }
         };
+      } else {
+        console.log('[Auth] Password MISMATCH for employee:', emps[0].id);
+        return { success: false, message: 'Invalid credentials. Please check your password.' };
       }
     }
-    return { success: false, message: 'Invalid credentials.' };
+    
+    console.log('[Auth] No employee found with ID or email:', normalized);
+    return { success: false, message: 'Employee not found. Please check your Employee ID.' };
   }
 
   async function _changePassword(userId, currentPwd, newPwd) {
@@ -301,18 +330,25 @@
   // ── Employees ──
 
   async function _createEmployee(data) {
+    console.log('[Auth] Creating employee:', data.id, data.name);
     const { data: existing } = await db.supabase
       .from('employees').select('id').eq('id', data.id).limit(1);
-    if (existing && existing.length > 0) return { error: 'Employee ID already exists' };
+    if (existing && existing.length > 0) {
+      console.warn('[Auth] Employee ID already exists:', data.id);
+      return { error: 'Employee ID already exists' };
+    }
+    const empPassword = data.password || 'emp123';
+    console.log('[Auth] Creating employee with password length:', empPassword.length);
     const emp = await db.insert('employees', {
       id: data.id, name: data.name, dept: data.dept,
       email: data.email || '', phone: data.phone || '',
       bday: data.bday || '', joining: data.joining || '',
       designation: data.designation || '',
-      password: data.password || 'emp123',
+      password: empPassword,
       cl: data.cl || 7.5, sl: data.sl || 3.0, ul: 0, active: true
     });
     if (emp) {
+      console.log('[Auth] Employee created successfully in DB:', data.id);
       await db.insert('notifications', {
         text: 'New employee added: ' + data.name + ' (' + data.id + ')',
         time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -338,12 +374,33 @@
         }
       }
     }
-    return emp ? { success: true, employee: emp } : { error: 'Failed to create employee' };
+    if (!emp) {
+      console.error('[Auth] Failed to insert employee into DB:', data.id);
+      return { error: 'Failed to create employee in database' };
+    }
+    console.log('[Auth] Employee creation complete:', data.id);
+    return { success: true, employee: emp };
   }
 
   async function _updateEmployee(id, body) {
-    const ok = await db.update('employees', 'id', id, body);
-    return ok ? { success: true } : { error: 'Not found' };
+    // Strip undefined values to prevent overwriting DB columns with null
+    const cleanBody = {};
+    for (const [key, value] of Object.entries(body)) {
+      if (value !== undefined) {
+        cleanBody[key] = value;
+      }
+    }
+    console.log('[Auth] Updating employee', id, 'fields:', Object.keys(cleanBody));
+    if (cleanBody.password) {
+      console.log('[Auth] Password changing for employee:', id);
+    }
+    const ok = await db.update('employees', 'id', id, cleanBody);
+    if (ok) {
+      console.log('[Auth] Employee', id, 'updated successfully');
+      return { success: true };
+    }
+    console.error('[Auth] Failed to update employee:', id);
+    return { error: 'Not found or update failed' };
   }
 
   async function _deleteEmployee(id) {
