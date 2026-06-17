@@ -1,7 +1,9 @@
 /* ═══════════════════════════════════════
    SUPABASE CLIENT — Direct Supabase access
+   Version: 2 (cache-busting update)
 ═══════════════════════════════════════ */
 (function () {
+  console.log('[SBClient] Loading version 2 — if you see this, fresh code is running.');
   'use strict';
 
   let db = null; // reference to SupabaseDB
@@ -166,23 +168,25 @@
       return { success: false, message: 'Incorrect admin password.' };
     }
 
-    // Employee check - query by ID first
+    // Employee check - query by ID (case-insensitive)
     console.log('[Auth] Employee login attempt for ID/email:', normalized);
+    // First try exact match (preserving original case the user typed)
+    const originalUid = (uid || '').trim();
     let { data: emps, error } = await db.supabase
-      .from('employees').select('*').eq('id', normalized).eq('active', true).limit(1);
+      .from('employees').select('*').eq('id', originalUid).eq('active', true).limit(1);
     if (error) {
-      console.error('[Auth] Employee ID query error:', error.message);
+      console.error('[Auth] Employee ID exact query error:', error.message);
     }
     
-    // If not found by ID, try by email
+    // If not found by exact ID, try case-insensitive ID match
     if (!emps || emps.length === 0) {
-      console.log('[Auth] Employee not found by ID, trying email lookup:', normalized);
-      const { data: emps2, error: emailError } = await db.supabase
-        .from('employees').select('*').eq('email', normalized).eq('active', true).limit(1);
-      if (emailError) {
-        console.error('[Auth] Employee email query error:', emailError.message);
+      console.log('[Auth] Employee not found by exact ID, trying case-insensitive match:', normalized);
+      const { data: empsIl, error: ilError } = await db.supabase
+        .from('employees').select('*').ilike('id', normalized).eq('active', true).limit(1);
+      if (ilError) {
+        console.error('[Auth] Employee ID ilike query error:', ilError.message);
       }
-      emps = emps2;
+      emps = empsIl;
     }
     
     if (emps && emps.length > 0) {
@@ -202,8 +206,48 @@
       }
     }
     
-    console.log('[Auth] No employee found with ID or email:', normalized);
-    return { success: false, message: 'Employee not found. Please check your Employee ID.' };
+    console.log('[Auth] No employee found with ID:', normalized);
+    
+    // ── Diagnostic: check if employee exists but is inactive ──
+    try {
+      // Query WITHOUT active filter to see if employee exists at all
+      const { data: found } = await db.supabase
+        .from('employees').select('id,active').ilike('id', normalized).limit(1);
+      
+      if (found && found.length > 0) {
+        const emp = found[0];
+        console.log('[Auth] DIAGNOSTIC: Employee', normalized, 'exists with active =', emp.active);
+        
+        if (emp.active === null || emp.active === undefined) {
+          // Employee exists but active flag is NULL — auto-fix and retry
+          console.log('[Auth] DIAGNOSTIC: active is NULL — auto-fixing and retrying login...');
+          const { error: fixErr } = await db.supabase
+            .from('employees').update({ active: true }).ilike('id', normalized);
+          if (!fixErr) {
+            console.log('[Auth] DIAGNOSTIC: Auto-fixed active flag for', normalized, '- retrying login...');
+            return await _login(uid, pwd);
+          }
+        } else if (emp.active === false) {
+          // Admin intentionally deactivated this employee
+          return { success: false, message: 'Employee "' + originalUid + '" has been deactivated. Contact admin to reactivate your account.' };
+        }
+        // If active === true but 3 lookups failed, log extra context (edge case)
+      } else {
+        // Employee doesn't exist — log available IDs for debugging
+        const { data: allEmps } = await db.supabase
+          .from('employees').select('id,active').limit(20);
+        if (allEmps && allEmps.length > 0) {
+          const ids = allEmps.map(e => e.id + '(active:' + e.active + ')').join(', ');
+          console.log('[Auth] DIAGNOSTIC: Available employees in DB:', ids);
+        } else {
+          console.log('[Auth] DIAGNOSTIC: No employees found in the employees table at all!');
+        }
+      }
+    } catch (diagErr) {
+      console.warn('[Auth] Diagnostic query failed:', diagErr.message);
+    }
+    
+    return { success: false, message: 'Employee not found. Please use your Employee ID to login.' };
   }
 
   async function _changePassword(userId, currentPwd, newPwd) {

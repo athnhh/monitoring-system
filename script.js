@@ -336,10 +336,11 @@ function adminTab(tabName, btnElement) {
 
 function updateDashboardStats() {
   if (!appState) return;
-  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
   const logs = appState.attendanceLogs || [];
   const activeEmployees = (appState.employees || []).filter(e => e.active);
-  const todayLogs = logs.filter(l => getDateFromISO(l.login_time) === today);
+  const todayLogs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)) === today);
   // Unique employees with any session today
   const presentSet = new Set();
   const lateSet = new Set();
@@ -363,11 +364,12 @@ function updateDashboardStats() {
 function renderDashboardCards() {
   if (!appState) return;
   updateDashboardStats();
-  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
   const employees = appState.employees || [];
   const logs = appState.attendanceLogs || [];
   const leaveRequests = appState.leaveRequests || [];
-  const todayLogs = logs.filter(l => getDateFromISO(l.login_time) === today);
+  const todayLogs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)) === today);
   // Group today logs by employee — pick latest session per emp
   const empLatest = {};
   todayLogs.forEach(l => {
@@ -457,7 +459,7 @@ function calcActiveDuration(loginTime) {
 
 function renderActiveNow(todayLogs, employees) {
   const emps = employees || (appState ? appState.employees : []) || [];
-  const logs = todayLogs || (appState ? (appState.attendanceLogs || []).filter(l => getDateFromISO(l.login_time) === new Date().toISOString().split('T')[0]) : []);
+  const logs = todayLogs || (appState ? (appState.attendanceLogs || []).filter(l => { const d = new Date(); const ld = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); return (l.login_date || getDateFromISO(l.login_time)) === ld; }) : []);
   const deptFilter = document.getElementById('active-now-dept-filter')?.value || '';
   let activeLogs = logs.filter(l => ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status) && !l.logout_time);
   if (deptFilter) {
@@ -537,7 +539,7 @@ function renderRecords() {
   const tbody = document.getElementById('a-records');
   if (!tbody) return;
   let recs = logs.slice();
-  if (dateF) recs = recs.filter(l => getDateFromISO(l.login_time) === dateF);
+  if (dateF) recs = recs.filter(l => (l.login_date || getDateFromISO(l.login_time)) === dateF);
   if (deptF) recs = recs.filter(l => l.department === deptF);
   if (statusF) recs = recs.filter(l => l.status === statusF);
   const employees = appState.employees || [];
@@ -803,10 +805,7 @@ function openEditEmpModal(empId) {
   if (document.getElementById('f-dept')) document.getElementById('f-dept').value = emp.dept;
 }
 
-function closeAddEmpModal() {
-  document.getElementById('add-emp-modal').style.display = 'none';
-  document.getElementById('f-id').disabled = false;
-}
+// closeAddEmpModal defined later (extended version)
 
 function saveEmployee() {
   const mode = document.getElementById('add-emp-modal').dataset.mode || 'add';
@@ -966,12 +965,13 @@ function setReport(type, btn) {
   const logs = appState.attendanceLogs || [];
   document.querySelectorAll('.rtab').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
   let recs = [];
   let title = '';
   if (type === 'daily') { recs = logs.filter(l => getDateFromISO(l.login_time) === today); title = 'Daily Report — ' + formatDate(today); }
-  else if (type === 'weekly') { const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); const ws = weekStart.toISOString().split('T')[0]; recs = logs.filter(l => getDateFromISO(l.login_time) >= ws); title = 'Weekly Report — Current Week'; }
-  else { const mn = today.slice(0, 7); recs = logs.filter(l => getDateFromISO(l.login_time).startsWith(mn)); title = 'Monthly Report — ' + new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
+  else if (type === 'weekly') { const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); const ws = weekStart.getFullYear() + '-' + String(weekStart.getMonth() + 1).padStart(2, '0') + '-' + String(weekStart.getDate()).padStart(2, '0'); recs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)) >= ws); title = 'Weekly Report — Current Week'; }
+  else { const mn = today.slice(0, 7); recs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)).startsWith(mn)); title = 'Monthly Report — ' + new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
 
   setText('rpt-title', title);
   setText('rpt-table-title', 'Session Records (' + recs.length + ')');
@@ -1062,6 +1062,9 @@ function empTab(tabName, btnElement) {
     if (el) { el.classList.add('hidden'); el.textContent = ''; }
   }
   switchTab('#page-employee', 'emp', tabName, btnElement, () => {
+    const uid = sessionStorage.getItem('userId');
+    const emp = (appState.employees || []).find(e => e.id === uid);
+    if (tabName === 'dashboard' && emp) renderEmpDashboard(emp);
     if (tabName === 'history') renderEmpHistory();
   });
 }
@@ -1073,12 +1076,12 @@ function renderEmpDashboard(emp) {
   const myLogs = logs.filter(l => l.emp_id === emp.id);
   const now = new Date();
   const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-  const thisMonth = myLogs.filter(l => getDateFromISO(l.login_time).startsWith(monthStr));
+  const thisMonth = myLogs.filter(l => (l.login_date || getDateFromISO(l.login_time)).startsWith(monthStr));
   // Count unique days present
   const presentDays = new Set();
   const lateDays = new Set();
   thisMonth.forEach(l => {
-    const d = getDateFromISO(l.login_time);
+    const d = l.login_date || getDateFromISO(l.login_time);
     if (['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)) {
       presentDays.add(d);
       if (l.status === 'Late') lateDays.add(d);
@@ -1103,7 +1106,7 @@ function renderEmpDashboard(emp) {
   if (logEl) {
     const mySessions = myLogs.slice(0, 20);
     smartTableSync(logEl, mySessions, l => {
-      const d = getDateFromISO(l.login_time);
+      const d = l.login_date || getDateFromISO(l.login_time);
       const dateObj = new Date(d + 'T00:00:00');
       return '<tr data-log-id="' + l.id + '" class="session-row">' +
         '<td style="font-weight:500;">' + formatDate(d) + '</td>' +
@@ -1125,15 +1128,16 @@ function renderEmpHistory() {
   const logs = appState.attendanceLogs || [];
   const employees = appState.employees || [];
   const monthInp = document.getElementById('hist-month');
-  const monthStr = monthInp?.value || new Date().toISOString().slice(0, 7);
+  const monthInpNow = new Date();
+  const monthStr = monthInp?.value || monthInpNow.getFullYear() + '-' + String(monthInpNow.getMonth() + 1).padStart(2, '0');
   const uid = sessionStorage.getItem('userId');
-  const emp = employees.find(e => e.id === uid) || employees[0];
+  const emp = findEmployeeByIdOrEmail(uid) || employees[0];
   if (!emp) return;
-  const myLogs = logs.filter(l => l.emp_id === emp.id && getDateFromISO(l.login_time).startsWith(monthStr));
+  const myLogs = logs.filter(l => l.emp_id === emp.id && (l.login_date || getDateFromISO(l.login_time)).startsWith(monthStr));
   const presentDays = new Set();
   myLogs.forEach(l => {
     if (['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)) {
-      presentDays.add(getDateFromISO(l.login_time));
+      presentDays.add(l.login_date || getDateFromISO(l.login_time));
     }
   });
   const totalHrs = myLogs.reduce((a, l) => a + (l.working_hours || 0), 0);
@@ -1142,7 +1146,7 @@ function renderEmpHistory() {
   const tbody = document.getElementById('hist-table');
   if (tbody) {
     smartTableSync(tbody, myLogs, l => {
-      const d = getDateFromISO(l.login_time);
+      const d = l.login_date || getDateFromISO(l.login_time);
       const dateObj = new Date(d + 'T00:00:00');
       return '<tr data-log-id="' + l.id + '" class="session-row">' +
         '<td style="font-weight:500;">' + formatDate(d) + '</td>' +
@@ -1167,8 +1171,8 @@ function empPunchIn() {
   if (!appState) { showNotifBar('error', 'App data not loaded. Please refresh the page.'); return; }
   const uid = sessionStorage.getItem('userId');
   if (!uid) { showNotifBar('error', 'Session expired. Please log in again.'); return; }
-  const emp = (appState.employees || []).find(e => e.id === uid);
-  if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.'); return; }
+  const emp = findEmployeeByIdOrEmail(uid);
+  if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '. Try logging in with your Employee ID.'); return; }
   api('/api/attendance/login', {
     method: 'POST',
     body: { empId: emp.id, empName: emp.name, department: emp.dept, computerName: navigator.platform || 'Web Browser' }
@@ -1192,8 +1196,8 @@ function empPunchOut() {
   if (!appState) { showNotifBar('error', 'App data not loaded. Please refresh the page.'); return; }
   const uid = sessionStorage.getItem('userId');
   if (!uid) { showNotifBar('error', 'Session expired. Please log in again.'); return; }
-  const emp = (appState.employees || []).find(e => e.id === uid);
-  if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '.'); return; }
+  const emp = findEmployeeByIdOrEmail(uid);
+  if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '. Try logging in with your Employee ID.'); return; }
   api('/api/attendance/logout', {
     method: 'POST',
     body: { empId: emp.id }
@@ -1259,7 +1263,7 @@ function calcLeaveDays() {
   if (!appState) return;
   const employees = appState.employees || [];
   const uid = sessionStorage.getItem('userId');
-  const emp = employees.find(e => e.id === uid) || employees[0];
+  const emp = findEmployeeByIdOrEmail(uid) || employees[0];
   if (!emp) return;
   let msg = days + ' working day(s) requested.';
   if (currentLeaveType === 'CL') msg += ' Your CL balance: ' + emp.cl + ' days.' + (emp.cl < days ? ' (' + (days - emp.cl) + ' day(s) will become Unpaid).' : '');
@@ -1276,7 +1280,7 @@ function submitLeaveRequest() {
   if (!appState) return;
   const employees = appState.employees || [];
   const uid = sessionStorage.getItem('userId');
-  const emp = employees.find(e => e.id === uid) || employees[0];
+  const emp = findEmployeeByIdOrEmail(uid) || employees[0];
   if (!emp) { showNotifBar('error', 'Employee not found. Please log in again.'); return; }
   let days = 0;
   const d1 = new Date(from), d2 = new Date(to);
@@ -1310,7 +1314,7 @@ function changeEmpPwd() {
   if (!appState) return;
   const employees = appState.employees || [];
   const uid = sessionStorage.getItem('userId');
-  const emp = employees.find(e => e.id === uid);
+  const emp = findEmployeeByIdOrEmail(uid);
   if (!emp) return;
   if (newPwd.length < 6) { showNotifBar('warning', 'New password must be at least 6 characters.'); return; }
   if (newPwd !== conf) { showNotifBar('warning', 'Passwords do not match.'); return; }
@@ -1660,6 +1664,14 @@ function hideNotifBar() {
   if (bar) bar.style.display = 'none';
 }
 
+// ── Employee lookup: tries ID first, then email (for cases where sessionUserId is an email)
+function findEmployeeByIdOrEmail(identifier) {
+  if (!appState || !appState.employees) return null;
+  if (!identifier) return null;
+  return appState.employees.find(e => e.id === identifier) ||
+         appState.employees.find(e => e.email && e.email.toLowerCase() === identifier.toLowerCase());
+}
+
 function setText(id, val) {
   const el = document.getElementById(id);
   if (el) el.textContent = val;
@@ -1746,13 +1758,14 @@ async function doLogin() {
   }
 
   if (res && res.success) {
-    console.log('[Auth] Login SUCCESS for:', uid, 'role:', res.role);
-    sessionStorage.setItem('userId', uid);
+    const dbUserId = res.user && res.user.id ? res.user.id : uid;
+    console.log('[Auth] Login SUCCESS for:', uid, 'role:', res.role, 'DB ID:', dbUserId);
+    sessionStorage.setItem('userId', dbUserId);
     sessionStorage.setItem('userRole', res.role);
     if (rememberMe) {
-      localStorage.setItem('rememberedUser', uid);
+      localStorage.setItem('rememberedUser', dbUserId);
       localStorage.setItem('rememberedRole', res.role);
-      console.log('[Auth] Remember-me set for:', uid);
+      console.log('[Auth] Remember-me set for:', dbUserId);
     } else {
       localStorage.removeItem('rememberedUser');
       localStorage.removeItem('rememberedRole');
@@ -1777,13 +1790,13 @@ async function doLogin() {
         showNotifBar('warning', 'First login after 2:00 PM — today will be flagged as Half-Day.');
       }
 
-      const emp = appState && (appState.employees || []).find(e => e.id === res.user.id);
+      const emp = findEmployeeByIdOrEmail(res.user && res.user.id);
       if (emp) {
         console.log('[Auth] Employee data found, showing page for:', emp.name);
         showEmployeePage(emp);
         hideLoading();
       } else {
-        console.error('[Auth] Employee NOT found in appState after login. ID:', res.user.id);
+        console.error('[Auth] Employee NOT found in appState after login. ID:', res.user && res.user.id);
         console.log('[Auth] Available employees:', (appState?.employees || []).map(e => e.id).join(', '));
         hideLoading();
         showNotifBar('error', 'Employee data not found. Check database connection.');
@@ -1933,8 +1946,12 @@ async function refreshStateAndRender() {
       renderAll();
     } else if (document.getElementById('page-employee').classList.contains('active')) {
       const uid = sessionStorage.getItem('userId');
-      const emp = (appState.employees || []).find(e => e.id === uid);
-      if (emp) renderEmpDashboard(emp);
+      const emp = findEmployeeByIdOrEmail(uid);
+      if (emp) {
+        const activeTab = sessionStorage.getItem('empLastTab') || 'dashboard';
+        if (activeTab === 'dashboard') renderEmpDashboard(emp);
+        else if (activeTab === 'history') renderEmpHistory();
+      }
       updateNavBadges();
       updateEmpNotifBadge();
       renderEmpNotifPanel();
@@ -2994,16 +3011,38 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;`;
 // SESSION RESTORATION — Auto-initialize on page load
 // ═══════════════════════════════════
 
-async function initApp() {
-  console.log('[EMS] Initializing application...');
+async function initApp(retryCount) {
+  retryCount = retryCount || 0;
+  console.log('[EMS] Initializing application... (attempt ' + (retryCount + 1) + ')');
 
-  if (typeof SupabaseClient !== 'undefined') {
-    const inited = SupabaseClient.init();
-    if (inited) {
-      console.log('[EMS] SupabaseClient initialized successfully');
-    } else {
-      console.warn('[EMS] SupabaseClient init returned false');
+  // Retry SupabaseClient init with backoff
+  if (typeof SupabaseClient === 'undefined' || !SupabaseClient.ready) {
+    if (typeof SupabaseClient !== 'undefined') {
+      const inited = SupabaseClient.init();
+      if (inited) {
+        console.log('[EMS] SupabaseClient initialized successfully');
+      } else if (retryCount < 5) {
+        console.warn('[EMS] SupabaseClient init failed, retrying in 500ms...');
+        setTimeout(() => initApp(retryCount + 1), 500);
+        return;
+      } else {
+        console.error('[EMS] SupabaseClient init failed after 5 retries');
+      }
+    } else if (retryCount < 10) {
+      console.warn('[EMS] SupabaseClient not loaded yet, retrying in 300ms...');
+      setTimeout(() => initApp(retryCount + 1), 300);
+      return;
     }
+  }
+
+  // Start periodic polling for cross-device sync (once)
+  if (!window._emsSyncPollStarted) {
+    window._emsSyncPollStarted = true;
+    console.log('[EMS] Starting cross-device sync polling (every 30s)');
+    setInterval(async () => {
+      if (document.getElementById('page-login')?.classList.contains('active')) return; // Don't poll on login
+      await refreshStateAndRender();
+    }, 30000);
   }
 
   const userId = sessionStorage.getItem('userId');
@@ -3013,10 +3052,13 @@ async function initApp() {
     console.log('[EMS] Session found:', userId, 'role:', userRole);
     showLoading('Restoring session...', 'Loading your data');
     try {
-      if (typeof SupabaseClient !== 'undefined' && !SupabaseClient.ready) {
-        SupabaseClient.init();
+      // Retry loadStateFromServer once if it fails
+      let loaded = await loadStateFromServer();
+      if (!loaded) {
+        console.warn('[EMS] First state load failed, retrying...');
+        await new Promise(r => setTimeout(r, 1000));
+        loaded = await loadStateFromServer();
       }
-      const loaded = await loadStateFromServer();
       if (loaded && appState) {
         if (userRole === 'admin') {
           console.log('[EMS] Restoring admin session');
@@ -3028,7 +3070,7 @@ async function initApp() {
         } else if (userRole === 'employee') {
           console.log('[EMS] Restoring employee session:', userId);
           currentRole = 'employee';
-          const emp = (appState.employees || []).find(e => e.id === userId);
+          const emp = findEmployeeByIdOrEmail(userId);
           if (emp) {
             currentUser = emp;
             showEmployeePage(emp);
@@ -3043,6 +3085,7 @@ async function initApp() {
     } catch (e) {
       console.error('[EMS] Session restoration error:', e.message);
     }
+    // Session restoration failed - clear session but preserve rememberedUser in localStorage
     currentUser = null;
     currentRole = '';
     sessionStorage.removeItem('userId');
@@ -3059,7 +3102,7 @@ async function initApp() {
 }
 
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
-  setTimeout(initApp, 100);
+  setTimeout(() => initApp(), 100);
 } else {
-  document.addEventListener('DOMContentLoaded', () => setTimeout(initApp, 100));
+  document.addEventListener('DOMContentLoaded', () => setTimeout(() => initApp(), 100));
 }
