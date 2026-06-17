@@ -93,7 +93,7 @@
 
     // ── Announcements ──
     if (path === '/api/announcements' && method === 'GET')
-      return () => db.getAll('announcements', 'date');
+      return () => db.getAll('announcements', 'created_at');
     if (path === '/api/announcements' && method === 'POST')
       return () => db.insert('announcements', body);
 
@@ -235,10 +235,10 @@
         db.getAll('employees'),
         _getAllAttendanceLogs(),
         db.getAll('leave_requests'),
-        db.getAll('announcements'),
+        db.getAll('announcements', 'created_at'),
         db.getAll('departments'),
         db.getAll('archived_employees'),
-        db.getAll('notifications')
+        db.getAll('notifications', 'created_at')
       ]);
     return {
       employees: employees.map(e => { const { password, ...rest } = e; return rest; }),
@@ -549,7 +549,7 @@
   }
 
   async function _getNotifications(userId) {
-    const all = await db.getAll('notifications');
+    const all = await db.getAll('notifications', 'created_at');
     const notifs = (!userId || userId === 'quemahtech')
       ? all.filter(n => n.target === 'admin')
       : all.filter(n => n.target === 'emp' || n.user_id === userId);
