@@ -1423,7 +1423,7 @@ function updateNavBadges() {
   updateBadge('nav-badge-emps', empCount);
 
   // Dashboard: pending leaves + unread notifications
-  const unreadNotifs = (appState.adminNotifications || []).filter(n => n.unread !== false).length;
+  const unreadNotifs = (appState.adminNotifications || []).filter(n => !n.isRead).length;
   const dashCount = pendingLeaves + unreadNotifs;
   updateBadge('nav-badge-dash', dashCount);
 
@@ -1453,10 +1453,9 @@ function updateAdminNotifBadge() {
   const badge = document.getElementById('admin-notif-count');
   if (!badge) return;
   if (!appState || !appState.adminNotifications) { badge.textContent = '0'; badge.style.display = 'none'; return; }
-  const activeNotifs = appState.adminNotifications.filter(n => n.unread !== false);
-  const count = activeNotifs.length;
-  badge.textContent = count;
-  badge.style.display = count > 0 ? 'flex' : 'none';
+  const unreadCount = appState.adminNotifications.filter(n => !n.isRead).length;
+  badge.textContent = unreadCount;
+  badge.style.display = unreadCount > 0 ? 'flex' : 'none';
 }
 
 function updateEmpNotifBadge() {
@@ -1464,11 +1463,10 @@ function updateEmpNotifBadge() {
   if (!badge) return;
   if (!appState || !appState.empNotifications) { badge.textContent = '0'; badge.style.display = 'none'; return; }
   const uid = sessionStorage.getItem('userId');
-  const relevant = appState.empNotifications.filter(n => n.target === 'emp' || n.userId === uid);
-  const activeNotifs = relevant.filter(n => n.unread !== false);
-  const count = activeNotifs.length;
-  badge.textContent = count;
-  badge.style.display = count > 0 ? 'flex' : 'none';
+  const relevant = appState.empNotifications.filter(n => n.target === 'emp' || n.user_id === uid);
+  const unreadCount = relevant.filter(n => !n.isRead).length;
+  badge.textContent = unreadCount;
+  badge.style.display = unreadCount > 0 ? 'flex' : 'none';
 }
 
 function addAdminNotif(text) {
@@ -1489,6 +1487,8 @@ function toggleNotifPanel() {
   if (adminNotifPanelOpen) {
     renderAdminNotifPanel();
     markAdminNotifsRead();
+  } else {
+    closeNotifPanels();
   }
 }
 
@@ -1498,22 +1498,26 @@ function toggleEmpNotifPanel() {
   if (empNotifPanelOpen) {
     renderEmpNotifPanel();
     markEmpNotifsRead();
+  } else {
+    closeNotifPanels();
   }
 }
 
 function markAdminNotifsRead() {
   if (appState && appState.adminNotifications) {
-    appState.adminNotifications.forEach(n => { n.unread = false; });
+    appState.adminNotifications.forEach(n => { n.isRead = true; n.unread = false; });
   }
   updateAdminNotifBadge();
-  api('/api/notifications/mark-read', { method: 'POST', body: { userId: ADMIN_EMAIL } });
+  updateNavBadges();
+  api('/api/notifications/mark-read', { method: 'POST', body: { userId: ADMIN_USERNAME } });
 }
 
 function markEmpNotifsRead() {
   if (appState && appState.empNotifications) {
-    appState.empNotifications.forEach(n => { n.unread = false; });
+    appState.empNotifications.forEach(n => { n.isRead = true; n.unread = false; });
   }
   updateEmpNotifBadge();
+  updateNavBadges();
   const uid = sessionStorage.getItem('userId');
   api('/api/notifications/mark-read', { method: 'POST', body: { userId: uid } });
 }
@@ -1527,7 +1531,7 @@ function renderAdminNotifPanel() {
     return;
   }
   smartListSync(body, notifs, n =>
-    '<div class="notif-item' + (n.unread ? ' unread' : '') + '" onclick="dismissAdminNotif(\'' + (n._id || n.id || n.text) + '\')">' +
+    '<div class="notif-item' + (!n.isRead ? ' unread' : '') + '" onclick="dismissAdminNotif(\'' + (n._id || n.id || n.text) + '\')">' +
       '<div style="flex:1">' + n.text + '</div>' +
       '<div class="notif-item-time">' + (n.time || '') + '</div>' +
       '<span class="notif-dismiss" title="Dismiss">&times;</span>' +
@@ -1544,9 +1548,10 @@ function dismissAdminNotif(key) {
   const notifs = appState?.adminNotifications || [];
   const idx = notifs.findIndex(n => (n._id || n.id || n.text) === key);
   if (idx !== -1) {
-    if (notifs[idx].unread !== false) {
+    if (!notifs[idx].isRead) {
+      notifs[idx].isRead = true;
       notifs[idx].unread = false;
-      api('/api/notifications/mark-read', { method: 'POST', body: { userId: ADMIN_EMAIL } });
+      api('/api/notifications/mark-read', { method: 'POST', body: { userId: ADMIN_USERNAME } });
     }
   }
   updateAdminNotifBadge();
@@ -1558,13 +1563,13 @@ function renderEmpNotifPanel() {
   if (!body) return;
   const uid = sessionStorage.getItem('userId');
   const allNotifs = (appState && appState.empNotifications) || [];
-  const notifs = allNotifs.filter(n => n.target === 'emp' || n.userId === uid);
+  const notifs = allNotifs.filter(n => n.target === 'emp' || n.user_id === uid);
   if (!notifs.length) {
     body.innerHTML = '<p style="color:var(--subtle);font-size:13px;text-align:center;padding:20px;">No notifications yet.</p>';
     return;
   }
   smartListSync(body, notifs, n =>
-    '<div class="notif-item' + (n.unread ? ' unread' : '') + '" onclick="dismissEmpNotif(\'' + (n._id || n.id || n.text) + '\')">' +
+    '<div class="notif-item' + (!n.isRead ? ' unread' : '') + '" onclick="dismissEmpNotif(\'' + (n._id || n.id || n.text) + '\')">' +
       '<div style="flex:1">' + n.text + '</div>' +
       '<div class="notif-item-time">' + (n.time || '') + '</div>' +
       '<span class="notif-dismiss" title="Dismiss">&times;</span>' +
@@ -1580,7 +1585,8 @@ function dismissEmpNotif(key) {
   const allNotifs = appState?.empNotifications || [];
   const idx = allNotifs.findIndex(n => (n._id || n.id || n.text) === key);
   if (idx !== -1) {
-    if (allNotifs[idx].unread !== false) {
+    if (!allNotifs[idx].isRead) {
+      allNotifs[idx].isRead = true;
       allNotifs[idx].unread = false;
       const uid = sessionStorage.getItem('userId');
       api('/api/notifications/mark-read', { method: 'POST', body: { userId: uid } });
@@ -1779,7 +1785,10 @@ function closeNotifPanels() {
   adminNotifPanelOpen = false;
   empNotifPanelOpen = false;
   document.getElementById('notif-panel')?.classList.remove('open');
-  document.getElementById('emp-notif-panel')?.classList.remove('open');
+  const empPanel = document.getElementById('emp-notif-panel');
+  if (empPanel) {
+    empPanel.classList.remove('open');
+  }
 }
 
 async function showAdminPage() {
@@ -2437,18 +2446,52 @@ function handleRealtimeEvent(info) {
   }
 
   // ── notifications: update badge + panel ──
-  if (table === 'notifications' && event === 'INSERT' && newData) {
-    if (isAdmin && newData.target === 'admin') {
-      appState.adminNotifications = [...(appState.adminNotifications || []), newData];
-      updateAdminNotifBadge();
-      renderAdminNotifPanel();
+  if (table === 'notifications' && newData) {
+    const normalized = {
+      ...newData,
+      isRead: newData.is_read === true || newData.unread === false
+    };
+
+    if (event === 'INSERT') {
+      if (isAdmin && newData.target === 'admin') {
+        appState.adminNotifications = [...(appState.adminNotifications || []), normalized];
+        updateAdminNotifBadge();
+        updateNavBadges();
+        renderAdminNotifPanel();
+      }
+      if (isEmp && (newData.target === 'emp' || newData.user_id === sessionStorage.getItem('userId'))) {
+        appState.empNotifications = [...(appState.empNotifications || []), normalized];
+        updateEmpNotifBadge();
+        updateNavBadges();
+        renderEmpNotifPanel();
+      }
+      return;
     }
-    if (isEmp && (newData.target === 'emp' || newData.user_id === sessionStorage.getItem('userId'))) {
-      appState.empNotifications = [...(appState.empNotifications || []), newData];
-      updateEmpNotifBadge();
-      renderEmpNotifPanel();
+
+    if (event === 'UPDATE') {
+      // Sync read-state changes across devices in real time
+      const adminIdx = (appState.adminNotifications || []).findIndex(n => n.id === newData.id);
+      if (adminIdx !== -1) {
+        appState.adminNotifications[adminIdx].isRead = normalized.isRead;
+        appState.adminNotifications[adminIdx].unread = normalized.unread;
+        updateAdminNotifBadge();
+        updateNavBadges();
+        if (document.getElementById('notif-panel')?.classList.contains('open')) {
+          renderAdminNotifPanel();
+        }
+      }
+      const empIdx = (appState.empNotifications || []).findIndex(n => n.id === newData.id);
+      if (empIdx !== -1) {
+        appState.empNotifications[empIdx].isRead = normalized.isRead;
+        appState.empNotifications[empIdx].unread = normalized.unread;
+        updateEmpNotifBadge();
+        updateNavBadges();
+        if (document.getElementById('emp-notif-panel')?.classList.contains('open')) {
+          renderEmpNotifPanel();
+        }
+      }
+      return;
     }
-    return;
   }
 
   // ── employees: update list + table ──
@@ -2713,7 +2756,8 @@ ON CONFLICT (name) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS notifications (
   id BIGSERIAL PRIMARY KEY, text TEXT, time TEXT,
-  unread BOOLEAN DEFAULT true, target TEXT DEFAULT 'admin',
+  unread BOOLEAN DEFAULT true, is_read BOOLEAN DEFAULT false,
+  target TEXT DEFAULT 'admin',
   user_id TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

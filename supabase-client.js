@@ -264,8 +264,8 @@
         days: l.days, reason: l.reason, status: l.status
       })),
       announcements: announcements || [],
-      adminNotifications: (notifications || []).filter(n => n.target === 'admin'),
-      empNotifications: (notifications || []).filter(n => n.target === 'emp' || n.user_id),
+      adminNotifications: (notifications || []).filter(n => n.target === 'admin').map(_normalizeNotif),
+      empNotifications: (notifications || []).filter(n => n.target === 'emp' || n.user_id).map(_normalizeNotif),
       departments: (depts || []).map(d => d.name)
     };
   }
@@ -543,7 +543,7 @@
   async function _addNotification(data) {
     await db.insert('notifications', {
       text: data.text, time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      unread: true, target: data.target || 'admin', user_id: data.userId || ''
+      unread: true, is_read: false, target: data.target || 'admin', user_id: data.userId || ''
     });
     return { success: true };
   }
@@ -553,17 +553,33 @@
     const notifs = (!userId || userId === 'quemahtech')
       ? all.filter(n => n.target === 'admin')
       : all.filter(n => n.target === 'emp' || n.user_id === userId);
-    const unread = notifs.filter(n => n.unread !== false).length;
-    return { notifications: notifs, count: unread };
+    const notifsWithRead = notifs.map(n => ({
+      ...n,
+      isRead: n.is_read === true || n.unread === false
+    }));
+    const unread = notifsWithRead.filter(n => !n.isRead).length;
+    return { notifications: notifsWithRead, count: unread };
+  }
+
+  // Normalize a raw notification record: derive isRead from is_read or unread
+  function _normalizeNotif(n) {
+    return {
+      ...n,
+      isRead: n.is_read === true || n.unread === false
+    };
   }
 
   async function _markNotificationsRead(userId) {
     const all = await db.getAll('notifications');
-    const targets = (!userId || userId === 'quemahtech')
-      ? all.filter(n => n.target === 'admin' && n.unread !== false)
-      : all.filter(n => (n.target === 'emp' || n.user_id === userId) && n.unread !== false);
+
+    // Determine which notifications to mark read
+    const isAdmin = !userId || userId === 'quemahtech' || userId === 'atharvashishn@gmail.com';
+    const targets = isAdmin
+      ? all.filter(n => n.target === 'admin' && n.is_read !== true)
+      : all.filter(n => (n.target === 'emp' || n.user_id === userId) && n.is_read !== true);
+
     for (const n of targets) {
-      await db.supabase.from('notifications').update({ unread: false }).eq('id', n.id);
+      await db.supabase.from('notifications').update({ unread: false, is_read: true }).eq('id', n.id);
     }
     return { success: true };
   }

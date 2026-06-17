@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   text TEXT,
   time TEXT,
   unread BOOLEAN DEFAULT true,
+  is_read BOOLEAN DEFAULT false,
   target TEXT DEFAULT 'admin',
   user_id TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT NOW()
