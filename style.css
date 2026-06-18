@@ -331,6 +331,7 @@ input,select,textarea{font-family:var(--font);}
   transition:background 0.15s,border-color 0.15s;
 }
 .notif-bell-btn:hover{background:rgba(245,158,11,0.15);border-color:rgba(245,158,11,0.25);}
+.bell-icon{width:18px;height:18px;display:block;}
 
 /* ── Bell pulse animation when there are unread notifications ── */
 .notif-bell-btn.bell-pulse {
@@ -661,11 +662,13 @@ tbody tr{
 .modal-header h3{font-size:18px;font-weight:700;color:var(--text);}
 .close-modal-btn{
   background:none;border:none;
-  font-size:24px;cursor:pointer;
+  font-size:16px;cursor:pointer;
   color:var(--subtle);transition:color 0.15s;
   width:34px;height:34px;
   display:flex;align-items:center;justify-content:center;
   border-radius:6px;
+  font-family:var(--font-sans);
+  font-weight:700;
 }
 .close-modal-btn:hover{color:var(--text);background:var(--surface2);}
 .modal-body{padding:26px;}
@@ -2106,6 +2109,7 @@ body.dark-mode .compose-clear-btn:hover{background:var(--border);border-color:va
 .sp-out{background:var(--red-bg);color:var(--red-text);}
 .sp-break{background:var(--amber-bg);color:var(--amber-text);}
 .status-dot{width:8px;height:8px;border-radius:50%;animation:pulse 2s infinite;}
+.status-dot-green{width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;}
 .sd-g{background:#22c55e;}
 .sd-r{background:#ef4444;}
 .sd-a{background:var(--amber);}

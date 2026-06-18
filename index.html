@@ -52,6 +52,8 @@
 .t-absent  { box-shadow: 0 0 0 1px rgba(220,38,38,0.15); }
 .t-late    { box-shadow: 0 0 0 1px rgba(217,119,6,0.15); }
 .t-halfday { box-shadow: 0 0 0 1px rgba(124,58,237,0.15); }
+.t-leave   { box-shadow: 0 0 0 1px rgba(99,102,241,0.15); }
+.t-onleave { box-shadow: 0 0 0 1px rgba(99,102,241,0.15); }
 
 .status-pill {
   transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
@@ -429,12 +431,12 @@ body.dark-mode .skel-act-row {
 <div id="notif-bar" class="notif-bar" style="display:none;">
   <span class="notif-icon" id="notif-icon"></span>
   <span class="notif-text" id="notif-text"></span>
-  <button class="notif-close" onclick="hideNotifBar()">×</button>
+  <button class="notif-close" onclick="hideNotifBar()">X</button>
 </div>
 <div id="notif-panel" class="notif-panel">
   <div class="notif-panel-header">
     <h3>Notifications</h3>
-    <button class="close-modal-btn" onclick="toggleNotifPanel()">×</button>
+    <button class="close-modal-btn" onclick="toggleNotifPanel()">X</button>
   </div>
   <div class="notif-panel-body" id="notif-panel-body">
     <!-- populated by JS -->
@@ -498,7 +500,7 @@ body.dark-mode .skel-act-row {
     <div class="topbar-right">
       <span class="tb-clock" id="admin-clock"></span>
       <button class="notif-bell-btn no-print" onclick="toggleNotifPanel()">
-        <span>🔔</span>
+        <svg class="bell-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2a6 6 0 00-6 6v3l-1 3h14l-1-3V8a6 6 0 00-6-6z"/><path d="M8 15a2 2 0 004 0"/></svg>
         <span class="notif-badge" id="admin-notif-count">0</span>
       </button>
       <span class="badge badge-admin">Administrator</span>
@@ -585,7 +587,7 @@ body.dark-mode .skel-act-row {
       <div class="card">
         <div class="card-header">
           <div class="sec-title" style="margin:0;">Today's Attendance Log — <span id="today-date2" style="text-transform:none;letter-spacing:0;font-weight:400;"></span></div>
-          <button class="btn btn-sm no-print" onclick="adminTab('records',document.querySelector('.nav-btn:nth-child(2)'))">View All →</button>
+          <button class="btn btn-sm no-print" onclick="adminTab('records',document.querySelector('.nav-btn:nth-child(2)'))">View All &gt;</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -617,7 +619,7 @@ body.dark-mode .skel-act-row {
           <select id="rec-status" oninput="renderRecords()">
             <option value="">All Status</option>
             <option>Present</option><option>Late</option>
-            <option>Half-Day</option><option>Absent</option>
+            <option>Half-Day</option><option>Absent</option><option>Leave</option>
           </select>
         </div>
         <div class="table-wrap">
@@ -633,7 +635,7 @@ body.dark-mode .skel-act-row {
     <div id="admin-employees" class="atab">
       <div class="history-toggle" id="archived-toggle" onclick="toggleArchived()">
         View Archived / Past Employee History
-        <span style="margin-left:auto;font-size:18px;" id="archived-arrow">›</span>
+        <span style="margin-left:auto;font-size:14px;font-weight:700;" id="archived-arrow">&gt;</span>
       </div>
       <div id="archived-section" style="display:none;">
         <div class="archived-banner">
@@ -919,14 +921,14 @@ body.dark-mode .skel-act-row {
         <details style="margin-top:14px;font-size:12px;color:var(--muted);">
           <summary style="cursor:pointer;font-weight:600;">Setup Guide (click to expand)</summary>
           <div style="margin-top:10px;padding:14px;background:var(--surface2);border-radius:8px;line-height:1.8;">
-            <p><strong>Step 1:</strong> Go to <a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> → Create or select a project.</p>
+            <p><strong>Step 1:</strong> Go to <a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> &gt; Create or select a project.</p>
             <p><strong>Step 2:</strong> Enable <code>Google Calendar API</code> from the API Library.</p>
-            <p><strong>Step 3:</strong> Go to <strong>Credentials</strong> → <strong>Create Credentials</strong> → <strong>Service Account</strong>.</p>
+            <p><strong>Step 3:</strong> Go to <strong>Credentials</strong> &gt; <strong>Create Credentials</strong> &gt; <strong>Service Account</strong>.</p>
             <p><strong>Step 4:</strong> Name it (e.g. <code>employee-management-calendar</code>) and click Done.</p>
-            <p><strong>Step 5:</strong> Click the service account → <strong>Keys</strong> → <strong>Add Key</strong> → <strong>JSON</strong> → Download the file.</p>
+            <p><strong>Step 5:</strong> Click the service account &gt; <strong>Keys</strong> &gt; <strong>Add Key</strong> &gt; <strong>JSON</strong> &gt; Download the file.</p>
             <p><strong>Step 6:</strong> Save the JSON file to your project folder (e.g. <code>service-account-key.json</code>).</p>
-            <p><strong>Step 7:</strong> Open Google Calendar → Settings → <strong>Add Calendar</strong> → <strong>Create new calendar</strong> (optional).</p>
-            <p><strong>Step 8:</strong> Go to calendar settings → <strong>Share with specific people</strong> → Add the service account email (from the JSON key file under <code>client_email</code>) with <strong>Make changes to events</strong> permission.</p>
+            <p><strong>Step 7:</strong> Open Google Calendar &gt; Settings &gt; <strong>Add Calendar</strong> &gt; <strong>Create new calendar</strong> (optional).</p>
+            <p><strong>Step 8:</strong> Go to calendar settings &gt; <strong>Share with specific people</strong> &gt; Add the service account email (from the JSON key file under <code>client_email</code>) with <strong>Make changes to events</strong> permission.</p>
             <p><strong>Step 9:</strong> Enter the JSON file path and Calendar ID above, then click <strong>Save Calendar Config</strong>.</p>
           </div>
         </details>
@@ -964,7 +966,7 @@ body.dark-mode .skel-act-row {
     <div class="topbar-right">
       <span class="tb-clock" id="emp-clock"></span>
       <button class="notif-bell-btn" onclick="toggleEmpNotifPanel()">
-        <span>🔔</span>
+        <svg class="bell-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2a6 6 0 00-6 6v3l-1 3h14l-1-3V8a6 6 0 00-6-6z"/><path d="M8 15a2 2 0 004 0"/></svg>
         <span class="notif-badge" id="emp-notif-count">0</span>
       </button>
       <span class="badge badge-emp" id="emp-badge">Employee</span>
@@ -1046,7 +1048,7 @@ body.dark-mode .skel-act-row {
               <div class="leave-bal-sub">This year</div>
             </div>
           </div>
-          <button class="btn btn-primary" style="width:100%;" onclick="empTab('leaves',document.querySelectorAll('#page-employee .nav-btn')[2])">Apply for Leave →</button>
+          <button class="btn btn-primary" style="width:100%;" onclick="empTab('leaves',document.querySelectorAll('#page-employee .nav-btn')[2])">Apply for Leave &gt;</button>
         </div>
       </div>
       <div class="card">
@@ -1179,7 +1181,7 @@ body.dark-mode .skel-act-row {
   <div class="modal-box" style="width:560px;max-width:96vw;">
     <div class="modal-header">
       <h3 id="add-emp-title">Add New Employee</h3>
-      <button class="close-modal-btn" onclick="closeAddEmpModal()">×</button>
+      <button class="close-modal-btn" onclick="closeAddEmpModal()">X</button>
     </div>
     <div class="modal-body">
       <div class="form-grid">
@@ -1211,7 +1213,7 @@ body.dark-mode .skel-act-row {
   <div class="modal-box" style="max-width:480px;">
     <div class="modal-header">
       <h3>Forgot Password</h3>
-      <button class="close-modal-btn" onclick="document.getElementById('forgot-modal').style.display='none'">×</button>
+      <button class="close-modal-btn" onclick="document.getElementById('forgot-modal').style.display='none'">X</button>
     </div>
     <div class="modal-body">          <div style="background:var(--amber-bg, #fef3c7);border:1px solid var(--amber-border, #fde68a);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--amber-text, #92400e);line-height:1.6;">
             <strong>Your current password will be overwritten</strong> — a random temporary password will replace it. The original password will no longer work. Copy the new password immediately.
@@ -1236,7 +1238,7 @@ body.dark-mode .skel-act-row {
   <div class="modal-box" style="max-width:420px;">
     <div class="modal-header">
       <h3>Set New Password</h3>
-      <button class="close-modal-btn" onclick="document.getElementById('recovery-modal').style.display='none'">×</button>
+      <button class="close-modal-btn" onclick="document.getElementById('recovery-modal').style.display='none'">X</button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">You came from a password reset email. Choose a new password for your admin account.</p>
@@ -1257,7 +1259,7 @@ body.dark-mode .skel-act-row {
   <div class="modal-box" style="max-width:400px;">
     <div class="modal-header">
       <h3>Archive Employee</h3>
-      <button class="close-modal-btn" onclick="closeDeleteEmpModal()">×</button>
+      <button class="close-modal-btn" onclick="closeDeleteEmpModal()">X</button>
     </div>
     <div class="modal-body" style="text-align:center;">
       <!-- dynamically populated by archiveEmployee() -->
@@ -1270,7 +1272,7 @@ body.dark-mode .skel-act-row {
   <div class="modal-box" style="max-width:420px;">
     <div class="modal-header">
       <h3>Adjust Leave Balance</h3>
-      <button class="close-modal-btn" onclick="document.getElementById('leave-manage-modal').style.display='none'">×</button>
+      <button class="close-modal-btn" onclick="document.getElementById('leave-manage-modal').style.display='none'">X</button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Employee: <strong id="lm-emp-name">—</strong></p>
@@ -1293,7 +1295,7 @@ body.dark-mode .skel-act-row {
 <div id="emp-notif-panel" class="notif-panel">
   <div class="notif-panel-header">
     <h3>Notifications</h3>
-    <button class="close-modal-btn" onclick="toggleEmpNotifPanel()">×</button>
+    <button class="close-modal-btn" onclick="toggleEmpNotifPanel()">X</button>
   </div>
   <div class="notif-panel-body" id="emp-notif-panel-body"></div>
 </div>
@@ -1310,8 +1312,8 @@ body.dark-mode .skel-act-row {
         </div>
       </div>
       <div class="compose-modal-actions-top">
-        <span class="compose-status-badge" id="compose-status-badge">● Ready</span>
-        <button class="close-modal-btn" onclick="closeComposeModal()">×</button>
+        <span class="compose-status-badge" id="compose-status-badge"><span class="status-dot-green"></span> Ready</span>
+        <button class="close-modal-btn" onclick="closeComposeModal()">X</button>
       </div>
     </div>
     <div class="compose-modal-body">

@@ -339,6 +339,7 @@ function updateDashboardStats() {
   const now = new Date();
   const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
   const logs = appState.attendanceLogs || [];
+  const leaveReqs = appState.leaveRequests || [];
   const activeEmployees = (appState.employees || []).filter(e => e.active);
   const todayLogs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)) === today);
   // Unique employees with any session today
@@ -350,9 +351,16 @@ function updateDashboardStats() {
       if (l.status === 'Late') lateSet.add(l.emp_id);
     }
   });
+  // Employees on approved leave today
+  const onLeaveIds = new Set(
+    (leaveReqs || []).filter(lr =>
+      lr.status === 'Approved' && lr.from && lr.to && today >= lr.from && today <= lr.to
+    ).map(lr => lr.empId).filter(Boolean)
+  );
   const present = presentSet.size;
   const late = lateSet.size;
-  const absent = activeEmployees.length - present;
+  const onLeave = onLeaveIds.size;
+  const absent = activeEmployees.length - present - onLeave;
   const total = activeEmployees.length;
   const rate = total > 0 ? Math.round(present / total * 100) : 0;
   setText('stat-total-emp', total);
@@ -381,11 +389,17 @@ function renderDashboardCards() {
   const presentLogs = latestTodayLogs.filter(l => ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status));
   const absentEmpIds = employees.filter(e => e.active).map(e => e.id).filter(id => !empLatest[id]);
   const absentEmps = absentEmpIds.map(id => employees.find(e => e.id === id)).filter(Boolean);
+  // Check which absent employees are on approved leave today
+  const today2 = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  const leaveReqsToday = (appState.leaveRequests || []).filter(lr =>
+    lr.status === 'Approved' && lr.from && lr.to && today2 >= lr.from && today2 <= lr.to
+  );
+  const onLeaveToday = new Set(leaveReqsToday.map(lr => lr.empId).filter(Boolean));
   const activeNowCount = presentLogs.filter(l => !l.logout_time).length;
   const pEl = document.getElementById('a-present');
   const aEl = document.getElementById('a-absent');
   setText('title-present-count', 'Present (' + presentLogs.length + ')' + (activeNowCount > 0 ? '  •  ' + activeNowCount + ' Active Now' : ''));
-  setText('title-absent-count', 'Absent / On Leave (' + absentEmps.length + ')');
+  setText('title-absent-count', 'Absent (' + Math.max(0, absentEmps.length - onLeaveToday.size) + ') / On Leave (' + onLeaveToday.size + ')');
   // Smart sync for present list
   if (pEl) {
     if (presentLogs.length) {
@@ -397,7 +411,7 @@ function renderDashboardCards() {
   // Smart sync for absent list
   if (aEl) {
     if (absentEmps.length) {
-      smartListSync(aEl, absentEmps, e => absentRow(e), e => e.id);
+      smartListSync(aEl, absentEmps, function(e){ return absentRow(e, onLeaveToday.has(e.id) ? 'On Leave' : 'Absent'); }, function(e){ return e.id; });
     } else {
       aEl.innerHTML = '<p style="color:var(--subtle);font-size:13px;">All present!</p>';
     }
@@ -511,14 +525,16 @@ function actRowEmp(l, employees) {
     '<span class="tag t-' + l.status.toLowerCase().replace(/[-\s]/g, '') + '" style="flex-shrink:0;">' + l.status + '</span></div>';
 }
 
-function absentRow(e) {
+function absentRow(e, statusText) {
+  var st = statusText || 'Absent';
+  var tagClass = st.toLowerCase().replace(/[-\s]/g, '');
   return '<div class="act-row">' +
     '<div class="av ' + AV_COLORS[0] + '" style="flex-shrink:0;">' + e.name.charAt(0) + '</div>' +
     '<div style="flex:1;min-width:0;">' +
       '<div style="font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + e.name + '</div>' +
       '<div style="font-size:12px;color:var(--subtle);margin-top:2px;">' + e.dept + '</div>' +
     '</div>' +
-    '<span class="tag t-absent" style="flex-shrink:0;">Absent</span></div>';
+    '<span class="tag t-' + tagClass + '" style="flex-shrink:0;">' + st + '</span></div>';
 }
 
 function renderDashPendingLeaves(leaveRequests) {
@@ -533,34 +549,112 @@ function renderDashPendingLeaves(leaveRequests) {
 function renderRecords() {
   if (!appState) return;
   const logs = appState.attendanceLogs || [];
+  const employees = appState.employees || [];
+  const leaveReqs = appState.leaveRequests || [];
   const dateF = document.getElementById('rec-date')?.value || '';
   const deptF = document.getElementById('rec-dept')?.value || '';
   const statusF = document.getElementById('rec-status')?.value || '';
   const tbody = document.getElementById('a-records');
   if (!tbody) return;
-  let recs = logs.slice();
-  if (dateF) recs = recs.filter(l => (l.login_date || getDateFromISO(l.login_time)) === dateF);
-  if (deptF) recs = recs.filter(l => l.department === deptF);
-  if (statusF) recs = recs.filter(l => l.status === statusF);
-  const employees = appState.employees || [];
-  smartTableSync(tbody, recs, l =>
-    '<tr data-log-id="' + l.id + '">' +
-    '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--text);font-weight:600;">' + l.emp_id + '</span></td>' +
-    '<td><div style="display:flex;align-items:center;gap:10px;">' +
-      '<div class="av ' + AV_COLORS[employees.findIndex(e => e.id === l.emp_id) % AV_COLORS.length] + '" style="flex-shrink:0;width:32px;height:32px;font-size:12px;">' + l.emp_name.charAt(0) + '</div>' +
-      '<div style="display:flex;flex-direction:column;">' +
-        '<span style="font-weight:600;font-size:14px;color:var(--text);display:flex;align-items:center;gap:6px;">' + (l.logout_time ? '' : '<span class="pulse-dot" style="width:8px;height:8px;"></span>') + '<span>' + l.emp_name + '</span></span>' +
-      '</div>' +
-    '</div></td>' +
-    '<td><span class="chip ' + (DEPT_COLORS[l.department] || 'c-eng') + '">' + l.department + '</span></td>' +
-    '<td>' + formatDate(getDateFromISO(l.login_time)) + '</td>' +
-    '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#16a34a;">' + formatTime(l.login_time) + '</span></td>' +
-    '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + (l.logout_time ? formatTime(l.logout_time) : '<span style="color:#d97706;font-weight:600;">Active</span>') + '</span></td>' +
-    '<td><strong style="font-size:14px;">' + (l.working_hours > 0 ? l.working_hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
-    '<td><span class="tag t-' + l.status.toLowerCase().replace(/[-\s]/g, '') + '">' + l.status + '</span></td>' +
-    '<td style="font-size:12px;color:var(--subtle);">' + (l.status === 'Half-Day' ? 'Login after 14:00' : '') + '</td></tr>',
-    l => l.emp_id + '-' + l.id
-  );
+
+  const effectiveDate = dateF || new Date().toISOString().split('T')[0];
+
+  // ── Helper: find empIds on approved leave covering a date ──
+  function _onLeaveIds(dateStr) {
+    var ids = [];
+    for (var i = 0; i < leaveReqs.length; i++) {
+      var lr = leaveReqs[i];
+      if (lr.status === 'Approved' && lr.from && lr.to && dateStr >= lr.from && dateStr <= lr.to) {
+        if (lr.empId && ids.indexOf(lr.empId) === -1) ids.push(lr.empId);
+      }
+    }
+    return ids;
+  }
+
+  // ── Step 1: Filter logs by date ──
+  var recs = logs.slice();
+  if (dateF || !statusF || statusF === 'Absent' || statusF === 'Leave') {
+    recs = recs.filter(function(l){ return (l.login_date || getDateFromISO(l.login_time)) === effectiveDate; });
+  }
+
+  // ── Step 2: Filter by department ──
+  if (deptF) recs = recs.filter(function(l){ return l.department === deptF; });
+
+  // ── Step 3: Build rows ──
+  var rows = [];
+
+  if (statusF === 'Absent') {
+    var loggedIds = new Set(recs.map(function(l){ return l.emp_id; }));
+    var leaveIds = _onLeaveIds(effectiveDate);
+    var onLeaveSet = new Set(leaveIds);
+    var absentEmps = employees.filter(function(e){ return e.active && !loggedIds.has(e.id) && !onLeaveSet.has(e.id); });
+    if (deptF) absentEmps = absentEmps.filter(function(e){ return e.dept === deptF; });
+    rows = absentEmps.map(function(emp){ return { _type:'absent', emp_id:emp.id, emp_name:emp.name, department:emp.dept, login_time:null, logout_time:null, working_hours:0, status:'Absent' }; });
+  } else if (statusF === 'Leave') {
+    var leaveIds2 = _onLeaveIds(effectiveDate);
+    var onLeaveSet2 = new Set(leaveIds2);
+    var leaveEmps = employees.filter(function(e){ return e.active && onLeaveSet2.has(e.id); });
+    if (deptF) leaveEmps = leaveEmps.filter(function(e){ return e.dept === deptF; });
+    rows = leaveEmps.map(function(emp){ return { _type:'absent', emp_id:emp.id, emp_name:emp.name, department:emp.dept, login_time:null, logout_time:null, working_hours:0, status:'Leave' }; });
+  } else {
+    if (statusF) {
+      recs = recs.filter(function(l){ return l.status === statusF; });
+    }
+    rows = recs.map(function(l){ return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status }; });
+
+    // All Status: add absent + leave employees
+    if (!statusF) {
+      var loggedIds2 = new Set(recs.map(function(l){ return l.emp_id; }));
+      var leaveIds3 = _onLeaveIds(effectiveDate);
+      var onLeaveSet3 = new Set(leaveIds3);
+      var otherEmps = employees.filter(function(e){ return e.active && !loggedIds2.has(e.id); });
+      if (deptF) otherEmps = otherEmps.filter(function(e){ return e.dept === deptF; });
+      for (var i = 0; i < otherEmps.length; i++) {
+        var emp = otherEmps[i];
+        rows.push({
+          _type:'absent', emp_id:emp.id, emp_name:emp.name, department:emp.dept,
+          login_time:null, logout_time:null, working_hours:0,
+          status: onLeaveSet3.has(emp.id) ? 'Leave' : 'Absent'
+        });
+      }
+      // Sort: present/active first, leave second, absent last
+      rows.sort(function(a,b){
+        var order = { Leave:1, Absent:2 };
+        var ao = order[a.status] || 0;
+        var bo = order[b.status] || 0;
+        return ao - bo;
+      });
+    }
+  }
+
+  // ── Step 4: Render ──
+  smartTableSync(tbody, rows, function(r){
+    var empIdx = employees.findIndex(function(e){ return e.id === r.emp_id; });
+    var avColor = AV_COLORS[Math.max(0, empIdx) % AV_COLORS.length];
+    var isAbsent = (r.status === 'Absent' || r.status === 'Leave');
+    var hasLogin = !!r.login_time;
+    var hasLogout = !!r.logout_time;
+    var tagClass = r.status.toLowerCase().replace(/[-\s]/g, '');
+
+    return '<tr data-id="' + (r._id || 'absent-' + r.emp_id) + '">' +
+      '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--text);font-weight:600;">' + r.emp_id + '</span></td>' +
+      '<td><div style="display:flex;align-items:center;gap:10px;">' +
+        '<div class="av ' + avColor + '" style="flex-shrink:0;width:32px;height:32px;font-size:12px;">' + r.emp_name.charAt(0) + '</div>' +
+        '<div style="display:flex;flex-direction:column;">' +
+          '<span style="font-weight:600;font-size:14px;color:var(--text);display:flex;align-items:center;gap:6px;">' +
+            (isAbsent ? '' : hasLogout ? '' : '<span class="pulse-dot" style="width:8px;height:8px;"></span>') +
+            '<span>' + r.emp_name + '</span>' +
+          '</span>' +
+        '</div>' +
+      '</div></td>' +
+      '<td><span class="chip ' + (DEPT_COLORS[r.department] || 'c-eng') + '">' + r.department + '</span></td>' +
+      '<td>' + (hasLogin ? formatDate(getDateFromISO(r.login_time)) : formatDate(effectiveDate)) + '</td>' +
+      '<td>' + (hasLogin ? '<span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#16a34a;">' + formatTime(r.login_time) + '</span>' : '<span style="color:var(--subtle);">—</span>') + '</td>' +
+      '<td>' + (hasLogout ? '<span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + formatTime(r.logout_time) + '</span>' : isAbsent ? '<span style="color:var(--subtle);">—</span>' : '<span style="color:#d97706;font-weight:600;">Active</span>') + '</td>' +
+      '<td>' + (r.working_hours > 0 ? '<strong style="font-size:14px;">' + r.working_hours.toFixed(1) + 'h</strong>' : '<span style="color:var(--subtle);">—</span>') + '</td>' +
+      '<td><span class="tag t-' + tagClass + '">' + r.status + '</span></td>' +
+      '<td style="font-size:12px;color:var(--subtle);">' + (r.status === 'Half-Day' ? 'Login after 14:00' : '') + '</td></tr>';
+  }, function(r){ return r.emp_id + '-' + (r._id || ''); });
 }
 
 function renderEmpTable() {
@@ -963,68 +1057,190 @@ function saveLeaveBalance() {
 function setReport(type, btn) {
   if (!appState) return;
   const logs = appState.attendanceLogs || [];
+  const employees = appState.employees || [];
+  const leaveReqs = appState.leaveRequests || [];
   document.querySelectorAll('.rtab').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   const now = new Date();
   const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
   let recs = [];
   let title = '';
-  if (type === 'daily') { recs = logs.filter(l => getDateFromISO(l.login_time) === today); title = 'Daily Report — ' + formatDate(today); }
-  else if (type === 'weekly') { const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); const ws = weekStart.getFullYear() + '-' + String(weekStart.getMonth() + 1).padStart(2, '0') + '-' + String(weekStart.getDate()).padStart(2, '0'); recs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)) >= ws); title = 'Weekly Report — Current Week'; }
-  else { const mn = today.slice(0, 7); recs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)).startsWith(mn)); title = 'Monthly Report — ' + new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
+  let isDaily = false;
+  let reportDate = '';
+  if (type === 'daily') {
+    reportDate = today;
+    recs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)) === today);
+    title = 'Daily Report — ' + formatDate(today);
+    isDaily = true;
+  } else if (type === 'weekly') {
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const ws = weekStart.getFullYear() + '-' + String(weekStart.getMonth() + 1).padStart(2, '0') + '-' + String(weekStart.getDate()).padStart(2, '0');
+    recs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)) >= ws);
+    title = 'Weekly Report — Current Week';
+  } else {
+    const mn = today.slice(0, 7);
+    recs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)).startsWith(mn));
+    title = 'Monthly Report — ' + new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
 
+  // ── Helper: find empIds on approved leave covering a date ──
+  function _onLeaveIds(dateStr) {
+    var ids = [];
+    for (var i = 0; i < leaveReqs.length; i++) {
+      var lr = leaveReqs[i];
+      if (lr.status === 'Approved' && lr.from && lr.to && dateStr >= lr.from && dateStr <= lr.to) {
+        if (lr.empId && ids.indexOf(lr.empId) === -1) ids.push(lr.empId);
+      }
+    }
+    return ids;
+  }
+
+  // ── Build the report rows ──
+  var reportRows = [];
+
+  if (isDaily) {
+    // Daily: show ALL active employees (present + leave + absent) like the Records page
+    var loggedIds = new Set();
+    var empHours = {};
+    recs.forEach(function(l) {
+      loggedIds.add(l.emp_id);
+      if (!empHours[l.emp_id]) empHours[l.emp_id] = 0;
+      empHours[l.emp_id] = Math.max(empHours[l.emp_id], l.working_hours || 0);
+    });
+    // Map log entries to rows
+    reportRows = recs.map(function(l) {
+      return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status };
+    });
+    // Add absent + leave employees
+    var leaveIds = _onLeaveIds(reportDate);
+    var onLeaveSet = new Set(leaveIds);
+    var otherEmps = employees.filter(function(e) { return e.active && !loggedIds.has(e.id); });
+    for (var i = 0; i < otherEmps.length; i++) {
+      var emp = otherEmps[i];
+      reportRows.push({
+        _type:'absent', emp_id:emp.id, emp_name:emp.name, department:emp.dept,
+        login_time:null, logout_time:null, working_hours:0,
+        status: onLeaveSet.has(emp.id) ? 'Leave' : 'Absent'
+      });
+    }
+    // Sort: present/active first, leave second, absent last
+    reportRows.sort(function(a,b) {
+      var order = { Leave:1, Absent:2 };
+      return (order[a.status] || 0) - (order[b.status] || 0);
+    });
+  } else {
+    // Weekly/Monthly: just use logs as-is
+    reportRows = recs.map(function(l) {
+      return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status };
+    });
+  }
+
+  // ── Stats ──
   setText('rpt-title', title);
-  setText('rpt-table-title', 'Session Records (' + recs.length + ')');
-  // Unique employee-level stats
-  const empStatus = {};
-  recs.forEach(l => {
-    if (!empStatus[l.emp_id]) empStatus[l.emp_id] = { present: false, late: false, status: l.status };
-    if (['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)) empStatus[l.emp_id].present = true;
-    if (l.status === 'Late') empStatus[l.emp_id].late = true;
-  });
-  const present = Object.values(empStatus).filter(s => s.present).length;
-  const late = Object.values(empStatus).filter(s => s.late).length;
-  const avgHrs = recs.length ? (recs.reduce((a, l) => a + (l.working_hours || 0), 0) / recs.length).toFixed(1) : 0;
-  const sumEl = document.getElementById('rpt-summary');
-  if (sumEl) sumEl.innerHTML = '<div class="sum-item"><span>Sessions</span><strong>' + recs.length + '</strong></div><div class="sum-item"><span>Present</span><strong class="green-v">' + present + '</strong></div><div class="sum-item"><span>Late</span><strong class="amber-v">' + late + '</strong></div><div class="sum-item"><span>Avg Hours</span><strong>' + avgHrs + 'h</strong></div>';
+  setText('rpt-table-title', 'Attendance Records (' + reportRows.length + ')');
 
-  const depts = [...new Set(recs.map(l => l.department).filter(Boolean))];
-  const colors = ['bf-blue', 'bf-green', 'bf-amber', 'bf-red', 'bf-purple', 'bf-green'];
-  const attEl = document.getElementById('rpt-att-bars');
-  const hrEl = document.getElementById('rpt-hr-bars');
-  if (attEl) attEl.innerHTML = depts.map((d, i) => {
-    const dr = recs.filter(l => l.department === d);
-    const pr = dr.filter(l => ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)).length;
-    const pct = dr.length ? Math.round(pr / dr.length * 100) : 0;
-    return '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + colors[i % colors.length] + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + pct + '%</span></div>';
-  }).join('');
-  if (hrEl) hrEl.innerHTML = depts.map((d, i) => {
-    const dr = recs.filter(l => l.department === d && l.working_hours > 0);
-    const avg = dr.length ? (dr.reduce((a, l) => a + (l.working_hours || 0), 0) / dr.length).toFixed(1) : 0;
-    const pct = Math.min(Math.round(parseFloat(avg) / 10 * 100), 100);
-    return '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + colors[i % colors.length] + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + avg + 'h</span></div>';
-  }).join('');
-  const thead = document.getElementById('rpt-thead');
-  const tbody = document.getElementById('rpt-table');
+  var presentSet = new Set();
+  var lateSet = new Set();
+  var absentCount = 0;
+  var leaveCount = 0;
+  var totalHours = 0;
+  var empWithHours = new Set();
+
+  for (var i = 0; i < reportRows.length; i++) {
+    var r = reportRows[i];
+    if (r.status === 'Absent') absentCount++;
+    else if (r.status === 'Leave') leaveCount++;
+    else {
+      presentSet.add(r.emp_id);
+      if (r.status === 'Late') lateSet.add(r.emp_id);
+    }
+    if (r.working_hours > 0) {
+      totalHours += r.working_hours;
+      empWithHours.add(r.emp_id);
+    }
+  }
+
+  var presentCount = presentSet.size;
+  var lateCount = lateSet.size;
+  var avgHrs = empWithHours.size > 0 ? (totalHours / empWithHours.size).toFixed(1) : '0.0';
+
+  var sumEl = document.getElementById('rpt-summary');
+  if (sumEl) {
+    sumEl.innerHTML = '<div class="sum-item"><span>Present</span><strong class="green-v">' + presentCount + '</strong></div>' +
+      '<div class="sum-item"><span>Absent</span><strong class="red-v">' + absentCount + '</strong></div>' +
+      '<div class="sum-item"><span>On Leave</span><strong class="blue-v">' + leaveCount + '</strong></div>' +
+      '<div class="sum-item"><span>Late</span><strong class="amber-v">' + lateCount + '</strong></div>' +
+      '<div class="sum-item"><span>Avg Hours</span><strong>' + avgHrs + 'h</strong></div>' +
+      '<div class="sum-item"><span>Total Sessions</span><strong>' + recs.length + '</strong></div>';
+  }
+
+  // ── Department attendance rate bars (using ALL employees per dept, not just logged ones) ──
+  var colors = ['bf-blue', 'bf-green', 'bf-amber', 'bf-red', 'bf-purple', 'bf-green'];
+  var attEl = document.getElementById('rpt-att-bars');
+  var hrEl = document.getElementById('rpt-hr-bars');
+
+  if (attEl || hrEl) {
+    var deptData = {};
+    employees.filter(function(e) { return e.active; }).forEach(function(emp) {
+      if (!deptData[emp.dept]) deptData[emp.dept] = { total: 0, present: 0, hoursTotal: 0, hoursCount: 0 };
+      deptData[emp.dept].total++;
+      if (presentSet.has(emp.id)) deptData[emp.dept].present++;
+    });
+    // Also count logs via attendance records for hours
+    recs.forEach(function(l) {
+      if (deptData[l.department] && l.working_hours > 0) {
+        deptData[l.department].hoursTotal += l.working_hours;
+        deptData[l.department].hoursCount++;
+      }
+    });
+
+    var deptEntries = Object.keys(deptData).map(function(d) { return [d, deptData[d]]; });
+
+    if (attEl) {
+      attEl.innerHTML = deptEntries.map(function(kv, i) {
+        var d = kv[0], v = kv[1];
+        var pct = v.total > 0 ? Math.round(v.present / v.total * 100) : 0;
+        return '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + colors[i % colors.length] + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + pct + '%</span></div>';
+      }).join('');
+    }
+    if (hrEl) {
+      hrEl.innerHTML = deptEntries.map(function(kv, i) {
+        var d = kv[0], v = kv[1];
+        var avg = v.hoursCount > 0 ? (v.hoursTotal / v.hoursCount).toFixed(1) : '0.0';
+        var pct = Math.min(Math.round(parseFloat(avg) / 10 * 100), 100);
+        return '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + colors[i % colors.length] + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + avg + 'h</span></div>';
+      }).join('');
+    }
+  }
+
+  // ── Render table ──
+  var thead = document.getElementById('rpt-thead');
+  var tbody = document.getElementById('rpt-table');
   if (thead) thead.innerHTML = '<th>ID</th><th>Employee</th><th>Dept</th><th>Date</th><th>Login</th><th>Logout</th><th>Duration</th><th>Status</th>';
   if (tbody) {
-    smartTableSync(tbody, recs, l =>
-      '<tr data-log-id="' + l.id + '" class="session-row">' +
-      '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:600;">' + l.emp_id + '</span></td>' +
-      '<td>' +
-        '<div style="display:flex;align-items:center;gap:10px;">' +
-          '<div class="av ' + AV_COLORS[0] + '" style="flex-shrink:0;">' + l.emp_name.charAt(0) + '</div>' +
-          '<span style="font-weight:600;font-size:14px;color:var(--text);display:flex;align-items:center;gap:6px;">' + (l.logout_time ? '' : '<span class="pulse-dot" style="width:8px;height:8px;"></span>') + '<span>' + l.emp_name + '</span></span>' +
-        '</div>' +
-      '</td>' +
-      '<td><span class="chip ' + (DEPT_COLORS[l.department] || 'c-eng') + '">' + l.department + '</span></td>' +
-      '<td>' + formatDate(getDateFromISO(l.login_time)) + '</td>' +
-      '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#16a34a;">' + formatTime(l.login_time) + '</span></td>' +
-      '<td><span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + (l.logout_time ? formatTime(l.logout_time) : '<span style="color:#d97706;font-weight:600;">Active</span>') + '</span></td>' +
-      '<td><strong style="font-size:14px;">' + (l.working_hours > 0 ? l.working_hours.toFixed(1) + 'h' : '—') + '</strong></td>' +
-      '<td><span class="tag t-' + l.status.toLowerCase().replace(/[-\s]/g, '') + '">' + l.status + '</span></td></tr>',
-      l => l.emp_id + '-' + l.id
-    );
+    smartTableSync(tbody, reportRows, function(r) {
+      var hasLogin = !!r.login_time;
+      var hasLogout = !!r.logout_time;
+      var isAbsent = (r.status === 'Absent' || r.status === 'Leave');
+      var tagClass = r.status.toLowerCase().replace(/[-\s]/g, '');
+      return '<tr data-id="' + (r._id || 'rpt-' + r.emp_id) + '">' +
+        '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:600;">' + r.emp_id + '</span></td>' +
+        '<td>' +
+          '<div style="display:flex;align-items:center;gap:10px;">' +
+            '<div class="av ' + AV_COLORS[0] + '" style="flex-shrink:0;">' + r.emp_name.charAt(0) + '</div>' +
+            '<span style="font-weight:600;font-size:14px;color:var(--text);display:flex;align-items:center;gap:6px;">' +
+              (isAbsent ? '' : hasLogout ? '' : '<span class="pulse-dot" style="width:8px;height:8px;"></span>') +
+              '<span>' + r.emp_name + '</span></span>' +
+          '</div>' +
+        '</td>' +
+        '<td><span class="chip ' + (DEPT_COLORS[r.department] || 'c-eng') + '">' + r.department + '</span></td>' +
+        '<td>' + (hasLogin ? formatDate(getDateFromISO(r.login_time)) : isDaily ? formatDate(reportDate) : '—') + '</td>' +
+        '<td>' + (hasLogin ? '<span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#16a34a;">' + formatTime(r.login_time) + '</span>' : '<span style="color:var(--subtle);">—</span>') + '</td>' +
+        '<td>' + (hasLogout ? '<span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + formatTime(r.logout_time) + '</span>' : isAbsent ? '<span style="color:var(--subtle);">—</span>' : '<span style="color:#d97706;font-weight:600;">Active</span>') + '</td>' +
+        '<td>' + (r.working_hours > 0 ? '<strong style="font-size:14px;">' + r.working_hours.toFixed(1) + 'h</strong>' : '<span style="color:var(--subtle);">—</span>') + '</td>' +
+        '<td><span class="tag t-' + tagClass + '">' + r.status + '</span></td></tr>';
+    }, function(r) { return r.emp_id + '-' + (r._id || ''); });
   }
 }
 
@@ -1226,6 +1442,87 @@ function appendTimeline(type, text, time) {
   tl.prepend(item);
 }
 
+// ── Auto Sign-Out at 6 PM ──
+// Periodically checks if the current time has reached/passed 18:00 (6 PM).
+// If so, and the employee still has an active session, automatically signs them out.
+let _autoSignOutInterval = null;
+
+function startAutoSignOutTimer(emp) {
+  // Clear any existing timer first
+  stopAutoSignOutTimer();
+
+  // Check immediately in case we're already past 6 PM
+  checkAutoSignOut(emp);
+
+  // Then check every 30 seconds (accounts for page being open from before 6 PM)
+  _autoSignOutInterval = setInterval(() => checkAutoSignOut(emp), 30000);
+}
+
+function stopAutoSignOutTimer() {
+  if (_autoSignOutInterval) {
+    clearInterval(_autoSignOutInterval);
+    _autoSignOutInterval = null;
+  }
+}
+
+async function checkAutoSignOut(emp) {
+  const now = new Date();
+  const h = now.getHours();
+
+  // [TEST MODE] Auto sign-out triggers immediately for testing
+  // Only run at/after 6 PM (18:00) and before midnight
+  if (h < 0) return;
+
+  if (!emp || !appState || !appState.attendanceLogs) return;
+
+  // Check if this employee has an active session (no logout_time)
+  const activeSession = appState.attendanceLogs.find(
+    l => l.emp_id === emp.id && !l.logout_time
+  );
+  if (!activeSession) {
+    // Already signed out - stop the timer
+    stopAutoSignOutTimer();
+    return;
+  }
+
+  console.log('[AutoSignOut] Auto-signing out', emp.name, 'at', formatTime(now.toISOString()));
+
+  // Call the sign-out API
+  const res = await api('/api/attendance/logout', {
+    method: 'POST',
+    body: { empId: emp.id }
+  });
+
+  if (res && res.success) {
+    // Update the UI pill
+    const pill = document.getElementById('emp-pill');
+    if (pill) {
+      pill.className = 'status-pill sp-out';
+      pill.innerHTML = '<div class="status-dot sd-r"></div>Signed Out';
+    }
+
+    // Clear break timer if any
+    if (typeof breakInterval !== 'undefined' && breakInterval) {
+      clearInterval(breakInterval);
+      breakInterval = null;
+      const breakBtn = document.getElementById('break-btn');
+      if (breakBtn) breakBtn.innerText = 'Start Break';
+      const wrap = document.getElementById('break-timer-wrap');
+      if (wrap) wrap.style.display = 'none';
+    }
+
+    showNotifBar('info', 'Auto signed out at 6:00 PM.');
+    appendTimeline('out', 'Auto Signed Out', formatTime(now.toISOString()));
+
+    // Stop the timer since we've signed out
+    stopAutoSignOutTimer();
+  } else {
+    console.warn('[AutoSignOut] API call failed, will retry on next interval');
+  }
+
+  await refreshStateAndRender();
+}
+
 function autoAttendancePunchIn(emp) {
   // Check for an active session
   const logs = appState ? appState.attendanceLogs || [] : [];
@@ -1233,11 +1530,9 @@ function autoAttendancePunchIn(emp) {
   if (activeLogs.length > 0) {
     const pill = document.getElementById('emp-pill');
     if (pill) { pill.className = 'status-pill sp-in'; pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In'; }
-    // Auto-logout if past 18:00
-    if (new Date().getHours() >= 18) {
-      setTimeout(() => empPunchOut(), 1200);
-    }
   }
+  // Start the auto sign-out timer regardless (it will check time internally)
+  startAutoSignOutTimer(emp);
 }
 
 function selectLeaveType(btn, type) {
@@ -1824,6 +2119,7 @@ function logout() {
     const uid = sessionStorage.getItem('userId');
     api('/api/auth/logout', { method: 'POST', body: { uid } });
   }
+  stopAutoSignOutTimer();
   currentUser = null;
   currentRole = '';
   sessionStorage.removeItem('userId');
@@ -2410,7 +2706,7 @@ function updateServerStatusIndicator() {
   }
   const el = document.getElementById('server-status-indicator');
   if (!el) return;
-  el.textContent = '● Supabase Live';
+  el.textContent = 'Supabase Live';
   el.style.background = 'rgba(34,197,94,0.12)';
   el.style.color = '#86efac';
   el.style.border = '1px solid rgba(34,197,94,0.2)';
