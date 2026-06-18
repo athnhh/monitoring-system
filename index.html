@@ -726,9 +726,12 @@ body.dark-mode .skel-act-row {
     <!-- REPORTS TAB -->
     <div id="admin-reports" class="atab">
       <div class="rtabs no-print">
-        <button class="rtab active" onclick="setReport('daily',this)">Daily</button>
-        <button class="rtab" onclick="setReport('weekly',this)">Weekly</button>
-        <button class="rtab" onclick="setReport('monthly',this)">Monthly</button>
+        <button class="rtab active" data-report-type="daily" onclick="setReport('daily',this)">Daily</button>
+        <button class="rtab" data-report-type="weekly" onclick="setReport('weekly',this)">Weekly</button>
+        <button class="rtab" data-report-type="monthly" onclick="setReport('monthly',this)">Monthly</button>
+      </div>
+      <div class="filters no-print" style="margin-bottom:16px;">
+        <select id="rpt-dept" oninput="setReport(document.querySelector('.rtab.active')?.dataset?.reportType || 'daily', document.querySelector('.rtab.active'))"><option value="">All Departments</option></select>
       </div>
       <div class="card" style="margin-bottom:16px;">
         <div class="sec-title" id="rpt-title" style="margin-bottom:12px;"></div>
@@ -1408,6 +1411,6 @@ body.dark-mode .skel-act-row {
 </div>
 
 <!-- Single consolidated script with cache-busting version -->
-<script src="script.js?v=2"></script>
+<script src="script.js?v=3"></script>
 </body>
 </html>

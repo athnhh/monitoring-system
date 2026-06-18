@@ -571,11 +571,9 @@ function renderRecords() {
     return ids;
   }
 
-  // ── Step 1: Filter logs by date ──
+  // ── Step 1: Filter logs by date (always scoped to effective date) ──
   var recs = logs.slice();
-  if (dateF || !statusF || statusF === 'Absent' || statusF === 'Leave') {
-    recs = recs.filter(function(l){ return (l.login_date || getDateFromISO(l.login_time)) === effectiveDate; });
-  }
+  recs = recs.filter(function(l){ return (l.login_date || getDateFromISO(l.login_time)) === effectiveDate; });
 
   // ── Step 2: Filter by department ──
   if (deptF) recs = recs.filter(function(l){ return l.department === deptF; });
@@ -587,18 +585,24 @@ function renderRecords() {
     var loggedIds = new Set(recs.map(function(l){ return l.emp_id; }));
     var leaveIds = _onLeaveIds(effectiveDate);
     var onLeaveSet = new Set(leaveIds);
-    var absentEmps = employees.filter(function(e){ return e.active && !loggedIds.has(e.id) && !onLeaveSet.has(e.id); });
+    var _today = new Date().toISOString().split('T')[0];
+    var absentEmps = employees.filter(function(e){ return e.active && !loggedIds.has(e.id) && !onLeaveSet.has(e.id) && (e.joining ? e.joining <= effectiveDate : effectiveDate >= _today); });
     if (deptF) absentEmps = absentEmps.filter(function(e){ return e.dept === deptF; });
     rows = absentEmps.map(function(emp){ return { _type:'absent', emp_id:emp.id, emp_name:emp.name, department:emp.dept, login_time:null, logout_time:null, working_hours:0, status:'Absent' }; });
   } else if (statusF === 'Leave') {
     var leaveIds2 = _onLeaveIds(effectiveDate);
     var onLeaveSet2 = new Set(leaveIds2);
-    var leaveEmps = employees.filter(function(e){ return e.active && onLeaveSet2.has(e.id); });
+    var _today = new Date().toISOString().split('T')[0];
+    var leaveEmps = employees.filter(function(e){ return e.active && onLeaveSet2.has(e.id) && (e.joining ? e.joining <= effectiveDate : effectiveDate >= _today); });
     if (deptF) leaveEmps = leaveEmps.filter(function(e){ return e.dept === deptF; });
     rows = leaveEmps.map(function(emp){ return { _type:'absent', emp_id:emp.id, emp_name:emp.name, department:emp.dept, login_time:null, logout_time:null, working_hours:0, status:'Leave' }; });
   } else {
     if (statusF) {
-      recs = recs.filter(function(l){ return l.status === statusF; });
+      if (statusF === 'Present') {
+        recs = recs.filter(function(l){ return l.status === 'Present' || l.status === 'Active'; });
+      } else {
+        recs = recs.filter(function(l){ return l.status === statusF; });
+      }
     }
     rows = recs.map(function(l){ return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status }; });
 
@@ -607,7 +611,8 @@ function renderRecords() {
       var loggedIds2 = new Set(recs.map(function(l){ return l.emp_id; }));
       var leaveIds3 = _onLeaveIds(effectiveDate);
       var onLeaveSet3 = new Set(leaveIds3);
-      var otherEmps = employees.filter(function(e){ return e.active && !loggedIds2.has(e.id); });
+      var _today = new Date().toISOString().split('T')[0];
+      var otherEmps = employees.filter(function(e){ return e.active && !loggedIds2.has(e.id) && (e.joining ? e.joining <= effectiveDate : effectiveDate >= _today); });
       if (deptF) otherEmps = otherEmps.filter(function(e){ return e.dept === deptF; });
       for (var i = 0; i < otherEmps.length; i++) {
         var emp = otherEmps[i];
@@ -902,6 +907,9 @@ function openEditEmpModal(empId) {
 // closeAddEmpModal defined later (extended version)
 
 function saveEmployee() {
+  var saveBtn = document.getElementById('add-emp-save-btn');
+  if (saveBtn && saveBtn.disabled) return; // Prevent double-submit
+
   const mode = document.getElementById('add-emp-modal').dataset.mode || 'add';
   const editId = document.getElementById('add-emp-modal').dataset.editId || '';
   const name = document.getElementById('f-name').value.trim();
@@ -918,15 +926,17 @@ function saveEmployee() {
   if (!name || !id || !dept) { showNotifBar('warning', 'Please fill in all required fields (*)'); return; }
   if (mode === 'add') {
     if (appState && (appState.employees || []).some(e => e.id === id)) { showNotifBar('warning', 'Employee ID already exists.'); return; }
-    console.log('[Auth] Creating employee:', id, name);
+    // Disable button to prevent double-submit
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<span class="loading-spinner-sm" style="margin-right:6px;vertical-align:middle;"></span> Saving...'; }
     api('/api/employees', { method: 'POST', body: { id, name, dept, email, phone, bday, joining, designation, cl, sl, password: pwd || 'emp123' } }).then(async res => {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = 'Save Employee'; }
       if (res && res.success) {
-        console.log('[Auth] Employee created successfully:', id);
         closeAddEmpModal();
         await refreshStateAndRender();
         showNotifBar('success', 'Employee ' + name + ' added successfully!');
       } else {
         console.error('[Auth] Failed to create employee:', id, res);
+        closeAddEmpModal();
         showNotifBar('error', (res && res.error) || 'Failed to add employee. Check database connection.');
       }
     });
@@ -935,17 +945,18 @@ function saveEmployee() {
     const updateBody = { name, dept, email, phone, bday, joining, designation, cl, sl };
     if (pwd && pwd.length > 0) {
       updateBody.password = pwd;
-      console.log('[Auth] Including password change for employee:', editId);
     }
-    console.log('[Auth] Updating employee:', editId, 'fields:', Object.keys(updateBody));
+    // Disable button to prevent double-submit
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<span class="loading-spinner-sm" style="margin-right:6px;vertical-align:middle;"></span> Updating...'; }
     api('/api/employees/' + editId, { method: 'PUT', body: updateBody }).then(async res => {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = 'Update Employee'; }
       if (res && res.success) {
-        console.log('[Auth] Employee updated successfully:', editId);
         closeAddEmpModal();
         await refreshStateAndRender();
         showNotifBar('success', 'Employee ' + name + ' updated successfully!');
       } else {
         console.error('[Auth] Failed to update employee:', editId, res);
+        closeAddEmpModal();
         showNotifBar('error', (res && res.error) || 'Failed to update employee.');
       }
     });
@@ -1063,6 +1074,7 @@ function setReport(type, btn) {
   if (btn) btn.classList.add('active');
   const now = new Date();
   const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  const deptF = document.getElementById('rpt-dept')?.value || '';
   let recs = [];
   let title = '';
   let isDaily = false;
@@ -1096,6 +1108,11 @@ function setReport(type, btn) {
     return ids;
   }
 
+  // ── Apply department filter to records ──
+  if (deptF) {
+    recs = recs.filter(function(l) { return l.department === deptF; });
+  }
+
   // ── Build the report rows ──
   var reportRows = [];
 
@@ -1112,10 +1129,13 @@ function setReport(type, btn) {
     reportRows = recs.map(function(l) {
       return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status };
     });
-    // Add absent + leave employees
+    // Add absent + leave employees (also respecting dept filter)
     var leaveIds = _onLeaveIds(reportDate);
     var onLeaveSet = new Set(leaveIds);
-    var otherEmps = employees.filter(function(e) { return e.active && !loggedIds.has(e.id); });
+    var otherEmps = employees.filter(function(e) {
+      var _today = new Date().toISOString().split('T')[0];
+      return e.active && !loggedIds.has(e.id) && (!deptF || e.dept === deptF) && (e.joining ? e.joining <= reportDate : reportDate >= _today);
+    });
     for (var i = 0; i < otherEmps.length; i++) {
       var emp = otherEmps[i];
       reportRows.push({
@@ -1228,7 +1248,7 @@ function setReport(type, btn) {
         '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:600;">' + r.emp_id + '</span></td>' +
         '<td>' +
           '<div style="display:flex;align-items:center;gap:10px;">' +
-            '<div class="av ' + AV_COLORS[0] + '" style="flex-shrink:0;">' + r.emp_name.charAt(0) + '</div>' +
+            '<div class="av ' + AV_COLORS[Math.max(0, employees.findIndex(function(e){ return e.id === r.emp_id; })) % AV_COLORS.length] + '" style="flex-shrink:0;">' + r.emp_name.charAt(0) + '</div>' +
             '<span style="font-weight:600;font-size:14px;color:var(--text);display:flex;align-items:center;gap:6px;">' +
               (isAbsent ? '' : hasLogout ? '' : '<span class="pulse-dot" style="width:8px;height:8px;"></span>') +
               '<span>' + r.emp_name + '</span></span>' +
@@ -1469,9 +1489,8 @@ async function checkAutoSignOut(emp) {
   const now = new Date();
   const h = now.getHours();
 
-  // [TEST MODE] Auto sign-out triggers immediately for testing
-  // Only run at/after 6 PM (18:00) and before midnight
-  if (h < 0) return;
+  // Only run at/after 6 PM (18:00)
+  if (h < 18) return;
 
   if (!emp || !appState || !appState.attendanceLogs) return;
 
@@ -2368,7 +2387,7 @@ function renderDeptHeadcount() {
 function renderDepartments() {
   if (!appState) return;
   const departments = appState.departments || [];
-  const selects = ['f-dept', 'rec-dept', 'emp-dept-filter', 'active-now-dept-filter', 'ann-recipient-select'];
+  const selects = ['f-dept', 'rec-dept', 'emp-dept-filter', 'active-now-dept-filter', 'ann-recipient-select', 'rpt-dept'];
   selects.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
