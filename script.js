@@ -850,20 +850,27 @@ function exportReportExcel() {
   }
 }
 
-function exportMonthlySummaryCSV() {
-  if (!appState) { showNotifBar('warning', 'App data not loaded.'); return; }
+function _countWorkingDaysInMonth(fromDate, toDate) {
+  var count = 0;
+  for (var d = new Date(fromDate); d <= toDate; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+  }
+  return count;
+}
+
+function _buildMonthlySummaryData() {
   var employees = appState.employees || [];
   var logs = appState.attendanceLogs || [];
   var leaveReqs = appState.leaveRequests || [];
   var now = new Date();
   var monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  var monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   var monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  var totalWorkingDays = 0;
-  for (var d = new Date(now.getFullYear(), now.getMonth(), 1); d <= monthEnd; d.setDate(d.getDate() + 1)) {
-    if (d.getDay() !== 0 && d.getDay() !== 6) totalWorkingDays++;
-  }
+  var today = now.getDate();
+  var monthEndStr = monthEnd.toISOString().split('T')[0];
+  var monthStartStr = monthStr + '-01';
 
-  // Pre-process: attendance summary per employee
+  // Attendance per employee
   var empAttendance = {};
   var monthLogs = logs.filter(function(l) { return (l.login_date || getDateFromISO(l.login_time)).startsWith(monthStr); });
   monthLogs.forEach(function(l) {
@@ -880,11 +887,11 @@ function exportMonthlySummaryCSV() {
     empAttendance[l.emp_id].sessionCount++;
   });
 
-  // Pre-process: leave usage per employee this month
+  // Leave usage per employee this month
   var leaveUsage = {};
   leaveReqs.filter(function(lr) {
     return lr.status === 'Approved' && lr.from && lr.to &&
-      (lr.from <= monthEnd.toISOString().split('T')[0] && lr.to >= monthStr + '-01');
+      lr.from <= monthEndStr && lr.to >= monthStartStr;
   }).forEach(function(lr) {
     if (!leaveUsage[lr.empId]) leaveUsage[lr.empId] = { CL: 0, SL: 0, UL: 0 };
     if (leaveUsage[lr.empId][lr.type] !== undefined) {
@@ -892,117 +899,119 @@ function exportMonthlySummaryCSV() {
     }
   });
 
-  var rows = [['ID','Employee','Dept','Joining Date','Working Days','Days Present','Days Late','Half-Day','Days Absent','Days on Leave','Total Hours','Avg Hours/Day','CL Used','SL Used','UL Used','CL Balance','SL Balance','UL Used (Total)','Attendance Rate %']];
+  // Build per-employee summary with joining-date-aware working days
+  var summaryRows = [];
   var activeEmps = employees.filter(function(e) { return e.active; });
   activeEmps.forEach(function(emp) {
     var att = empAttendance[emp.id] || { presentDays: new Set(), lateDays: new Set(), halfDays: new Set(), totalHours: 0, sessionCount: 0 };
     var leaves = leaveUsage[emp.id] || { CL: 0, SL: 0, UL: 0 };
+
+    // Calculate effective working days from max(joining_date, month_start) to today
+    var _effStart = new Date(monthStart);
+    if (emp.joining) {
+      var _joinDate = new Date(emp.joining + 'T00:00:00');
+      if (_joinDate > _effStart) _effStart = _joinDate;
+    }
+    var _todayDate = new Date(now.getFullYear(), now.getMonth(), Math.min(today, monthEnd.getDate()));
+    var _workingDays = _countWorkingDaysInMonth(_effStart, _todayDate);
+
     var presentCount = att.presentDays.size;
     var lateCount = att.lateDays.size;
     var halfCount = att.halfDays.size;
     var leaveDays = leaves.CL + leaves.SL + leaves.UL;
-    var absentCount = Math.max(0, totalWorkingDays - presentCount - leaveDays);
-    var rate = totalWorkingDays > 0 ? Math.round(presentCount / totalWorkingDays * 100) : 0;
+    var absentCount = Math.max(0, _workingDays - presentCount - leaveDays);
+    var rate = _workingDays > 0 ? Math.round(presentCount / _workingDays * 100) : 0;
+
+    summaryRows.push({
+      emp_id: emp.id,
+      emp_name: emp.name,
+      department: emp.dept,
+      joining: emp.joining || '' ,
+      workingDays: _workingDays,
+      presentCount: presentCount,
+      lateCount: lateCount,
+      halfCount: halfCount,
+      absentCount: absentCount,
+      leaveDays: leaveDays,
+      totalHours: parseFloat(att.totalHours.toFixed(2)),
+      avgHours: att.presentDays.size > 0 ? parseFloat((att.totalHours / att.presentDays.size).toFixed(2)) : 0,
+      clUsed: leaves.CL,
+      slUsed: leaves.SL,
+      ulUsed: leaves.UL,
+      clBalance: emp.cl || 0,
+      slBalance: emp.sl || 0,
+      ulTotal: emp.ul || 0,
+      rate: rate
+    });
+  });
+
+  return {
+    monthStr: monthStr,
+    monthName: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+    monthLogs: monthLogs,
+    leaveReqs: leaveReqs,
+    monthEnd: monthEnd,
+    summaryRows: summaryRows
+  };
+}
+
+function exportMonthlySummaryCSV() {
+  if (!appState) { showNotifBar('warning', 'App data not loaded.'); return; }
+  var data = _buildMonthlySummaryData();
+  if (!data || !data.summaryRows.length) { showNotifBar('warning', 'No employees found.'); return; }
+
+  var rows = [['ID','Employee','Dept','Joining Date','Working Days','Days Present','Days Late','Half-Day','Days Absent','Days on Leave','Total Hours','Avg Hours/Day','CL Used','SL Used','UL Used','CL Balance','SL Balance','UL Used (Total)','Attendance Rate %']];
+  data.summaryRows.forEach(function(r) {
     rows.push([
-      emp.id, emp.name, emp.dept, emp.joining || '—',
-      totalWorkingDays, presentCount, lateCount, halfCount,
-      absentCount, leaveDays,
-      parseFloat(att.totalHours.toFixed(2)),
-      att.presentDays.size > 0 ? parseFloat((att.totalHours / att.presentDays.size).toFixed(2)) : 0,
-      leaves.CL, leaves.SL, leaves.UL,
-      emp.cl || 0, emp.sl || 0, emp.ul || 0,
-      rate
+      r.emp_id, r.emp_name, r.department, r.joining || '—',
+      r.workingDays, r.presentCount, r.lateCount, r.halfCount,
+      r.absentCount, r.leaveDays,
+      r.totalHours, r.avgHours,
+      r.clUsed, r.slUsed, r.ulUsed,
+      r.clBalance, r.slBalance, r.ulTotal,
+      r.rate
     ]);
   });
 
   var csv = rows.map(function(row) {
     return row.map(function(cell) { return '"' + String(cell).replace(/"/g, '""') + '"'; }).join(',');
   }).join('\n');
-  downloadFile(csv, 'monthly_summary_' + monthStr + '.csv', 'text/csv');
+  downloadFile(csv, 'monthly_summary_' + data.monthStr + '.csv', 'text/csv');
   showNotifBar('success', 'Monthly summary CSV exported!');
 }
 
 function exportMonthlySummaryExcel() {
   if (typeof XLSX === 'undefined') { showNotifBar('warning', 'XLSX library not loaded.'); return; }
   if (!appState) { showNotifBar('warning', 'App data not loaded.'); return; }
-  var employees = appState.employees || [];
-  var logs = appState.attendanceLogs || [];
-  var leaveReqs = appState.leaveRequests || [];
-  var now = new Date();
-  var monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-  var monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  var monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  var totalWorkingDays = 0;
-  for (var d = new Date(now.getFullYear(), now.getMonth(), 1); d <= monthEnd; d.setDate(d.getDate() + 1)) {
-    if (d.getDay() !== 0 && d.getDay() !== 6) totalWorkingDays++;
-  }
+  var data = _buildMonthlySummaryData();
+  if (!data) return;
+  var wb = XLSX.utils.book_new();
+  var filename = 'monthly_summary_' + data.monthStr;
 
   try {
-    var wb = XLSX.utils.book_new();
-    var filename = 'monthly_summary_' + monthStr;
-
-    // ── Pre-process attendance ──
-    var empAttendance = {};
-    var monthLogs = logs.filter(function(l) { return (l.login_date || getDateFromISO(l.login_time)).startsWith(monthStr); });
-    monthLogs.forEach(function(l) {
-      if (!empAttendance[l.emp_id]) {
-        empAttendance[l.emp_id] = { presentDays: new Set(), lateDays: new Set(), halfDays: new Set(), totalHours: 0, sessionCount: 0 };
-      }
-      var dateKey = l.login_date || getDateFromISO(l.login_time);
-      if (l.status === 'Present' || l.status === 'Late' || l.status === 'Half-Day' || l.status === 'Active') {
-        empAttendance[l.emp_id].presentDays.add(dateKey);
-        if (l.status === 'Late') empAttendance[l.emp_id].lateDays.add(dateKey);
-        if (l.status === 'Half-Day') empAttendance[l.emp_id].halfDays.add(dateKey);
-      }
-      empAttendance[l.emp_id].totalHours += l.working_hours || 0;
-      empAttendance[l.emp_id].sessionCount++;
-    });
-
-    // ── Pre-process leave usage ──
-    var leaveUsage = {};
-    leaveReqs.filter(function(lr) {
-      return lr.status === 'Approved' && lr.from && lr.to &&
-        (lr.from <= monthEnd.toISOString().split('T')[0] && lr.to >= monthStr + '-01');
-    }).forEach(function(lr) {
-      if (!leaveUsage[lr.empId]) leaveUsage[lr.empId] = { CL: 0, SL: 0, UL: 0 };
-      if (leaveUsage[lr.empId][lr.type] !== undefined) {
-        leaveUsage[lr.empId][lr.type] += lr.days || 0;
-      }
-    });
-
-    // ── Sheet 1: Employee Summary ──
-    var summaryData = [];
-    var activeEmps = employees.filter(function(e) { return e.active; });
-    activeEmps.forEach(function(emp) {
-      var att = empAttendance[emp.id] || { presentDays: new Set(), lateDays: new Set(), halfDays: new Set(), totalHours: 0, sessionCount: 0 };
-      var leaves = leaveUsage[emp.id] || { CL: 0, SL: 0, UL: 0 };
-      var presentCount = att.presentDays.size;
-      var lateCount = att.lateDays.size;
-      var halfCount = att.halfDays.size;
-      var leaveDays = leaves.CL + leaves.SL + leaves.UL;
-      var absentCount = Math.max(0, totalWorkingDays - presentCount - leaveDays);
-      var rate = totalWorkingDays > 0 ? Math.round(presentCount / totalWorkingDays * 100) : 0;
-      summaryData.push({
-        ID: emp.id,
-        Employee: emp.name,
-        Department: emp.dept,
-        'Joining Date': emp.joining || '—',
-        'Working Days': totalWorkingDays,
-        'Days Present': presentCount,
-        'Days Late': lateCount,
-        'Half-Day': halfCount,
-        'Days Absent': absentCount,
-        'Days on Leave': leaveDays,
-        'Total Hours': parseFloat(att.totalHours.toFixed(2)),
-        'Avg Hours/Day': att.presentDays.size > 0 ? parseFloat((att.totalHours / att.presentDays.size).toFixed(2)) : 0,
-        'CL Used': leaves.CL,
-        'SL Used': leaves.SL,
-        'UL Used': leaves.UL,
-        'CL Balance': emp.cl || 0,
-        'SL Balance': emp.sl || 0,
-        'UL Used (Total)': emp.ul || 0,
-        'Attendance Rate %': rate
-      });
+    // Sheet 1: Employee Summary
+    var summaryData = data.summaryRows.map(function(r) {
+      return {
+        ID: r.emp_id,
+        Employee: r.emp_name,
+        Department: r.department,
+        'Joining Date': r.joining || '—',
+        'Working Days': r.workingDays,
+        'Days Present': r.presentCount,
+        'Days Late': r.lateCount,
+        'Half-Day': r.halfCount,
+        'Days Absent': r.absentCount,
+        'Days on Leave': r.leaveDays,
+        'Total Hours': r.totalHours,
+        'Avg Hours/Day': r.avgHours,
+        'CL Used': r.clUsed,
+        'SL Used': r.slUsed,
+        'UL Used': r.ulUsed,
+        'CL Balance': r.clBalance,
+        'SL Balance': r.slBalance,
+        'UL Used (Total)': r.ulTotal,
+        'Attendance Rate %': r.rate
+      };
     });
     var wsSummary = XLSX.utils.json_to_sheet(summaryData);
     wsSummary['!cols'] = [
@@ -1013,13 +1022,11 @@ function exportMonthlySummaryExcel() {
     ];
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Employee Summary');
 
-    // ── Sheet 2: Leave Details ──
+    // Sheet 2: Leave Details
     var leaveDetails = [];
-    var monthLeaveReqs = leaveReqs.filter(function(lr) {
-      return lr.from && lr.to &&
-        (lr.from <= monthEnd.toISOString().split('T')[0] && lr.to >= monthStr + '-01');
-    });
-    monthLeaveReqs.forEach(function(lr) {
+    data.leaveReqs.filter(function(lr) {
+      return lr.from && lr.to && lr.from <= data.monthEnd.toISOString().split('T')[0] && lr.to >= data.monthStr + '-01';
+    }).forEach(function(lr) {
       leaveDetails.push({
         Employee: lr.empName || '—',
         'Leave Type': lr.type || '—',
@@ -1031,17 +1038,15 @@ function exportMonthlySummaryExcel() {
       });
     });
     if (leaveDetails.length === 0) {
-      leaveDetails.push({ 'Info': 'No leave requests in ' + monthName });
+      leaveDetails.push({ 'Info': 'No leave requests in ' + data.monthName });
     }
     var wsLeaves = XLSX.utils.json_to_sheet(leaveDetails);
-    wsLeaves['!cols'] = [
-      { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 10 }, { wch: 30 }
-    ];
+    wsLeaves['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 10 }, { wch: 30 }];
     XLSX.utils.book_append_sheet(wb, wsLeaves, 'Leave Details');
 
-    // ── Sheet 3: Daily Attendance Detail ──
+    // Sheet 3: Daily Attendance Detail
     var dailyRows = [];
-    monthLogs.forEach(function(l) {
+    data.monthLogs.forEach(function(l) {
       dailyRows.push({
         Date: l.login_date || getDateFromISO(l.login_time),
         Employee: l.emp_name,
@@ -1055,13 +1060,10 @@ function exportMonthlySummaryExcel() {
       });
     });
     if (dailyRows.length === 0) {
-      dailyRows.push({ 'Info': 'No attendance records in ' + monthName });
+      dailyRows.push({ 'Info': 'No attendance records in ' + data.monthName });
     }
     var wsDaily = XLSX.utils.json_to_sheet(dailyRows);
-    wsDaily['!cols'] = [
-      { wch: 14 }, { wch: 22 }, { wch: 10 }, { wch: 16 },
-      { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 18 }
-    ];
+    wsDaily['!cols'] = [{ wch: 14 }, { wch: 22 }, { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 18 }];
     XLSX.utils.book_append_sheet(wb, wsDaily, 'Daily Detail');
 
     XLSX.writeFile(wb, filename + '.xlsx');
