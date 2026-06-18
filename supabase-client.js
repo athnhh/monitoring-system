@@ -583,13 +583,11 @@
 
     var effectiveStart = new Date(loginTime);
     var effectiveEnd   = new Date(now);
-    var loginHr = loginTime.getHours() + loginTime.getMinutes() / 60;
-    var logoutHr = now.getHours() + now.getMinutes() / 60;
 
-    if (loginHr < OFFICE_START) {
+    if (effectiveStart.getHours() + effectiveStart.getMinutes() / 60 < OFFICE_START) {
       effectiveStart.setHours(OFFICE_START, 0, 0, 0);
     }
-    if (logoutHr > OFFICE_END) {
+    if (effectiveEnd.getHours() + effectiveEnd.getMinutes() / 60 > OFFICE_END) {
       effectiveEnd.setHours(OFFICE_END, 0, 0, 0);
     }
 
