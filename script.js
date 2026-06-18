@@ -1454,6 +1454,10 @@ function empPunchIn() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
   const h = now.getHours();
+  if (h < 9) {
+    showNotifBar('error', 'Office starts at 9:00 AM. Cannot sign in before that.');
+    return;
+  }
   if (h >= 18) {
     showNotifBar('error', 'Cannot sign in after 6:00 PM. Contact admin if you need a correction.');
     return;
@@ -2095,6 +2099,12 @@ async function doLogin() {
   document.getElementById('err-msg').style.display = 'none';
 
   const currentHour = new Date().getHours();
+  if (uid !== ADMIN_USERNAME && uid.toLowerCase() !== ADMIN_EMAIL && currentHour < 9) {
+    console.log('[Auth] Login blocked: time restriction (hour=' + currentHour + ')');
+    document.getElementById('err-msg').style.display = 'flex';
+    document.getElementById('err-msg-text').textContent = 'Employee logins are blocked before 9:00 AM IST.';
+    return;
+  }
   if (uid !== ADMIN_USERNAME && uid.toLowerCase() !== ADMIN_EMAIL && currentHour >= 18) {
     console.log('[Auth] Login blocked: time restriction (hour=' + currentHour + ')');
     document.getElementById('err-msg').style.display = 'flex';

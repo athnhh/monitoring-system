@@ -507,6 +507,9 @@
     const { empId, empName, department, computerName } = body;
     if (!empId) return { success: false, error: 'Missing employee ID.' };
     const hr = new Date().getHours();
+    if (hr < 9) {
+      return { success: false, error: 'Office starts at 9:00 AM. Sign-in blocked before 9:00 AM IST.' };
+    }
     if (hr >= 18) {
       return { success: false, error: 'Sign-in blocked after 6:00 PM IST.' };
     }
@@ -573,11 +576,29 @@
     const session = active[0];
     const now = new Date();
     const loginTime = new Date(session.login_time);
-    let workingHours = Math.max(0, (now - loginTime) / (1000 * 60 * 60));
+
+    // ── Cap effective working hours to office hours (9:00 AM – 6:00 PM) ──
+    const OFFICE_START = 9;   // 9:00 AM
+    const OFFICE_END   = 18;  // 6:00 PM
+
+    var effectiveStart = new Date(loginTime);
+    var effectiveEnd   = new Date(now);
+    var loginHr = loginTime.getHours() + loginTime.getMinutes() / 60;
+    var logoutHr = now.getHours() + now.getMinutes() / 60;
+
+    if (loginHr < OFFICE_START) {
+      effectiveStart.setHours(OFFICE_START, 0, 0, 0);
+    }
+    if (logoutHr > OFFICE_END) {
+      effectiveEnd.setHours(OFFICE_END, 0, 0, 0);
+    }
+
+    let workingHours = Math.max(0, (effectiveEnd - effectiveStart) / (1000 * 60 * 60));
+
     // Auto-deduct 1 hour lunch break (13:00-14:00) if the shift spans the lunch period
-    const loginHour = loginTime.getHours() + loginTime.getMinutes() / 60;
-    const logoutHour = now.getHours() + now.getMinutes() / 60;
-    if (loginHour < 14 && logoutHour > 13) {
+    var effStartHour = effectiveStart.getHours() + effectiveStart.getMinutes() / 60;
+    var effEndHour   = effectiveEnd.getHours() + effectiveEnd.getMinutes() / 60;
+    if (effStartHour < 14 && effEndHour > 13) {
       workingHours = Math.max(0, workingHours - 1);
     }
     const { data, error } = await db.supabase
