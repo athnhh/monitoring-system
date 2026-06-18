@@ -607,7 +607,7 @@ function renderRecords() {
         recs = recs.filter(function(l){ return l.status === statusF; });
       }
     }
-    rows = recs.map(function(l){ return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status }; });
+    rows = recs.map(function(l){ return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status, computer_name: l.computer_name || '' }; });
 
     // All Status: add absent + leave employees
     if (!statusF) {
@@ -661,6 +661,7 @@ function renderRecords() {
       '<td>' + (hasLogout ? '<span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + formatTime(r.logout_time) + '</span>' : isAbsent ? '<span style="color:var(--subtle);">—</span>' : '<span style="color:#d97706;font-weight:600;">Active</span>') + '</td>' +
       '<td>' + (r.working_hours > 0 ? '<strong style="font-size:14px;">' + r.working_hours.toFixed(1) + 'h</strong>' : '<span style="color:var(--subtle);">—</span>') + '</td>' +
       '<td><span class="tag t-' + tagClass + '">' + r.status + '</span></td>' +
+      '<td style="font-size:12px;color:var(--subtle);">' + (r.computer_name || '—') + '</td>' +
       '<td style="font-size:12px;color:var(--subtle);">' + (r.status === 'Half-Day' ? 'Login after 14:00' : '') + '</td></tr>';
   }, function(r){ return r.emp_id + '-' + (r._id || ''); });
 }
@@ -1130,7 +1131,7 @@ function setReport(type, btn) {
     });
     // Map log entries to rows
     reportRows = recs.map(function(l) {
-      return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status };
+      return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status, computer_name: l.computer_name || '' };
     });
     // Add absent + leave employees (also respecting dept filter)
     var leaveIds = _onLeaveIds(reportDate);
@@ -1155,7 +1156,7 @@ function setReport(type, btn) {
   } else {
     // Weekly/Monthly: just use logs as-is
     reportRows = recs.map(function(l) {
-      return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status };
+      return { _type:'log', _id:l.id, emp_id:l.emp_id, emp_name:l.emp_name, department:l.department, login_time:l.login_time, logout_time:l.logout_time, working_hours:l.working_hours, status:l.status, computer_name: l.computer_name || '' };
     });
   }
 
@@ -1240,7 +1241,7 @@ function setReport(type, btn) {
   // ── Render table ──
   var thead = document.getElementById('rpt-thead');
   var tbody = document.getElementById('rpt-table');
-  if (thead) thead.innerHTML = '<th>ID</th><th>Employee</th><th>Dept</th><th>Date</th><th>Login</th><th>Logout</th><th>Duration</th><th>Status</th>';
+  if (thead) thead.innerHTML = '<th>ID</th><th>Employee</th><th>Dept</th><th>Date</th><th>Login</th><th>Logout</th><th>Duration</th><th>Status</th><th>Device</th>';
   if (tbody) {
     smartTableSync(tbody, reportRows, function(r) {
       var hasLogin = !!r.login_time;
@@ -1262,7 +1263,8 @@ function setReport(type, btn) {
         '<td>' + (hasLogin ? '<span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#16a34a;">' + formatTime(r.login_time) + '</span>' : '<span style="color:var(--subtle);">—</span>') + '</td>' +
         '<td>' + (hasLogout ? '<span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:#dc2626;">' + formatTime(r.logout_time) + '</span>' : isAbsent ? '<span style="color:var(--subtle);">—</span>' : '<span style="color:#d97706;font-weight:600;">Active</span>') + '</td>' +
         '<td>' + (r.working_hours > 0 ? '<strong style="font-size:14px;">' + r.working_hours.toFixed(1) + 'h</strong>' : '<span style="color:var(--subtle);">—</span>') + '</td>' +
-        '<td><span class="tag t-' + tagClass + '">' + r.status + '</span></td></tr>';
+        '<td><span class="tag t-' + tagClass + '">' + r.status + '</span></td>' +
+        '<td style="font-size:12px;color:var(--subtle);">' + (r.computer_name || '—') + '</td></tr>';
     }, function(r) { return r.emp_id + '-' + (r._id || ''); });
   }
 }
@@ -1399,6 +1401,29 @@ function renderEmpHistory() {
   }
 }
 
+function getDeviceName() {
+  try {
+    var ua = navigator.userAgent;
+    var os = 'Unknown';
+    if (ua.indexOf('Windows NT 10.0') !== -1) os = 'Windows 10';
+    else if (ua.indexOf('Windows NT 11.0') !== -1) os = 'Windows 11';
+    else if (ua.indexOf('Windows NT 6.1') !== -1) os = 'Windows 7';
+    else if (ua.indexOf('Mac OS X') !== -1) os = 'macOS';
+    else if (ua.indexOf('Linux') !== -1 && ua.indexOf('Android') === -1) os = 'Linux';
+    else if (ua.indexOf('Android') !== -1) os = 'Android';
+    else if (ua.indexOf('iPhone') !== -1 || ua.indexOf('iPad') !== -1) os = 'iOS';
+    var browser = 'Unknown';
+    if (ua.indexOf('Chrome/') !== -1 && ua.indexOf('Edg/') === -1 && ua.indexOf('OPR/') === -1) browser = 'Chrome';
+    else if (ua.indexOf('Firefox/') !== -1) browser = 'Firefox';
+    else if (ua.indexOf('Edg/') !== -1) browser = 'Edge';
+    else if (ua.indexOf('Safari/') !== -1 && ua.indexOf('Chrome/') === -1) browser = 'Safari';
+    else if (ua.indexOf('OPR/') !== -1 || ua.indexOf('Opera/') !== -1) browser = 'Opera';
+    return browser + ' on ' + os;
+  } catch (e) {
+    return navigator.platform || 'Web Browser';
+  }
+}
+
 function empPunchIn() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour12: true, hour: '2-digit', minute: '2-digit' });
@@ -1414,7 +1439,7 @@ function empPunchIn() {
   if (!emp) { showNotifBar('error', 'Employee record not found for ID: ' + uid + '. Try logging in with your Employee ID.'); return; }
   api('/api/attendance/login', {
     method: 'POST',
-    body: { empId: emp.id, empName: emp.name, department: emp.dept, computerName: navigator.platform || 'Web Browser' }
+    body: { empId: emp.id, empName: emp.name, department: emp.dept, computerName: getDeviceName() }
   }).then(async res => {
     if (res && res.success) {
       const pill = document.getElementById('emp-pill');
