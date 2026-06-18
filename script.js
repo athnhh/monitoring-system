@@ -749,7 +749,8 @@ async function confirmArchiveEmployee() {
       pendingUndoArchiveName = null;
       pendingUndoTimeout = null;
     }, 5000);
-    showNotifBar('success', 'CSV exported!');
+    showNotifBar('success', empName + ' archived successfully! Press Ctrl+Z to undo within 5 seconds.');
+  }
 }
 
 function exportReportCSV() {
@@ -1438,6 +1439,1764 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+
+
+// ═══════════════════════════════════
+// MISSING FUNCTIONS — Restored Login & Core Operations
+// ═══════════════════════════════════
+
+// ── Utility functions ──
+
+function getDateFromISO(iso) {
+  if (!iso) return '';
+  return iso.substring(0, 10);
+}
+
+function formatTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return dateStr;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+function setText(elId, text) {
+  const el = document.getElementById(elId);
+  if (el) el.textContent = text;
+}
+
+function downloadFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType || 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function checkPwdStrength(inputId, barId) {
+  const pwd = document.getElementById(inputId)?.value || '';
+  const bar = document.getElementById(barId);
+  if (!bar) return;
+  const strength = Math.min(100, pwd.length * 10);
+  bar.style.width = strength + '%';
+  bar.style.background = strength < 40 ? '#ef4444' : strength < 70 ? '#f59e0b' : '#22c55e';
+}
+
+let _clockIntervals = {};
+function startClock(elId) {
+  if (_clockIntervals[elId]) return;
+  function tick() {
+    const el = document.getElementById(elId);
+    if (!el) { clearInterval(_clockIntervals[elId]); delete _clockIntervals[elId]; return; }
+    el.textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+  }
+  tick();
+  _clockIntervals[elId] = setInterval(tick, 1000);
+  // Clear interval when page unloads
+  window.addEventListener('beforeunload', () => { clearInterval(_clockIntervals[elId]); delete _clockIntervals[elId]; });
+}
+
+// ── Notification Bar ──
+
+const NOTIF_TIMERS = {};
+function showNotifBar(type, msg, duration) {
+  const bar = document.getElementById('notif-bar');
+  const icon = document.getElementById('notif-icon');
+  const text = document.getElementById('notif-text');
+  if (!bar || !text) return;
+  bar.className = 'notif-bar';
+  bar.style.display = 'flex';
+  if (type === 'success') { bar.classList.add('notif-success'); if (icon) icon.textContent = '✓'; }
+  else if (type === 'error') { bar.classList.add('notif-error'); if (icon) icon.textContent = '✗'; }
+  else if (type === 'warning') { bar.classList.add('notif-warning'); if (icon) icon.textContent = '!'; }
+  else { bar.classList.add('notif-info'); if (icon) icon.textContent = 'i'; }
+  text.textContent = msg;
+  // Clear any existing timeout for this bar
+  if (NOTIF_TIMERS.bar) clearTimeout(NOTIF_TIMERS.bar);
+  NOTIF_TIMERS.bar = setTimeout(() => { hideNotifBar(); }, duration || 4000);
+}
+
+function hideNotifBar() {
+  const bar = document.getElementById('notif-bar');
+  if (!bar) return;
+  bar.style.display = 'none';
+  if (NOTIF_TIMERS.bar) { clearTimeout(NOTIF_TIMERS.bar); NOTIF_TIMERS.bar = null; }
+}
+
+// ── Tab / Page Switching ──
+
+function switchTab(pageId, role, tabName, btnEl, callback) {
+  // Hide all tabs in the page
+  const page = document.querySelector(pageId);
+  if (!page) return;
+  const prefix = role === 'admin' ? 'admin-' : role === 'employee' ? 'emp-' : '';
+  const tabs = page.querySelectorAll('.atab, .etab');
+  tabs.forEach(t => t.classList.remove('show'));
+  // Show the target tab
+  const target = document.getElementById(prefix + tabName);
+  if (target) target.classList.add('show');
+  // Update active button
+  if (btnEl) {
+    const siblings = btnEl.parentElement ? btnEl.parentElement.querySelectorAll('.nav-btn') : [];
+    siblings.forEach(b => b.classList.remove('active'));
+    btnEl.classList.add('active');
+  } else {
+    const navBtns = document.querySelectorAll(pageId + ' .nav-btn');
+    navBtns.forEach(b => {
+      b.classList.remove('active');
+      if (b.textContent.trim().toLowerCase().includes(tabName.toLowerCase())) b.classList.add('active');
+    });
+  }
+  // Callback
+  if (callback) callback();
+}
+
+// ── API Gateway ──
+
+async function api(path, options) {
+  if (typeof SupabaseClient === 'undefined' || !SupabaseClient.ready) {
+    console.error('[API] SupabaseClient not ready');
+    return null;
+  }
+  const method = (options && options.method) || 'GET';
+  const body = options && options.body;
+  try {
+    return await SupabaseClient.call(method, path, body);
+  } catch (e) {
+    console.error('[API] Error calling', path, e.message);
+    return null;
+  }
+}
+
+// ── Login Handler ──
+
+async function doLogin() {
+  const uid = document.getElementById('uid').value.trim();
+  const pwd = document.getElementById('pwd').value.trim();
+  const errEl = document.getElementById('err-msg');
+  const errText = document.getElementById('err-msg-text');
+
+  if (!uid || !pwd) {
+    if (errText) errText.textContent = 'Please enter both username/ID and password.';
+    if (errEl) errEl.style.display = 'flex';
+    return;
+  }
+
+  if (errEl) errEl.style.display = 'none';
+
+  const btn = document.querySelector('.login-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span style="display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.6s linear infinite;margin-right:8px;vertical-align:middle;"></span> Signing in...';
+  }
+
+  try {
+    const res = await api('/api/auth/login', { method: 'POST', body: { uid, pwd } });
+
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Sign In';
+    }
+
+    if (!res) {
+      if (errText) errText.textContent = 'Connection error. Check your network or Supabase configuration.';
+      if (errEl) errEl.style.display = 'flex';
+      console.error('[Login] No response from server');
+      return;
+    }
+
+    if (res.success) {
+      sessionStorage.setItem('userId', res.user.id);
+      sessionStorage.setItem('userRole', res.role);
+
+      if (document.getElementById('remember-me') && document.getElementById('remember-me').checked) {
+        localStorage.setItem('rememberedUser', uid);
+      } else {
+        localStorage.removeItem('rememberedUser');
+      }
+
+      showLoading('Welcome ' + (res.user.name || '') + '!', 'Loading your data...');
+
+      // Initialize SupabaseClient if not already
+      if (typeof SupabaseClient !== 'undefined' && !SupabaseClient.ready) {
+        SupabaseClient.init();
+      }
+
+      // Start realtime listener
+      startSupabaseListener();
+
+      const loaded = await loadStateFromServer();
+
+      if (loaded && appState) {
+        if (res.role === 'admin') {
+          currentUser = { name: 'Administrator' };
+          currentRole = 'admin';
+          showAdminPage();
+        } else if (res.role === 'employee') {
+          currentRole = 'employee';
+          const emp = (appState.employees || []).find(e => e.id === res.user.id);
+          if (emp) {
+            currentUser = emp;
+            showEmployeePage(emp);
+          } else {
+            if (errText) errText.textContent = 'Employee record not found in system data.';
+            if (errEl) errEl.style.display = 'flex';
+          }
+        }
+      } else {
+        if (errText) errText.textContent = 'Failed to load application data. Please try again.';
+        if (errEl) errEl.style.display = 'flex';
+      }
+      hideLoading();
+    } else {
+      if (errText) errText.textContent = res.message || 'Invalid credentials. Please try again.';
+      if (errEl) errEl.style.display = 'flex';
+    }
+  } catch (e) {
+    console.error('[Login] Error:', e);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Sign In';
+    }
+    if (errText) errText.textContent = 'An unexpected error occurred. Check console for details.';
+    if (errEl) errEl.style.display = 'flex';
+  }
+}
+
+// ── Logout ──
+
+function logout() {
+  currentUser = null;
+  currentRole = '';
+  appState = null;
+  sessionStorage.removeItem('userId');
+  sessionStorage.removeItem('userRole');
+  sessionStorage.removeItem('adminLastTab');
+  sessionStorage.removeItem('empLastTab');
+  // Switch to login page
+  document.getElementById('page-login').classList.add('active');
+  document.getElementById('page-admin').classList.remove('active');
+  document.getElementById('page-employee').classList.remove('active');
+  document.getElementById('uid').value = '';
+  document.getElementById('pwd').value = '';
+  const remembered = localStorage.getItem('rememberedUser');
+  if (remembered) {
+    document.getElementById('uid').value = remembered;
+    document.getElementById('remember-me').checked = true;
+  }
+  // Clear clock intervals
+  Object.keys(_clockIntervals).forEach(key => {
+    clearInterval(_clockIntervals[key]);
+    delete _clockIntervals[key];
+  });
+}
+
+// ── State Management ──
+
+async function loadStateFromServer() {
+  try {
+    const state = await api('/api/state');
+    if (state) {
+      appState = state;
+      console.log('[State] Loaded app state from server');
+      return true;
+    }
+    console.warn('[State] No state returned from server');
+    return false;
+  } catch (e) {
+    console.error('[State] Failed to load state:', e.message);
+    return false;
+  }
+}
+
+async function refreshStateAndRender() {
+  if (document.getElementById('page-login')?.classList.contains('active')) return;
+  try {
+    await loadStateFromServer();
+    if (!appState) return;
+    if (currentRole === 'admin' && document.getElementById('page-admin')?.classList.contains('active')) {
+      updateDashboardStats();
+      renderEmpTable();
+      renderLeaveRequests();
+      renderLeaveHistory();
+      renderLeaveBalances();
+      updateNavBadges();
+      // Re-render active tab content
+      const activeTab = document.querySelector('#page-admin .atab.show');
+      if (activeTab) {
+        if (activeTab.id === 'admin-dashboard') renderDashboardCards();
+        if (activeTab.id === 'admin-records') renderRecords();
+        if (activeTab.id === 'admin-reports') setReport(document.querySelector('.rtab.active')?.dataset?.reportType || 'daily', document.querySelector('.rtab.active'));
+      }
+    } else if (currentRole === 'employee' && document.getElementById('page-employee')?.classList.contains('active')) {
+      const emp = appState?.employees?.find(e => e.id === sessionStorage.getItem('userId'));
+      if (emp) {
+        renderEmpDashboard(emp);
+        renderEmpHistory();
+      }
+    }
+  } catch (e) {
+    console.warn('[Refresh] Error refreshing state:', e.message);
+  }
+}
+
+// ── Show Pages ──
+
+function showAdminPage() {
+  document.getElementById('page-login').classList.remove('active');
+  document.getElementById('page-admin').classList.add('active');
+  document.getElementById('page-employee').classList.remove('active');
+
+  const h = new Date().getHours();
+  const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const greetEl = document.getElementById('admin-greeting');
+  if (greetEl) greetEl.textContent = greet + ', Administrator';
+
+  const today = new Date();
+  const todayEl = document.getElementById('today-date');
+  if (todayEl) todayEl.textContent = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const todayEl2 = document.getElementById('today-date2');
+  if (todayEl2) todayEl2.textContent = today.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+  populateDeptFilters();
+  renderDashboardCards();
+  renderEmpTable();
+  renderLeaveRequests();
+  renderLeaveHistory();
+  renderLeaveBalances();
+  updateNavBadges();
+  renderBirthdayModule();
+  renderAdminNotifPanel();
+
+  // Restore last active tab
+  const lastTab = sessionStorage.getItem('adminLastTab') || 'dashboard';
+  const navBtns = document.querySelectorAll('#page-admin .nav-btn');
+  let tabFound = false;
+  navBtns.forEach(btn => {
+    const match = btn.getAttribute('onclick');
+    if (match && match.includes("'" + lastTab + "'")) {
+      adminTab(lastTab, btn);
+      tabFound = true;
+    }
+  });
+  if (!tabFound) {
+    // Default to dashboard
+    const dashBtn = document.querySelector('#page-admin .nav-btn');
+    if (dashBtn) adminTab('dashboard', dashBtn);
+  }
+
+  startClock('admin-clock');
+  updateDashboardStats();
+}
+
+function showEmployeePage(emp) {
+  document.getElementById('page-login').classList.remove('active');
+  document.getElementById('page-admin').classList.remove('active');
+  document.getElementById('page-employee').classList.add('active');
+
+  // Set employee info
+  const avEl = document.getElementById('emp-av');
+  if (avEl) avEl.textContent = (emp.name || '?').charAt(0).toUpperCase();
+  const nameEl = document.getElementById('emp-fullname');
+  if (nameEl) nameEl.textContent = emp.name || '—';
+  const detailsEl = document.getElementById('emp-details');
+  if (detailsEl) detailsEl.textContent = (emp.id || '') + '  •  ' + (emp.dept || '') + (emp.designation ? '  •  ' + emp.designation : '');
+  const topbarEl = document.getElementById('emp-topbar-name');
+  if (topbarEl) topbarEl.textContent = (emp.name || 'Employee') + "'s Attendance";
+  const badgeEl = document.getElementById('emp-badge');
+  if (badgeEl) badgeEl.textContent = emp.id || 'Employee';
+
+  // Set leave balances
+  setText('emp-cl-bal', (emp.cl || 0).toString());
+  setText('emp-sl-bal', (emp.sl || 0).toString());
+  setText('emp-ul-used', (emp.ul || 0).toString());
+  setText('emp-cl-bal2', (emp.cl || 0).toString());
+  setText('emp-sl-bal2', (emp.sl || 0).toString());
+  setText('emp-ul-used2', (emp.ul || 0).toString());
+
+  // Render dashboard
+  renderEmpDashboard(emp);
+  renderEmpHistory();
+
+  // Announcements
+  renderEmpAnnouncements();
+
+  // Default to dashboard tab
+  const dashBtn = document.querySelector('#page-employee .nav-btn');
+  if (dashBtn) empTab('dashboard', dashBtn);
+
+  startClock('emp-clock');
+}
+
+// ── Employee Tab ──
+
+function empTab(tabName, btnElement) {
+  sessionStorage.setItem('empLastTab', tabName);
+  // Clear nav badge for leaves
+  if (tabName === 'leaves') {
+    clearedNavBadges.add('nav-badge-emp-leaves');
+    _saveClearedBadges();
+    const badge = document.getElementById('nav-badge-emp-leaves');
+    if (badge) { badge.classList.add('hidden'); badge.textContent = ''; }
+  }
+  switchTab('#page-employee', 'employee', tabName, btnElement, async () => {
+    if (tabName === 'history') renderEmpHistory();
+    if (tabName === 'dashboard') {
+      const emp = appState?.employees?.find(e => e.id === sessionStorage.getItem('userId'));
+      if (emp) renderEmpDashboard(emp);
+    }
+  });
+}
+
+// ── Employee Dashboard ──
+
+function renderEmpDashboard(emp) {
+  if (!appState || !emp) return;
+  const logs = appState.attendanceLogs || [];
+  const now = new Date();
+  const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  const monthStr = today.substring(0, 7);
+
+  // Check if signed in
+  const empLogs = logs.filter(l => l.emp_id === emp.id);
+  const todayLogs = empLogs.filter(l => (l.login_date || getDateFromISO(l.login_time)) === today);
+  const activeSession = todayLogs.find(l => !l.logout_time);
+
+  const pill = document.getElementById('emp-pill');
+  if (pill) {
+    if (activeSession) {
+      pill.className = 'status-pill sp-in';
+      pill.innerHTML = '<div class="status-dot sd-g"></div>Signed In';
+    } else if (todayLogs.length > 0) {
+      pill.className = 'status-pill sp-out';
+      pill.innerHTML = '<div class="status-dot sd-r"></div>Signed Out';
+    } else {
+      pill.className = 'status-pill sp-out';
+      pill.innerHTML = '<div class="status-dot sd-r"></div>Not signed in';
+    }
+  }
+
+  // Monthly stats
+  const monthLogs = empLogs.filter(l => (l.login_date || getDateFromISO(l.login_time)).startsWith(monthStr));
+  const presentDays = new Set();
+  let totalHours = 0;
+  let lateCount = 0;
+  monthLogs.forEach(l => {
+    if (['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)) {
+      const dateKey = l.login_date || getDateFromISO(l.login_time);
+      presentDays.add(dateKey);
+      if (l.status === 'Late') lateCount++;
+    }
+    totalHours += l.working_hours || 0;
+  });
+
+  // Calculate expected working days
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const effectiveStart = new Date(Math.max(monthStart.getTime(), emp.joining ? new Date(emp.joining + 'T00:00:00').getTime() : 0));
+  let workingDays = 0;
+  for (let d = new Date(effectiveStart); d <= now; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() !== 0 && d.getDay() !== 6) workingDays++;
+  }
+  const absentCount = Math.max(0, workingDays - presentDays.size);
+
+  setText('ms-present', presentDays.size.toString());
+  setText('ms-absent', absentCount.toString());
+  setText('ms-hours', totalHours.toFixed(1) + 'h');
+  setText('ms-late', lateCount.toString());
+
+  // Big clock
+  const bigClock = document.getElementById('emp-bigclock');
+  if (bigClock) bigClock.textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  const dateStrEl = document.getElementById('emp-datestr');
+  if (dateStrEl) dateStrEl.textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+  // Weekly hours bar chart
+  renderEmpWeeklyHours(emp);
+
+  // Today's timeline
+  renderTodayTimeline(todayLogs);
+
+  // Recent attendance table
+  renderEmpRecentLogs(empLogs);
+}
+
+function renderEmpWeeklyHours(emp) {
+  const barsEl = document.getElementById('emp-bars');
+  if (!barsEl || !appState) return;
+  const logs = appState.attendanceLogs || [];
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0=Sun
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+
+  const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  let html = '';
+  let totalWeekHours = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    if (d > now) {
+      html += '<div class="bar-row" style="opacity:0.4;"><span class="bar-label">' + weekDays[i] + '</span><div class="bar-track"><div class="bar-fill" style="width:0%"></div></div><span class="bar-val">—</span></div>';
+      continue;
+    }
+    const dayLogs = logs.filter(l => l.emp_id === emp.id && (l.login_date || getDateFromISO(l.login_time)) === dateStr);
+    let dayHours = 0;
+    dayLogs.forEach(l => { dayHours += l.working_hours || 0; });
+    totalWeekHours += dayHours;
+    const pct = Math.min(100, (dayHours / 9) * 100);
+    const color = pct >= 80 ? 'bf-green' : pct >= 50 ? 'bf-amber' : 'bf-red';
+    html += '<div class="bar-row"><span class="bar-label">' + weekDays[i] + '</span><div class="bar-track"><div class="bar-fill ' + color + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + dayHours.toFixed(1) + 'h</span></div>';
+  }
+  html += '<div class="bar-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;"><span class="bar-label" style="font-weight:600;">Total</span><div class="bar-track"></div><span class="bar-val" style="font-weight:600;">' + totalWeekHours.toFixed(1) + 'h</span></div>';
+  barsEl.innerHTML = html;
+}
+
+function renderTodayTimeline(todayLogs) {
+  const timeline = document.getElementById('today-timeline');
+  if (!timeline) return;
+  if (!todayLogs || todayLogs.length === 0) {
+    timeline.innerHTML = '<li class="timeline-item" style="color:var(--subtle);font-size:13px;">No events yet today.</li>';
+    return;
+  }
+  let html = '';
+  todayLogs.forEach(l => {
+    const time = l.logout_time ? formatTime(l.logout_time) : formatTime(l.login_time);
+    const label = !l.logout_time ? 'Signed in' : 'Signed out';
+    const dotColor = !l.logout_time ? '#22c55e' : '#ef4444';
+    html += '<li class="timeline-item" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">' +
+      '<span style="width:10px;height:10px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;"></span>' +
+      '<span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--text);min-width:50px;">' + time + '</span>' +
+      '<span style="font-size:13px;color:var(--muted);">' + label + '</span></li>';
+  });
+  timeline.innerHTML = html;
+}
+
+function renderEmpRecentLogs(empLogs) {
+  const tbody = document.getElementById('emp-log');
+  if (!tbody) return;
+  const recent = empLogs.slice(-10).reverse();
+  if (recent.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--subtle);">No attendance records found.</td></tr>';
+    return;
+  }
+  let html = '';
+  recent.forEach(l => {
+    const date = l.login_date || getDateFromISO(l.login_time);
+    const d = new Date(date + 'T00:00:00');
+    const dayName = DAYS[d.getDay()] || '';
+    const statusClass = (l.status || 'Active').toLowerCase().replace(/[-\s]/g, '');
+    html += '<tr>' +
+      '<td>' + formatDate(date) + '</td>' +
+      '<td>' + dayName + '</td>' +
+      '<td><span style="font-family:var(--font-mono);color:#16a34a;font-weight:600;">' + formatTime(l.login_time) + '</span></td>' +
+      '<td><span style="font-family:var(--font-mono);color:#dc2626;font-weight:600;">' + (l.logout_time ? formatTime(l.logout_time) : '<span style="color:#d97706;">Active</span>') + '</span></td>' +
+      '<td>—</td>' +
+      '<td>' + (l.working_hours > 0 ? l.working_hours.toFixed(1) + 'h' : '—') + '</td>' +
+      '<td><span class="tag t-' + statusClass + '">' + (l.status || 'Active') + '</span></td></tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+// ── Employee Sign In/Out ──
+
+async function empPunchIn() {
+  const empId = sessionStorage.getItem('userId');
+  if (!empId || !appState) return;
+  const emp = appState.employees?.find(e => e.id === empId);
+  if (!emp) return;
+  const btn = document.querySelector('.pbtn-in');
+  if (btn) { btn.disabled = true; btn.textContent = 'Signing in...'; }
+  const res = await api('/api/attendance/login', {
+    method: 'POST',
+    body: { empId: emp.id, empName: emp.name, department: emp.dept, computerName: 'Web Browser (' + navigator.platform + ')' }
+  });
+  if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
+  if (res && res.success) {
+    showNotifBar('success', 'Signed in successfully!');
+    await refreshStateAndRender();
+    const emp2 = appState?.employees?.find(e => e.id === empId);
+    if (emp2) renderEmpDashboard(emp2);
+  } else {
+    showNotifBar('error', res?.error || 'Sign in failed.');
+  }
+}
+
+async function empPunchOut() {
+  const empId = sessionStorage.getItem('userId');
+  if (!empId) return;
+  const btn = document.querySelector('.pbtn-out');
+  if (btn) { btn.disabled = true; btn.textContent = 'Signing out...'; }
+  const res = await api('/api/attendance/logout', {
+    method: 'POST',
+    body: { empId }
+  });
+  if (btn) { btn.disabled = false; btn.textContent = 'Sign Out'; }
+  if (res && res.success) {
+    showNotifBar('success', 'Signed out successfully!');
+    await refreshStateAndRender();
+    const emp2 = appState?.employees?.find(e => e.id === empId);
+    if (emp2) renderEmpDashboard(emp2);
+  } else {
+    showNotifBar('error', res?.error || 'Sign out failed.');
+  }
+}
+
+// ── Employee History ──
+
+function renderEmpHistory() {
+  if (!appState) return;
+  const empId = sessionStorage.getItem('userId');
+  if (!empId) return;
+  const logs = appState.attendanceLogs || [];
+  const empLogs = logs.filter(l => l.emp_id === empId);
+  const monthFilter = document.getElementById('hist-month')?.value || new Date().toISOString().slice(0, 7);
+  const filtered = empLogs.filter(l => (l.login_date || getDateFromISO(l.login_time)).startsWith(monthFilter));
+  const tbody = document.getElementById('hist-table');
+  if (!tbody) return;
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--subtle);">No records for this month.</td></tr>';
+  } else {
+    let html = '';
+    filtered.slice().reverse().forEach(l => {
+      const date = l.login_date || getDateFromISO(l.login_time);
+      const d = new Date(date + 'T00:00:00');
+      const dayName = DAYS[d.getDay()] || '';
+      const statusClass = (l.status || 'Active').toLowerCase().replace(/[-\s]/g, '');
+      html += '<tr>' +
+        '<td>' + formatDate(date) + '</td>' +
+        '<td>' + dayName + '</td>' +
+        '<td><span style="font-family:var(--font-mono);color:#16a34a;font-weight:600;">' + formatTime(l.login_time) + '</span></td>' +
+        '<td><span style="font-family:var(--font-mono);color:#dc2626;font-weight:600;">' + (l.logout_time ? formatTime(l.logout_time) : '<span style="color:#d97706;">Active</span>') + '</span></td>' +
+        '<td>—</td>' +
+        '<td>' + (l.working_hours > 0 ? l.working_hours.toFixed(1) + 'h' : '—') + '</td>' +
+        '<td><span class="tag t-' + statusClass + '">' + (l.status || 'Active') + '</span></td></tr>';
+    });
+    tbody.innerHTML = html;
+  }
+  // Summary
+  const summaryEl = document.getElementById('hist-summary');
+  if (summaryEl) {
+    let totalHours = 0;
+    let presentDays = 0;
+    filtered.forEach(l => {
+      totalHours += l.working_hours || 0;
+      if (['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)) presentDays++;
+    });
+    summaryEl.textContent = presentDays + ' days present, ' + totalHours.toFixed(1) + ' total hours this month';
+  }
+}
+
+function exportEmpCSV() {
+  if (!appState) { showNotifBar('warning', 'No data loaded.'); return; }
+  const empId = sessionStorage.getItem('userId');
+  const logs = (appState.attendanceLogs || []).filter(l => l.emp_id === empId);
+  const monthFilter = document.getElementById('hist-month')?.value || new Date().toISOString().slice(0, 7);
+  const filtered = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)).startsWith(monthFilter));
+  if (!filtered.length) { showNotifBar('warning', 'No records for this month.'); return; }
+  const rows = [['Date','Day','Login','Logout','Hours','Status']];
+  filtered.slice().reverse().forEach(l => {
+    const date = l.login_date || getDateFromISO(l.login_time);
+    const d = new Date(date + 'T00:00:00');
+    rows.push([date, DAYS[d.getDay()] || '', formatTime(l.login_time), l.logout_time ? formatTime(l.logout_time) : 'Active', (l.working_hours || 0).toFixed(1), l.status || 'Active']);
+  });
+  const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+  downloadFile(csv, 'attendance_' + empId + '_' + monthFilter + '.csv', 'text/csv');
+  showNotifBar('success', 'CSV exported!');
+}
+
+// ── Employee Leave Functions ──
+
+function selectLeaveType(btn, type) {
+  currentLeaveType = type;
+  document.querySelectorAll('.leave-type-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  calcLeaveDays();
+}
+
+function calcLeaveDays() {
+  const from = document.getElementById('leave-from')?.value;
+  const to = document.getElementById('leave-to')?.value;
+  const note = document.getElementById('leave-calc-text');
+  if (!note) return;
+  if (!from || !to) {
+    note.textContent = 'Select dates to calculate leave days and check balance.';
+    return;
+  }
+  const f = new Date(from + 'T00:00:00');
+  const t = new Date(to + 'T00:00:00');
+  if (t < f) { note.textContent = 'End date must be after start date.'; return; }
+  const days = Math.floor((t - f) / (1000 * 60 * 60 * 24)) + 1;
+  const empId = sessionStorage.getItem('userId');
+  const emp = appState?.employees?.find(e => e.id === empId);
+  let balance = 0;
+  if (currentLeaveType === 'CL') balance = emp?.cl || 0;
+  else if (currentLeaveType === 'SL') balance = emp?.sl || 0;
+  else balance = 999; // UL has no limit
+  note.textContent = days + ' day(s) requested. ' + (currentLeaveType === 'UL' ? 'Unpaid leave — no limit.' : 'Your ' + currentLeaveType + ' balance: ' + balance + ' day(s).' + (days > balance ? ' <span style="color:var(--red);">Insufficient balance! Excess will be converted to UL.</span>' : ''));
+}
+
+async function submitLeaveRequest() {
+  const empId = sessionStorage.getItem('userId');
+  if (!empId || !appState) return;
+  const emp = appState.employees?.find(e => e.id === empId);
+  if (!emp) return;
+  const from = document.getElementById('leave-from')?.value;
+  const to = document.getElementById('leave-to')?.value;
+  const reason = document.getElementById('leave-reason')?.value?.trim() || '';
+  if (!from || !to) { showNotifBar('warning', 'Please select from and to dates.'); return; }
+  if (!reason) { showNotifBar('warning', 'Please provide a reason for your leave.'); return; }
+  const f = new Date(from + 'T00:00:00');
+  const t = new Date(to + 'T00:00:00');
+  const days = Math.floor((t - f) / (1000 * 60 * 60 * 24)) + 1;
+  const btn = document.querySelector('#emp-leaves .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
+  const res = await api('/api/leave-requests', {
+    method: 'POST',
+    body: { empId: emp.id, empName: emp.name, dept: emp.dept, type: currentLeaveType, from, to, days, reason }
+  });
+  if (btn) { btn.disabled = false; btn.textContent = 'Submit Leave Request'; }
+  if (res && res.success) {
+    showNotifBar('success', 'Leave request submitted! Waiting for admin approval.');
+    document.getElementById('leave-from').value = '';
+    document.getElementById('leave-to').value = '';
+    document.getElementById('leave-reason').value = '';
+    await refreshStateAndRender();
+    renderEmpLeaveHistory();
+  } else {
+    showNotifBar('error', 'Failed to submit leave request.');
+  }
+}
+
+function renderEmpLeaveHistory() {
+  const el = document.getElementById('my-leave-history');
+  if (!el || !appState) return;
+  const empId = sessionStorage.getItem('userId');
+  const myLeaves = (appState.leaveRequests || []).filter(l => l.empId === empId).reverse();
+  if (!myLeaves.length) {
+    el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No leave requests yet.</p>';
+    return;
+  }
+  let html = '';
+  myLeaves.forEach(l => {
+    const tagClass = (l.status || 'Pending').toLowerCase();
+    html += '<div class="leave-req-card" style="padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;display:flex;justify-content:space-between;align-items:center;">' +
+      '<div><strong>' + (l.type || '—') + '</strong> &nbsp;' + (l.from || '') + ' → ' + (l.to || '') + ' (' + (l.days || 0) + 'd)</div>' +
+      '<span class="tag t-' + tagClass + '">' + (l.status || 'Pending') + '</span></div>';
+  });
+  el.innerHTML = html;
+}
+
+// ── Employee Announcements ──
+
+function renderEmpAnnouncements() {
+  const el = document.getElementById('emp-announcements-list');
+  if (!el || !appState) return;
+  const anns = appState.announcements || [];
+  const count = document.getElementById('emp-ann-count');
+  if (count) count.textContent = anns.length;
+  if (!anns.length) {
+    el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No announcements yet.</p>';
+    return;
+  }
+  let html = '';
+  anns.slice(0, 5).forEach(a => {
+    const priority = a.priority || 'normal';
+    const color = priority === 'urgent' ? '#dc2626' : priority === 'high' ? '#d97706' : 'var(--muted)';
+    html += '<div class="announcement-card" style="padding:12px 0;border-bottom:1px solid var(--border);">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+        '<strong style="font-size:14px;">' + (a.subject || '') + '</strong>' +
+        '<span style="font-size:11px;color:' + color + ';font-weight:600;">' + priority.toUpperCase() + '</span>' +
+      '</div>' +
+      '<p style="font-size:13px;color:var(--muted);margin:4px 0;">' + (a.body || '') + '</p>' +
+      '<span style="font-size:11px;color:var(--subtle);">' + (a.date || '') + '</span></div>';
+  });
+  el.innerHTML = html;
+}
+
+// ── Employee Password Change ──
+
+async function changeEmpPwd() {
+  const curPwd = document.getElementById('e-cur-pwd')?.value.trim();
+  const newPwd = document.getElementById('e-new-pwd')?.value.trim();
+  const confPwd = document.getElementById('e-conf-pwd')?.value.trim();
+  if (!curPwd || !newPwd || !confPwd) { showNotifBar('warning', 'Please fill all fields.'); return; }
+  if (newPwd.length < 6) { showNotifBar('warning', 'New password must be at least 6 characters.'); return; }
+  if (newPwd !== confPwd) { showNotifBar('error', 'Passwords do not match.'); return; }
+  const btn = document.querySelector('#emp-settings .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
+  const empId = sessionStorage.getItem('userId');
+  const res = await api('/api/auth/password', {
+    method: 'PUT',
+    body: { userId: empId, currentPwd, newPassword: newPwd }
+  });
+  if (btn) { btn.disabled = false; btn.textContent = 'Update Password'; }
+  if (res && res.success) {
+    showNotifBar('success', 'Password changed successfully!');
+    document.getElementById('e-cur-pwd').value = '';
+    document.getElementById('e-new-pwd').value = '';
+    document.getElementById('e-conf-pwd').value = '';
+  } else {
+    showNotifBar('error', res?.error || 'Failed to change password.');
+  }
+}
+
+// ── Admin: Leave Management ──
+
+function renderLeaveRequests() {
+  const el = document.getElementById('leave-requests-list');
+  if (!el || !appState) return;
+  const pending = (appState.leaveRequests || []).filter(l => l.status === 'Pending');
+  if (!pending.length) {
+    el.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No pending requests.</p>';
+    return;
+  }
+  smartListSync(el, pending, l => leaveReqCard(l), l => l.id || l.empId + '-' + l.from);
+}
+
+function renderLeaveHistory() {
+  const tbody = document.getElementById('leave-history-table');
+  if (!tbody || !appState) return;
+  const all = (appState.leaveRequests || []).slice().reverse();
+  if (!all.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--subtle);">No leave requests.</td></tr>';
+    return;
+  }
+  let html = '';
+  all.forEach(l => {
+    const tagClass = (l.status || 'Pending').toLowerCase();
+    html += '<tr><td>' + (l.empName || '—') + '</td><td>' + (l.type || '—') + '</td><td>' + (l.from || '—') + '</td><td>' + (l.to || '—') + '</td><td>' + (l.days || 0) + '</td><td><span class="tag t-' + tagClass + '">' + (l.status || 'Pending') + '</span></td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (l.reason || '—') + '</td></tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+function renderLeaveBalances() {
+  const tbody = document.getElementById('leave-balances-table');
+  if (!tbody || !appState) return;
+  const emps = (appState.employees || []).filter(e => e.active);
+  if (!emps.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--subtle);">No employees found.</td></tr>';
+    return;
+  }
+  let html = '';
+  emps.forEach(e => {
+    html += '<tr><td>' + e.name + '</td><td><span class="chip ' + (DEPT_COLORS[e.dept] || 'c-eng') + '">' + (e.dept || '—') + '</span></td><td>' + (e.cl || 0) + '</td><td>' + (e.sl || 0) + '</td><td>' + (e.ul || 0) + '</td><td><button class="btn btn-sm" onclick="openLeaveManageModal(\'' + e.id + '\')">Adjust</button></td></tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+function leaveReqCard(l) {
+  return '<div class="leave-req-card" style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border:1px solid var(--border);border-radius:9px;margin-bottom:10px;">' +
+    '<div style="flex:1;">' +
+      '<div style="font-weight:600;font-size:14px;">' + (l.empName || 'Employee') + '</div>' +
+      '<div style="font-size:12px;color:var(--subtle);margin:4px 0;">' + (l.type || '—') + ' Leave · ' + (l.from || '') + ' → ' + (l.to || '') + ' (' + (l.days || 0) + 'd)</div>' +
+      '<div style="font-size:12px;color:var(--muted);">' + (l.reason || 'No reason provided') + '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;flex-shrink:0;">' +
+      '<button class="btn btn-sm" style="background:#22c55e;color:#fff;border-color:#22c55e;" onclick="approveLeave(' + (l.id || 0) + ')">Approve</button>' +
+      '<button class="btn btn-sm btn-danger" onclick="rejectLeave(' + (l.id || 0) + ')">Reject</button>' +
+    '</div></div>';
+}
+
+async function approveLeave(id) {
+  const res = await api('/api/leave-requests/' + id, { method: 'PUT', body: { status: 'Approved' } });
+  if (res && res.success !== false) {
+    showNotifBar('success', 'Leave approved!' + (res.warning ? ' ' + res.warning : ''));
+    await refreshStateAndRender();
+  } else {
+    showNotifBar('error', 'Failed to approve leave.');
+  }
+}
+
+async function rejectLeave(id) {
+  const res = await api('/api/leave-requests/' + id, { method: 'PUT', body: { status: 'Rejected' } });
+  if (res && res.success !== false) {
+    showNotifBar('success', 'Leave rejected.');
+    await refreshStateAndRender();
+  } else {
+    showNotifBar('error', 'Failed to reject leave.');
+  }
+}
+
+function openLeaveManageModal(empId) {
+  const emp = appState?.employees?.find(e => e.id === empId);
+  if (!emp) return;
+  selectedLeaveManageIdx = empId;
+  document.getElementById('lm-emp-name').textContent = emp.name;
+  document.getElementById('lm-cl').value = emp.cl || 0;
+  document.getElementById('lm-sl').value = emp.sl || 0;
+  document.getElementById('lm-ul').value = emp.ul || 0;
+  document.getElementById('leave-manage-modal').style.display = 'flex';
+}
+
+async function saveLeaveBalance() {
+  const empId = selectedLeaveManageIdx;
+  if (!empId) return;
+  const cl = parseFloat(document.getElementById('lm-cl').value) || 0;
+  const sl = parseFloat(document.getElementById('lm-sl').value) || 0;
+  const ul = parseFloat(document.getElementById('lm-ul').value) || 0;
+  const res = await api('/api/employees/' + encodeURIComponent(empId), {
+    method: 'PUT',
+    body: { cl, sl, ul }
+  });
+  if (res && res.success) {
+    showNotifBar('success', 'Leave balance updated!');
+    document.getElementById('leave-manage-modal').style.display = 'none';
+    await refreshStateAndRender();
+  } else {
+    showNotifBar('error', 'Failed to update balance.');
+  }
+}
+
+// ── Admin: Department Management ──
+
+async function addDept() {
+  const input = document.getElementById('new-dept-input');
+  const name = input?.value?.trim();
+  if (!name) { showNotifBar('warning', 'Enter a department name.'); return; }
+  const res = await api('/api/departments', { method: 'POST', body: { name } });
+  if (res && res.success) {
+    showNotifBar('success', 'Department added!');
+    input.value = '';
+    await refreshStateAndRender();
+    renderDepartments();
+    renderDeptHeadcount();
+  } else {
+    showNotifBar('error', res?.error === 'Exists' ? 'Department already exists.' : 'Failed to add department.');
+  }
+}
+
+async function removeDept(name) {
+  if (!confirm('Remove department "' + name + '"?')) return;
+  const res = await api('/api/departments/' + encodeURIComponent(name), { method: 'DELETE' });
+  if (res && res.success) {
+    showNotifBar('success', 'Department removed!');
+    await refreshStateAndRender();
+    renderDepartments();
+    renderDeptHeadcount();
+  } else {
+    showNotifBar('error', 'Failed to remove department.');
+  }
+}
+
+function renderDepartments() {
+  const list = document.getElementById('dept-tag-list');
+  if (!list || !appState) return;
+  const depts = appState.departments || [];
+  if (!depts.length) {
+    list.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No departments. Add one above.</p>';
+    return;
+  }
+  let html = '';
+  depts.forEach(d => {
+    html += '<div class="dept-tag"><span>' + d + '</span><button class="dept-remove" onclick="removeDept(\'' + d.replace(/'/g, "\\'") + '\')">X</button></div>';
+  });
+  list.innerHTML = html;
+  // Update all dept dropdowns
+  populateDeptFilters();
+}
+
+function renderDeptHeadcount() {
+  const barsEl = document.getElementById('dept-headcount-bars');
+  if (!barsEl || !appState) return;
+  const emps = (appState.employees || []).filter(e => e.active);
+  const deptCount = {};
+  emps.forEach(e => {
+    if (!deptCount[e.dept]) deptCount[e.dept] = 0;
+    deptCount[e.dept]++;
+  });
+  const depts = appState.departments || [];
+  if (!depts.length) { barsEl.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No departments.</p>'; return; }
+  const maxCount = Math.max(1, ...Object.values(deptCount));
+  let html = '';
+  depts.forEach(d => {
+    const count = deptCount[d] || 0;
+    const pct = (count / maxCount) * 100;
+    html += '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill bf-blue" style="width:' + pct + '%"></div></div><span class="bar-val">' + count + '</span></div>';
+  });
+  barsEl.innerHTML = html;
+}
+
+// ── Admin: Announcements ──
+
+function selectAnnPriority(btn, val) {
+  annSelectedPriority = val;
+  document.querySelectorAll('.ann-prior-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+}
+
+function previewAnnouncement() {
+  const subject = document.getElementById('ann-subject')?.value || '(No subject)';
+  const body = document.getElementById('ann-body')?.value || '(No message)';
+  const priority = annSelectedPriority || 'normal';
+  showNotifBar('info', '[PREVIEW] ' + priority.toUpperCase() + ': ' + subject + ' — ' + body.substring(0, 100) + (body.length > 100 ? '...' : ''));
+}
+
+async function sendAnnouncement() {
+  const subject = document.getElementById('ann-subject')?.value?.trim();
+  const body = document.getElementById('ann-body')?.value?.trim();
+  if (!subject || !body) { showNotifBar('warning', 'Please enter both subject and message.'); return; }
+  const recipient = document.getElementById('ann-recipient-select')?.value || 'all';
+  const btn = document.querySelector('.ann-send-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  const today = new Date().toISOString().split('T')[0];
+  const res = await api('/api/announcements', {
+    method: 'POST',
+    body: { date: today, subject, body, by: 'Admin', priority: annSelectedPriority, recipient: recipient === 'all' ? 'All Employees' : recipient }
+  });
+  if (btn) { btn.disabled = false; btn.textContent = 'Send Announcement'; }
+  if (res && !res.error) {
+    showNotifBar('success', 'Announcement sent!');
+    document.getElementById('ann-subject').value = '';
+    document.getElementById('ann-body').value = '';
+    document.getElementById('ann-charcount').textContent = '0';
+    await refreshStateAndRender();
+    renderAnnouncements();
+  } else {
+    showNotifBar('error', 'Failed to send announcement.');
+  }
+}
+
+function renderAnnouncements() {
+  const el = document.getElementById('announcements-list');
+  if (!el || !appState) return;
+  const anns = appState.announcements || [];
+  const count = document.getElementById('ann-count-badge');
+  if (count) count.textContent = anns.length;
+  if (!anns.length) {
+    el.innerHTML = '<div class="ann-empty-state"><span class="ann-empty-icon"></span><div class="ann-empty-text">No announcements yet</div><div class="ann-empty-sub">Your first announcement will appear here</div></div>';
+    return;
+  }
+  let html = '';
+  anns.forEach(a => {
+    const priority = a.priority || 'normal';
+    const pClass = priority === 'urgent' ? 'pd-urgent' : priority === 'high' ? 'pd-high' : priority === 'low' ? 'pd-low' : 'pd-normal';
+    html += '<div class="announcement-card" style="padding:14px 16px;border:1px solid var(--border);border-radius:9px;margin-bottom:10px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">' +
+        '<div><strong style="font-size:14px;">' + (a.subject || '') + '</strong>' +
+        '<span style="font-size:11px;color:var(--subtle);margin-left:10px;">' + (a.date || '') + '</span></div>' +
+        '<span class="ann-prior-dot ' + pClass + '"></span>' +
+      '</div>' +
+      '<p style="font-size:13px;color:var(--muted);margin:6px 0;line-height:1.5;">' + (a.body || '') + '</p>' +
+      '<span style="font-size:11px;color:var(--subtle);">By ' + (a.by || 'Admin') + ' · ' + (a.recipient || 'All Employees') + '</span></div>';
+  });
+  el.innerHTML = html;
+}
+
+// ── Admin: Filters & Helpers ──
+
+function populateDeptFilters() {
+  const depts = appState?.departments || [];
+  const selects = ['rec-dept', 'rpt-dept', 'emp-dept-filter', 'f-dept', 'ann-recipient-select', 'active-now-dept-filter'];
+  selects.forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const currentVal = sel.value;
+    sel.innerHTML = '';
+    if (id === 'f-dept') {
+      // Add employee modal - no "All" option
+      depts.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d; opt.textContent = d;
+        sel.appendChild(opt);
+      });
+    } else {
+      const allOpt = document.createElement('option');
+      if (id === 'ann-recipient-select') {
+        allOpt.value = 'all'; allOpt.textContent = 'All Employees';
+      } else if (id === 'active-now-dept-filter') {
+        allOpt.value = ''; allOpt.textContent = 'All Depts';
+      } else {
+        allOpt.value = ''; allOpt.textContent = 'All Departments';
+      }
+      sel.appendChild(allOpt);
+      depts.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d; opt.textContent = d;
+        sel.appendChild(opt);
+      });
+    }
+    sel.value = currentVal || '';
+  });
+}
+
+function renderAll() {
+  renderEmpTable();
+  populateDeptFilters();
+  renderDepartments();
+  renderDeptHeadcount();
+  renderAnnouncements();
+}
+
+// ── Admin: Nav Badges ──
+
+function updateNavBadges() {
+  if (!appState) return;
+  // Leave badges
+  const pendingLeaves = (appState.leaveRequests || []).filter(l => l.status === 'Pending').length;
+  ['nav-badge-leaves', 'nav-badge-dash'].forEach(id => {
+    const badge = document.getElementById(id);
+    if (!badge) return;
+    if (pendingLeaves > 0 && !clearedNavBadges.has(id)) {
+      badge.textContent = pendingLeaves;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+      badge.textContent = '';
+    }
+  });
+  // Employee leaves badge
+  const empBadge = document.getElementById('nav-badge-emp-leaves');
+  if (empBadge) {
+    const empId = sessionStorage.getItem('userId');
+    const myPending = (appState.leaveRequests || []).filter(l => l.empId === empId && l.status === 'Pending').length;
+    if (myPending > 0 && !clearedNavBadges.has('nav-badge-emp-leaves')) {
+      empBadge.textContent = myPending;
+      empBadge.classList.remove('hidden');
+    } else {
+      empBadge.classList.add('hidden');
+      empBadge.textContent = '';
+    }
+  }
+}
+
+// ── Admin: Notifications ──
+
+let notifPanelOpen = false;
+function toggleNotifPanel() {
+  notifPanelOpen = !notifPanelOpen;
+  const panel = document.getElementById('notif-panel');
+  if (!panel) return;
+  if (notifPanelOpen) {
+    panel.classList.add('open');
+    renderAdminNotifPanel();
+  } else {
+    panel.classList.remove('open');
+  }
+  markAdminNotifsRead();
+}
+
+let empNotifPanelOpen = false;
+function toggleEmpNotifPanel() {
+  empNotifPanelOpen = !empNotifPanelOpen;
+  const panel = document.getElementById('emp-notif-panel');
+  if (!panel) return;
+  if (empNotifPanelOpen) {
+    panel.classList.add('open');
+    renderEmpNotifPanel();
+  } else {
+    panel.classList.remove('open');
+  }
+}
+
+function renderAdminNotifPanel() {
+  const body = document.getElementById('notif-panel-body');
+  if (!body || !appState) return;
+  const notifs = appState.adminNotifications || [];
+  if (!notifs.length) {
+    body.innerHTML = '<p style="padding:20px;text-align:center;color:var(--subtle);font-size:13px;">No notifications yet.</p>';
+    return;
+  }
+  let html = '';
+  notifs.forEach(n => {
+    html += '<div class="notif-item' + (n.isRead ? '' : ' notif-unread') + '"><div class="notif-item-text">' + (n.text || '') + '</div><div class="notif-item-time">' + (n.time || '') + '</div></div>';
+  });
+  body.innerHTML = html;
+  updateAdminNotifBadge();
+}
+
+function renderEmpNotifPanel() {
+  const body = document.getElementById('emp-notif-panel-body');
+  if (!body || !appState) return;
+  const notifs = appState.empNotifications || [];
+  if (!notifs.length) {
+    body.innerHTML = '<p style="padding:20px;text-align:center;color:var(--subtle);font-size:13px;">No notifications yet.</p>';
+    return;
+  }
+  let html = '';
+  notifs.forEach(n => {
+    html += '<div class="notif-item' + (n.isRead ? '' : ' notif-unread') + '"><div class="notif-item-text">' + (n.text || '') + '</div><div class="notif-item-time">' + (n.time || '') + '</div></div>';
+  });
+  body.innerHTML = html;
+  updateEmpNotifBadge();
+}
+
+function updateAdminNotifBadge() {
+  const count = (appState?.adminNotifications || []).filter(n => !n.isRead).length;
+  const badge = document.getElementById('admin-notif-count');
+  if (badge) {
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'flex' : 'none';
+  }
+}
+
+function updateEmpNotifBadge() {
+  const count = (appState?.empNotifications || []).filter(n => !n.isRead).length;
+  const badge = document.getElementById('emp-notif-count');
+  if (badge) {
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'flex' : 'none';
+  }
+}
+
+async function markAdminNotifsRead() {
+  if (!appState) return;
+  const unread = (appState.adminNotifications || []).filter(n => !n.isRead);
+  if (unread.length === 0) return;
+  await api('/api/notifications/mark-read', { method: 'POST', body: { userId: 'quemahtech' } });
+  unread.forEach(n => n.isRead = true);
+  updateAdminNotifBadge();
+  updateNavBadges();
+}
+
+// ── Admin: Birthday Module ──
+
+function renderBirthdayModule() {
+  const module = document.getElementById('birthday-module');
+  const list = document.getElementById('birthday-list');
+  if (!module || !list || !appState) return;
+  const emps = appState.employees || [];
+  const today = new Date();
+  const todayMD = (today.getMonth() + 1) + '-' + today.getDate();
+  const birthdayEmps = emps.filter(e => e.bday && (e.bday.substring(5) === (String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0'))));
+  if (!birthdayEmps.length) {
+    module.style.display = 'none';
+    return;
+  }
+  module.style.display = 'block';
+  list.innerHTML = birthdayEmps.map(e =>
+    '<div style="display:flex;align-items:center;gap:12px;padding:6px 0;">' +
+      '<span style="font-size:20px;">🎂</span>' +
+      '<span style="font-weight:600;">' + e.name + '</span>' +
+      '<span style="color:var(--subtle);font-size:13px;">(' + e.dept + ')</span>' +
+    '</div>'
+  ).join('');
+}
+
+// ── Admin: Password & Settings ──
+
+async function changeAdminPwd() {
+  const curPwd = document.getElementById('a-cur-pwd')?.value.trim();
+  const newPwd = document.getElementById('a-new-pwd')?.value.trim();
+  const confPwd = document.getElementById('a-conf-pwd')?.value.trim();
+  if (!curPwd || !newPwd || !confPwd) { showNotifBar('warning', 'Please fill all fields.'); return; }
+  if (newPwd.length < 6) { showNotifBar('warning', 'New password must be at least 6 characters.'); return; }
+  if (newPwd !== confPwd) { showNotifBar('error', 'Passwords do not match.'); return; }
+  const btn = document.querySelector('#admin-settings .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
+  const res = await api('/api/auth/password', {
+    method: 'PUT',
+    body: { userId: 'quemahtech', currentPwd: curPwd, newPassword: newPwd }
+  });
+  if (btn) { btn.disabled = false; btn.textContent = 'Update Password'; }
+  if (res && res.success) {
+    showNotifBar('success', 'Password changed successfully!');
+    document.getElementById('a-cur-pwd').value = '';
+    document.getElementById('a-new-pwd').value = '';
+    document.getElementById('a-conf-pwd').value = '';
+  } else {
+    showNotifBar('error', res?.error || 'Failed to change password.');
+  }
+}
+
+function openAdminReset() {
+  document.getElementById('forgot-modal').style.display = 'flex';
+}
+
+async function sendAdminReset() {
+  const uid = document.getElementById('forgot-uid')?.value.trim() || 'quemahtech';
+  const btn = document.querySelector('#forgot-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Processing...'; }
+  const res = await api('/api/auth/forgot-password', { method: 'POST', body: { uid } });
+  if (btn) { btn.disabled = false; btn.textContent = 'Generate & Email Reset'; }
+  const status = document.getElementById('fp-status-message');
+  const tempPwd = document.getElementById('fp-temp-password');
+  if (!status || !tempPwd) return;
+  if (res && res.success) {
+    status.style.display = 'block';
+    status.style.background = '#dcfce7';
+    status.style.color = '#166534';
+    status.style.border = '1px solid #bbf7d0';
+    status.textContent = res.message || 'Password reset successfully!';
+    if (res.tempPassword) {
+      tempPwd.style.display = 'block';
+      tempPwd.textContent = res.tempPassword;
+    }
+  } else {
+    status.style.display = 'block';
+    status.style.background = '#fee2e2';
+    status.style.color = '#991b1b';
+    status.style.border = '1px solid #fecaca';
+    status.textContent = res?.error || 'Failed to reset password.';
+  }
+}
+
+// ── Admin: Calendar Config ──
+
+function loadCalendarConfig() {
+  // Stub: just show status
+  const statusEl = document.getElementById('calendar-config-status');
+  const saEl = document.getElementById('calendar-config-sa');
+  const idEl = document.getElementById('calendar-config-id');
+  if (statusEl) statusEl.textContent = 'Configured via server';
+  if (saEl) saEl.textContent = localStorage.getItem('cal_sa_email') || '—';
+  if (idEl) idEl.textContent = localStorage.getItem('cal_id') || localStorage.getItem('calendarId') || '—';
+  // Email status
+  const emailStatus = document.getElementById('email-config-status');
+  if (emailStatus) emailStatus.textContent = 'In-App Active';
+}
+
+async function saveCalendarConfig() {
+  const saPath = document.getElementById('cal-sa-path')?.value?.trim();
+  const calId = document.getElementById('cal-id')?.value?.trim();
+  if (!saPath) { showNotifBar('warning', 'Please enter the service account JSON path.'); return; }
+  if (!calId) { showNotifBar('warning', 'Please enter a Calendar ID.'); return; }
+  showNotifBar('info', 'Saving calendar config to server...');
+  const res = await api('/api/calendar-config', { method: 'POST', body: { serviceAccountPath: saPath, calendarId: calId } });
+  if (res && res.success) {
+    localStorage.setItem('cal_sa_path', saPath);
+    localStorage.setItem('cal_id', calId);
+    showNotifBar('success', 'Calendar config saved!');
+    loadCalendarConfig();
+  } else {
+    showNotifBar('error', 'Failed to save config.');
+  }
+}
+
+async function syncBirthdaysToCalendar() {
+  if (!appState) { showNotifBar('warning', 'App data not loaded.'); return; }
+  showNotifBar('info', 'Syncing birthdays to calendar...');
+  const emps = (appState.employees || []).filter(e => e.active && e.bday);
+  const res = await api('/api/calendar/sync-birthdays', { method: 'POST', body: { employees: emps } });
+  if (res && res.success) {
+    showNotifBar('success', 'Birthdays synced! (' + (res.count || emps.length) + ' events)');
+  } else {
+    showNotifBar('error', 'Sync failed. Check server configuration.');
+  }
+}
+
+async function testCalendarConnection() {
+  showNotifBar('info', 'Testing calendar connection...');
+  const config = await api('/api/calendar-config');
+  if (config && !config.error) {
+    showNotifBar('success', 'Calendar connection OK!');
+  } else {
+    showNotifBar('error', config?.error || 'Connection failed. Check server.');
+  }
+}
+
+// ── Admin: Employee Modals ──
+
+function openAddEmpModal() {
+  document.getElementById('add-emp-modal').style.display = 'flex';
+  document.getElementById('add-emp-title').textContent = 'Add New Employee';
+  document.getElementById('f-id').value = '';
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-email').value = '';
+  document.getElementById('f-phone').value = '';
+  document.getElementById('f-birthday').value = '';
+  document.getElementById('f-joining').value = '';
+  document.getElementById('f-designation').value = '';
+  document.getElementById('f-pwd').value = '';
+  document.getElementById('f-cl').value = '7.5';
+  document.getElementById('f-sl').value = '3.0';
+  populateDeptFilters();
+}
+
+function closeAddEmpModal() {
+  document.getElementById('add-emp-modal').style.display = 'none';
+}
+
+async function saveEmployee() {
+  const id = document.getElementById('f-id')?.value?.trim();
+  const name = document.getElementById('f-name')?.value?.trim();
+  const dept = document.getElementById('f-dept')?.value;
+  if (!id || !name || !dept) { showNotifBar('warning', 'Please fill required fields (Name, ID, Department).'); return; }
+  const btn = document.getElementById('add-emp-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+  const data = {
+    id, name, dept,
+    email: document.getElementById('f-email')?.value?.trim() || '',
+    phone: document.getElementById('f-phone')?.value?.trim() || '',
+    bday: document.getElementById('f-birthday')?.value || '',
+    joining: document.getElementById('f-joining')?.value || new Date().toISOString().split('T')[0],
+    designation: document.getElementById('f-designation')?.value?.trim() || '',
+    password: document.getElementById('f-pwd')?.value?.trim() || 'emp123',
+    cl: parseFloat(document.getElementById('f-cl')?.value) || 7.5,
+    sl: parseFloat(document.getElementById('f-sl')?.value) || 3.0
+  };
+  const res = await api('/api/employees', { method: 'POST', body: data });
+  if (btn) { btn.disabled = false; btn.textContent = 'Save Employee'; }
+  if (res && res.success) {
+    showNotifBar('success', 'Employee ' + name + ' added successfully!');
+    closeAddEmpModal();
+    await refreshStateAndRender();
+    renderEmpTable();
+  } else {
+    showNotifBar('error', res?.error || 'Failed to add employee.');
+  }
+}
+
+function openEditEmpModal(empId) {
+  const emp = appState?.employees?.find(e => e.id === empId);
+  if (!emp) { showNotifBar('error', 'Employee not found.'); return; }
+  document.getElementById('add-emp-modal').style.display = 'flex';
+  document.getElementById('add-emp-title').textContent = 'Edit Employee: ' + emp.name;
+  document.getElementById('f-id').value = emp.id;
+  document.getElementById('f-id').disabled = true;
+  document.getElementById('f-name').value = emp.name || '';
+  document.getElementById('f-email').value = emp.email || '';
+  document.getElementById('f-phone').value = emp.phone || '';
+  document.getElementById('f-birthday').value = emp.bday || '';
+  document.getElementById('f-joining').value = emp.joining || '';
+  document.getElementById('f-designation').value = emp.designation || '';
+  document.getElementById('f-pwd').value = '';
+  document.getElementById('f-pwd').placeholder = 'Leave blank to keep current';
+  document.getElementById('f-cl').value = emp.cl || 0;
+  document.getElementById('f-sl').value = emp.sl || 0;
+  populateDeptFilters();
+  setTimeout(() => {
+    const deptSelect = document.getElementById('f-dept');
+    if (deptSelect) deptSelect.value = emp.dept || '';
+  }, 50);
+  // Override save to update instead
+  const saveBtn = document.getElementById('add-emp-save-btn');
+  if (saveBtn) {
+    saveBtn.onclick = async function() {
+      const updatedData = {
+        name: document.getElementById('f-name')?.value?.trim() || emp.name,
+        dept: document.getElementById('f-dept')?.value || emp.dept,
+        email: document.getElementById('f-email')?.value?.trim() || '',
+        phone: document.getElementById('f-phone')?.value?.trim() || '',
+        bday: document.getElementById('f-birthday')?.value || '',
+        joining: document.getElementById('f-joining')?.value || '',
+        designation: document.getElementById('f-designation')?.value?.trim() || '',
+        cl: parseFloat(document.getElementById('f-cl')?.value) || 0,
+        sl: parseFloat(document.getElementById('f-sl')?.value) || 0
+      };
+      const newPwd = document.getElementById('f-pwd')?.value?.trim();
+      if (newPwd) updatedData.password = newPwd;
+      if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+      const res = await api('/api/employees/' + encodeURIComponent(empId), { method: 'PUT', body: updatedData });
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Employee'; }
+      if (res && res.success) {
+        showNotifBar('success', 'Employee updated!');
+        closeAddEmpModal();
+        document.getElementById('f-id').disabled = false;
+        saveBtn.onclick = saveEmployee;
+        await refreshStateAndRender();
+        renderEmpTable();
+      } else {
+        showNotifBar('error', res?.error || 'Update failed.');
+      }
+    };
+  }
+}
+
+function openRemoveEmpModal(empId) {
+  const emp = appState?.employees?.find(e => e.id === empId);
+  if (!emp) return;
+  archiveTargetId = null;
+  removeTargetId = empId;
+  setModalHeader('Remove Employee');
+  document.getElementById('delete-emp-modal').dataset.mode = 'remove';
+  const modalBody = document.querySelector('#delete-emp-modal .modal-body');
+  if (modalBody) {
+    modalBody.innerHTML = '' +
+      '<p style="font-size:16px;margin-bottom:8px;">Remove <strong>' + emp.name + '</strong>?</p>' +
+      '<p style="font-size:13px;color:var(--red);margin-bottom:16px;">This action is PERMANENT! All data will be deleted and archived.</p>' +
+      '<div style="display:flex;gap:10px;justify-content:center;">' +
+        '<button class="btn" onclick="closeDeleteEmpModal()" style="flex:1;">Cancel</button>' +
+        '<button class="btn btn-danger" id="remove-confirm-btn" onclick="confirmRemoveEmployee()" style="flex:1;">Permanently Remove</button>' +
+      '</div>';
+  }
+  document.getElementById('delete-emp-modal').style.display = 'flex';
+}
+
+function closeDeleteEmpModal() {
+  document.getElementById('delete-emp-modal').style.display = 'none';
+  archiveTargetId = null;
+  removeTargetId = null;
+}
+
+async function confirmRemoveEmployee() {
+  if (!removeTargetId || !appState) return;
+  const emp = (appState.employees || []).find(e => e.id === removeTargetId);
+  if (!emp) { showNotifBar('error', 'Employee not found.'); closeDeleteEmpModal(); return; }
+  const confirmBtn = document.getElementById('remove-confirm-btn');
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="loading-spinner-sm" style="margin-right:6px;vertical-align:middle;"></span> Removing...';
+  }
+  const res = await api('/api/employees/' + encodeURIComponent(removeTargetId), { method: 'DELETE' });
+  closeDeleteEmpModal();
+  if (res && res.success) {
+    showNotifBar('success', 'Employee removed and archived.');
+    await refreshStateAndRender();
+    renderEmpTable();
+    renderAll();
+  } else {
+    showNotifBar('error', 'Failed to remove employee.');
+  }
+}
+
+function toggleArchived() {
+  const section = document.getElementById('archived-section');
+  const arrow = document.getElementById('archived-arrow');
+  if (!section) return;
+  archivedVisible = !archivedVisible;
+  section.style.display = archivedVisible ? 'block' : 'none';
+  if (arrow) arrow.textContent = archivedVisible ? 'v' : '>';
+  if (archivedVisible) renderArchivedEmployees();
+}
+
+function renderArchivedEmployees() {
+  const tbody = document.getElementById('archived-table-body');
+  if (!tbody || !appState) return;
+  const archived = appState.archivedEmployees || [];
+  if (!archived.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--subtle);">No archived employees.</td></tr>';
+    return;
+  }
+  let html = '';
+  archived.forEach(a => {
+    html += '<tr><td><span style="font-family:var(--font-mono);font-size:12px;">' + (a.id || '') + '</span></td><td>' + (a.name || '') + '</td><td>' + (a.dept || '') + '</td><td><span class="tag t-archived">' + (a.status || 'Archived') + '</span></td><td>' + (a.joining || '—') + '</td><td>' + (a.exit || '—') + '</td><td><button class="btn btn-sm" onclick="unarchiveEmployee(\'' + (a.id || '') + '\')">Restore</button></td></tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+async function unarchiveEmployee(id) {
+  const res = await api('/api/employees/' + encodeURIComponent(id) + '/unarchive', { method: 'POST' });
+  if (res && res.success) {
+    showNotifBar('success', 'Employee restored!');
+    await refreshStateAndRender();
+    renderArchivedEmployees();
+    renderEmpTable();
+  } else {
+    showNotifBar('error', 'Failed to restore employee.');
+  }
+}
+
+async function undoArchive(empName) {
+  if (!pendingUndoArchiveId) { showNotifBar('warning', 'Nothing to undo.'); return; }
+  const res = await api('/api/employees/' + encodeURIComponent(pendingUndoArchiveId) + '/unarchive', { method: 'POST' });
+  if (res && res.success) {
+    showNotifBar('success', 'Undo successful! ' + empName + ' has been restored.');
+    pendingUndoArchiveId = null;
+    pendingUndoArchiveName = null;
+    if (pendingUndoTimeout) { clearTimeout(pendingUndoTimeout); pendingUndoTimeout = null; }
+    await refreshStateAndRender();
+    renderEmpTable();
+    renderArchivedEmployees();
+  } else {
+    showNotifBar('error', 'Undo failed.');
+  }
+}
+
+// ── Admin: Export Functions ──
+
+function exportCSV() {
+  if (!appState || !appState.attendanceLogs) { showNotifBar('warning', 'No data to export.'); return; }
+  const rows = [['ID','Employee','Dept','Date','Login','Logout','Hours','Status','Device']];
+  (appState.attendanceLogs || []).forEach(l => {
+    rows.push([
+      l.emp_id, l.emp_name, l.department,
+      l.login_date || getDateFromISO(l.login_time),
+      formatTime(l.login_time),
+      l.logout_time ? formatTime(l.logout_time) : 'Active',
+      (l.working_hours || 0).toFixed(1),
+      l.status || '',
+      l.computer_name || ''
+    ]);
+  });
+  const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+  downloadFile(csv, 'attendance_records_' + new Date().toISOString().split('T')[0] + '.csv', 'text/csv');
+  showNotifBar('success', 'CSV exported!');
+}
+
+function exportExcel(type) {
+  if (typeof XLSX === 'undefined') { showNotifBar('warning', 'XLSX library not loaded.'); return; }
+  if (!appState) { showNotifBar('warning', 'No data loaded.'); return; }
+  const wb = XLSX.utils.book_new();
+  const filename = type + '_' + new Date().toISOString().split('T')[0];
+  try {
+    if (type === 'records') {
+      const data = (appState.attendanceLogs || []).map(l => ({
+        ID: l.emp_id, Employee: l.emp_name, Department: l.department,
+        Date: l.login_date || getDateFromISO(l.login_time),
+        Login: formatTime(l.login_time),
+        Logout: l.logout_time ? formatTime(l.logout_time) : 'Active',
+        Hours: (l.working_hours || 0).toFixed(1),
+        Status: l.status || '',
+        Device: l.computer_name || ''
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      XLSX.utils.book_append_sheet(wb, ws, 'Records');
+    } else if (type === 'employees') {
+      const data = (appState.employees || []).filter(e => e.active).map(e => ({
+        ID: e.id, Name: e.name, Department: e.dept,
+        Designation: e.designation || '', Email: e.email || '',
+        Phone: e.phone || '', Birthday: e.bday || '',
+        'Joining Date': e.joining || '',
+        'CL Balance': e.cl || 0, 'SL Balance': e.sl || 0
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      XLSX.utils.book_append_sheet(wb, ws, 'Employees');
+    }
+    XLSX.writeFile(wb, filename + '.xlsx');
+    showNotifBar('success', type.charAt(0).toUpperCase() + type.slice(1) + ' exported!');
+  } catch (e) {
+    showNotifBar('error', 'Export failed: ' + e.message);
+  }
+}
+
+// ── Admin: Reports ──
+
+function setReport(type, btnEl) {
+  if (btnEl) {
+    document.querySelectorAll('.rtab').forEach(b => b.classList.remove('active'));
+    btnEl.classList.add('active');
+  }
+  if (!appState) return;
+  const logs = appState.attendanceLogs || [];
+  const employees = appState.employees || [];
+  const deptFilter = document.getElementById('rpt-dept')?.value || '';
+  const now = new Date();
+  let filteredLogs = [];
+  let title = '';
+  if (type === 'daily') {
+    const today = now.toISOString().split('T')[0];
+    filteredLogs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)) === today);
+    title = 'Daily Report — ' + now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  } else if (type === 'weekly') {
+    const dayOfWeek = now.getDay();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    const weekEnd = new Date(monday);
+    weekEnd.setDate(monday.getDate() + 6);
+    filteredLogs = logs.filter(l => {
+      const d = l.login_date || getDateFromISO(l.login_time);
+      return d >= monday.toISOString().split('T')[0] && d <= weekEnd.toISOString().split('T')[0];
+    });
+    title = 'Weekly Report — ' + monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' - ' + weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } else {
+    const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    filteredLogs = logs.filter(l => (l.login_date || getDateFromISO(l.login_time)).startsWith(monthStr));
+    title = 'Monthly Report — ' + now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+  if (deptFilter) filteredLogs = filteredLogs.filter(l => l.department === deptFilter);
+  document.getElementById('rpt-title').textContent = title;
+  document.getElementById('rpt-table-title').textContent = 'Attendance Details';
+  _reportRows = filteredLogs;
+  renderReportTable(filteredLogs, employees);
+  renderReportSummary(filteredLogs, employees);
+}
+
+function renderReportSummary(logs, employees) {
+  const summaryEl = document.getElementById('rpt-summary');
+  if (!summaryEl) return;
+  const activeEmps = employees.filter(e => e.active).length;
+  const uniquePresent = new Set(logs.filter(l => ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)).map(l => l.emp_id));
+  summaryEl.innerHTML = '<strong>' + logs.length + '</strong> sessions · <strong>' + uniquePresent.size + '</strong> employees present out of <strong>' + activeEmps + '</strong> active';
+  // Department bars
+  renderReportBars(logs, employees);
+}
+
+function renderReportBars(logs, employees) {
+  const attBars = document.getElementById('rpt-att-bars');
+  const hrBars = document.getElementById('rpt-hr-bars');
+  if (!attBars || !hrBars) return;
+  const deptData = {};
+  employees.filter(e => e.active).forEach(e => {
+    if (!deptData[e.dept]) deptData[e.dept] = { total: 0, present: new Set(), hours: 0 };
+    deptData[e.dept].total++;
+  });
+  logs.forEach(l => {
+    if (deptData[l.department]) {
+      if (['Present', 'Late', 'Half-Day', 'Active'].includes(l.status)) {
+        deptData[l.department].present.add(l.emp_id);
+      }
+      deptData[l.department].hours += l.working_hours || 0;
+    }
+  });
+  let attHtml = '', hrHtml = '';
+  Object.entries(deptData).forEach(([dept, data]) => {
+    const pct = data.total > 0 ? Math.round(data.present.size / data.total * 100) : 0;
+    const color = pct >= 80 ? 'bf-green' : pct >= 50 ? 'bf-amber' : 'bf-red';
+    attHtml += '<div class="bar-row"><span class="bar-label">' + dept + '</span><div class="bar-track"><div class="bar-fill ' + color + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + pct + '%</span></div>';
+    const avgHours = data.present.size > 0 ? (data.hours / data.present.size).toFixed(1) : '0';
+    const hrPct = Math.min(100, (parseFloat(avgHours) / 9) * 100);
+    hrHtml += '<div class="bar-row"><span class="bar-label">' + dept + '</span><div class="bar-track"><div class="bar-fill bf-blue" style="width:' + hrPct + '%"></div></div><span class="bar-val">' + avgHours + 'h</span></div>';
+  });
+  attBars.innerHTML = attHtml || '<p style="color:var(--subtle);font-size:13px;">No data</p>';
+  hrBars.innerHTML = hrHtml || '<p style="color:var(--subtle);font-size:13px;">No data</p>';
+}
+
+function renderReportTable(logs, employees) {
+  const thead = document.getElementById('rpt-thead');
+  const tbody = document.getElementById('rpt-table');
+  if (!thead || !tbody) return;
+  thead.innerHTML = '<th>Employee</th><th>ID</th><th>Dept</th><th>Date</th><th>Login</th><th>Logout</th><th>Hours</th><th>Status</th>';
+  if (!logs.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--subtle);">No records for this period.</td></tr>';
+    return;
+  }
+  let html = '';
+  logs.forEach(l => {
+    const tagClass = (l.status || 'Active').toLowerCase().replace(/[-\s]/g, '');
+    html += '<tr><td>' + (l.emp_name || '') + '</td><td><span style="font-family:var(--font-mono);font-size:12px;">' + (l.emp_id || '') + '</span></td><td><span class="chip ' + (DEPT_COLORS[l.department] || 'c-eng') + '">' + (l.department || '') + '</span></td><td>' + (l.login_date || getDateFromISO(l.login_time) || '') + '</td><td><span style="font-family:var(--font-mono);color:#16a34a;font-weight:600;">' + formatTime(l.login_time) + '</span></td><td><span style="font-family:var(--font-mono);color:#dc2626;font-weight:600;">' + (l.logout_time ? formatTime(l.logout_time) : '<span style="color:#d97706;">Active</span>') + '</span></td><td>' + (l.working_hours > 0 ? l.working_hours.toFixed(1) + 'h' : '—') + '</td><td><span class="tag t-' + tagClass + '">' + (l.status || 'Active') + '</span></td></tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+// ── Admin: Composer (stub) ──
+
+function closeComposeModal() {
+  document.getElementById('compose-modal').style.display = 'none';
+}
+
+function clearCompose() { /* stub */ }
+function toggleCcBccModal() { /* stub */ }
+function toggleComposeView(view) { /* stub */ }
+function wrapTag(id, tag) { /* stub */ }
+function wrapHtml(id, html) { /* stub */ }
+function applyEmailTemplate(val) { /* stub */ }
+function sendCustomEmail() { /* stub */ }
+
+// ── Dark Mode Toggle ──
+
+function toggleDarkMode() {
+  const isDark = document.body.classList.toggle('dark-mode');
+  localStorage.setItem('darkMode', isDark);
+  document.querySelectorAll('.dark-toggle-btn').forEach(b => b.textContent = isDark ? 'L' : 'D');
+}
+
+// ── CSS animation for login spinner ──
+const __styleForLogin = document.createElement('style');
+__styleForLogin.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+document.head.appendChild(__styleForLogin);
+n// ── Employee lookup helper (used by initApp for session restoration) ──
+
+function findEmployeeByIdOrEmail(uid) {
+  if (!appState || !appState.employees) return null;
+  const normalized = (uid || "").toLowerCase().trim();
+  let emp = appState.employees.find(e => e.id === uid);
+  if (!emp) emp = appState.employees.find(e => e.id && e.id.toLowerCase() === normalized);
+  if (!emp) emp = appState.employees.find(e => e.email && e.email.toLowerCase() === normalized);
+  return emp || null;
+}
 
 
 

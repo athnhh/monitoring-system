@@ -312,9 +312,72 @@
     return { success: true };
   }
 
+  // ── Auto sign-out after hours ──
+  // Closes any active attendance sessions when the current time is past 6pm.
+  // Ensures employees who forgot to sign out are not left as "Active" after office hours.
+
+  async function _autoSignoutAfterHours() {
+    const now = new Date();
+    const hr = now.getHours();
+    if (hr < 18) return; // Only run after 6pm
+
+    const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+
+    try {
+      const { data: activeSessions, error } = await db.supabase
+        .from('attendance_logs')
+        .select('*')
+        .is('logout_time', null)
+        .eq('login_date', today);
+
+      if (error || !activeSessions || activeSessions.length === 0) return;
+
+      const OFFICE_START = 9;   // 9:00 AM
+      const OFFICE_END   = 18;  // 6:00 PM
+
+      for (const session of activeSessions) {
+        const loginTime = new Date(session.login_time);
+
+        var effectiveStart = new Date(loginTime);
+        var effectiveEnd   = new Date(now);
+
+        // Cap to office hours
+        if (effectiveStart.getHours() + effectiveStart.getMinutes() / 60 < OFFICE_START) {
+          effectiveStart.setHours(OFFICE_START, 0, 0, 0);
+        }
+        if (effectiveEnd.getHours() + effectiveEnd.getMinutes() / 60 > OFFICE_END) {
+          effectiveEnd.setHours(OFFICE_END, 0, 0, 0);
+        }
+
+        let workingHours = Math.max(0, (effectiveEnd - effectiveStart) / (1000 * 60 * 60));
+
+        // Auto-deduct 1 hour lunch break (13:00-14:00) if the shift spans the lunch period
+        var effStartHour = effectiveStart.getHours() + effectiveStart.getMinutes() / 60;
+        var effEndHour   = effectiveEnd.getHours() + effectiveEnd.getMinutes() / 60;
+        if (effStartHour < 14 && effEndHour > 13) {
+          workingHours = Math.max(0, workingHours - 1);
+        }
+
+        await db.supabase
+          .from('attendance_logs')
+          .update({
+            logout_time: now.toISOString(),
+            working_hours: Math.round(workingHours * 100) / 100
+          })
+          .eq('id', session.id);
+
+        console.log('[SBClient] Auto signed-out', session.emp_name, '- worked', (Math.round(workingHours * 100) / 100).toFixed(2), 'hours');
+      }
+    } catch (e) {
+      console.warn('[SBClient] Auto signout error:', e.message);
+    }
+  }
+
   // ── State ──
 
   async function _getState() {
+    await _autoSignoutAfterHours();
+
     const [employees, attendanceLogs, leaveRequests, announcements, depts, archived, notifications] =
       await Promise.all([
         db.getAll('employees'),
