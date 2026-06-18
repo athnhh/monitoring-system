@@ -599,7 +599,7 @@ function renderRecords() {
   } else {
     if (statusF) {
       if (statusF === 'Present') {
-        recs = recs.filter(function(l){ return l.status === 'Present' || l.status === 'Active'; });
+        recs = recs.filter(function(l){ return ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status); });
       } else {
         recs = recs.filter(function(l){ return l.status === statusF; });
       }
