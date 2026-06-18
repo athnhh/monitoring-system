@@ -1329,19 +1329,45 @@ function renderEmpDashboard(emp) {
     }
   });
   const hours = thisMonth.reduce((a, l) => a + (l.working_hours || 0), 0);
+  // ── Calculate working days from joining date (or month start) to today ──
+  var _firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  var _joinDate = emp.joining ? new Date(emp.joining + 'T00:00:00') : null;
+  var _effStart = (_joinDate && _joinDate > _firstOfMonth) ? new Date(_joinDate) : new Date(_firstOfMonth);
+  var _todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var _workingDaysSince = 0;
+  for (var _d = new Date(_effStart); _d <= _todayDate; _d.setDate(_d.getDate() + 1)) {
+    if (_d.getDay() !== 0 && _d.getDay() !== 6) _workingDaysSince++;
+  }
   setText('ms-present', presentDays.size);
-  setText('ms-absent', Math.max(0, 22 - presentDays.size));
+  setText('ms-absent', Math.max(0, _workingDaysSince - presentDays.size));
   setText('ms-hours', hours.toFixed(1) + 'h');
   setText('ms-late', lateDays.size);
 
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-  const colors = ['bf-blue', 'bf-green', 'bf-amber', 'bf-red', 'bf-purple'];
-  const barsEl = document.getElementById('emp-bars');
-  if (barsEl) smartListSync(barsEl, days, (d, i) => {
-    const hrs = (Math.random() * 3 + 6).toFixed(1);
-    const pct = Math.round(parseFloat(hrs) / 10 * 100);
-    return '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + colors[i] + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + hrs + 'h</span></div>';
-  }, d => d);
+  // ── Weekly hours bars from real attendance data ──
+  var _weekStart = new Date(now);
+  _weekStart.setDate(now.getDate() - now.getDay() + 1);
+  _weekStart.setHours(0, 0, 0, 0);
+  var _dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var _dayHours = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0 };
+  var _weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  for (var _i = 0; _i < myLogs.length; _i++) {
+    var _l = myLogs[_i];
+    var _logDate = new Date(_l.login_time);
+    if (_logDate >= _weekStart && _logDate < new Date(_weekStart.getTime() + 7 * 86400000)) {
+      var _dn = _dayNames[_logDate.getDay()];
+      if (_dayHours.hasOwnProperty(_dn)) {
+        _dayHours[_dn] = Math.max(_dayHours[_dn], _l.working_hours || 0);
+      }
+    }
+  }
+  var _colors = ['bf-blue', 'bf-green', 'bf-amber', 'bf-red', 'bf-purple'];
+  var barsEl = document.getElementById('emp-bars');
+  if (barsEl) smartListSync(barsEl, _weekDays, function(d, i) {
+    var hrs = _dayHours[d];
+    var pct = Math.min(Math.round(hrs / 10 * 100), 100);
+    var display = hrs > 0 ? hrs.toFixed(1) + 'h' : '—';
+    return '<div class="bar-row"><span class="bar-label">' + d + '</span><div class="bar-track"><div class="bar-fill ' + _colors[i] + '" style="width:' + pct + '%"></div></div><span class="bar-val">' + display + '</span></div>';
+  }, function(d) { return d; });
 
   const logEl = document.getElementById('emp-log');
   if (logEl) {
