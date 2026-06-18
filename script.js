@@ -599,7 +599,10 @@ function renderRecords() {
   } else {
     if (statusF) {
       if (statusF === 'Present') {
+        console.log('[Records] Present filter: recs before status filter =', recs.length);
+        console.log('[Records] Status values in recs:', recs.map(function(l){ return JSON.stringify(l.status); }));
         recs = recs.filter(function(l){ return ['Present', 'Late', 'Half-Day', 'Active'].includes(l.status); });
+        console.log('[Records] Present filter: recs after status filter =', recs.length);
       } else {
         recs = recs.filter(function(l){ return l.status === statusF; });
       }
