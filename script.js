@@ -773,8 +773,7 @@ function exportReportCSV() {
   });
   const csv = rows.map(function(row) {
     return row.map(function(cell) { return '"' + String(cell).replace(/"/g, '""') + '"'; }).join(',');
-  }).join('
-');
+  }).join('\n');
   downloadFile(csv, label.toLowerCase() + '_report_' + new Date().toISOString().split('T')[0] + '.csv', 'text/csv');
   showNotifBar('success', label + ' report CSV exported!');
 }
@@ -1098,9 +1097,9 @@ function updateServerStatusIndicator() {
   el.style.border = '1px solid rgba(34,197,94,0.2)';
 }
 
-function startSupabaseListener() {
+async function startSupabaseListener() {
   if (typeof SupabaseDB !== 'undefined' && SupabaseDB.isConfigured()) {
-    const inited = SupabaseDB.init();
+    const inited = await SupabaseDB.init();
     if (inited) {
       SupabaseDB.subscribeAll(handleRealtimeEvent);
       console.log('[Supabase] Realtime listener attached');
@@ -1363,7 +1362,7 @@ async function init() {
 
   // Initialize SupabaseClient for direct database access
   if (typeof SupabaseClient !== 'undefined') {
-    SupabaseClient.init();
+    await SupabaseClient.init();
   }
 
   startSupabaseListener();
@@ -1566,14 +1565,26 @@ function switchTab(pageId, role, tabName, btnEl, callback) {
 // ── API Gateway ──
 
 async function api(path, options) {
-  if (typeof SupabaseClient === 'undefined' || !SupabaseClient.ready) {
-    console.error('[API] SupabaseClient not ready');
+  if (typeof SupabaseClient === 'undefined') {
+    console.error('[API] SupabaseClient not loaded');
     return null;
+  }
+  if (!SupabaseClient.ready) {
+    console.log('[API] SupabaseClient not ready, attempting init...');
+    const inited = await SupabaseClient.init();
+    if (!inited) {
+      console.error('[API] SupabaseClient.init() failed');
+      return null;
+    }
+    console.log('[API] SupabaseClient initialized on-demand');
   }
   const method = (options && options.method) || 'GET';
   const body = options && options.body;
   try {
-    return await SupabaseClient.call(method, path, body);
+    console.log('[API] Calling', method, path);
+    const result = await SupabaseClient.call(method, path, body);
+    console.log('[API] Response for', path, ':', result ? (result.success !== undefined ? (result.success ? 'success' : 'fail:' + (result.message || '')) : 'ok') : 'null');
+    return result;
   } catch (e) {
     console.error('[API] Error calling', path, e.message);
     return null;
@@ -1582,19 +1593,53 @@ async function api(path, options) {
 
 // ── Login Handler ──
 
+let _loginInProgress = false;
+
 async function doLogin() {
+  if (_loginInProgress) {
+    console.log('[Login] Login already in progress, ignoring duplicate click');
+    return;
+  }
+
   const uid = document.getElementById('uid').value.trim();
   const pwd = document.getElementById('pwd').value.trim();
   const errEl = document.getElementById('err-msg');
   const errText = document.getElementById('err-msg-text');
 
+  console.log('[Login] Sign In clicked — uid:', uid, 'pwd:', pwd ? '***' : '(empty)');
+
+  // Validate inputs
   if (!uid || !pwd) {
+    console.log('[Login] Validation failed: missing fields');
     if (errText) errText.textContent = 'Please enter both username/ID and password.';
     if (errEl) errEl.style.display = 'flex';
     return;
   }
 
   if (errEl) errEl.style.display = 'none';
+
+  // Ensure SupabaseClient is ready
+  if (typeof SupabaseClient === 'undefined' || !SupabaseClient.ready) {
+    console.log('[Login] SupabaseClient not ready, attempting init...');
+    if (typeof SupabaseClient !== 'undefined') {
+      const inited = await SupabaseClient.init();
+      if (!inited) {
+        if (errText) errText.textContent = 'System initialization failed. Check your connection and refresh.';
+        if (errEl) errEl.style.display = 'flex';
+        console.error('[Login] SupabaseClient.init() failed');
+        return;
+      }
+      console.log('[Login] SupabaseClient initialized on-demand');
+    } else {
+      if (errText) errText.textContent = 'Authentication system not loaded. Please refresh the page.';
+      if (errEl) errEl.style.display = 'flex';
+      console.error('[Login] SupabaseClient is undefined');
+      return;
+    }
+  }
+
+  _loginInProgress = true;
+  console.log('[Login] Starting authentication...');
 
   const btn = document.querySelector('.login-btn');
   if (btn) {
@@ -1603,7 +1648,9 @@ async function doLogin() {
   }
 
   try {
+    console.log('[Login] Calling api(/api/auth/login)...');
     const res = await api('/api/auth/login', { method: 'POST', body: { uid, pwd } });
+    console.log('[Login] API response:', res ? (res.success ? 'SUCCESS' : 'FAIL:' + (res.message || 'unknown')) : 'null/undefined');
 
     if (btn) {
       btn.disabled = false;
@@ -1614,10 +1661,12 @@ async function doLogin() {
       if (errText) errText.textContent = 'Connection error. Check your network or Supabase configuration.';
       if (errEl) errEl.style.display = 'flex';
       console.error('[Login] No response from server');
+      _loginInProgress = false;
       return;
     }
 
     if (res.success) {
+      console.log('[Login] Login SUCCESS. Role:', res.role, 'User ID:', res.user.id);
       sessionStorage.setItem('userId', res.user.id);
       sessionStorage.setItem('userRole', res.role);
 
@@ -1629,17 +1678,14 @@ async function doLogin() {
 
       showLoading('Welcome ' + (res.user.name || '') + '!', 'Loading your data...');
 
-      // Initialize SupabaseClient if not already
-      if (typeof SupabaseClient !== 'undefined' && !SupabaseClient.ready) {
-        SupabaseClient.init();
-      }
-
       // Start realtime listener
       startSupabaseListener();
 
+      console.log('[Login] Loading state from server...');
       const loaded = await loadStateFromServer();
 
       if (loaded && appState) {
+        console.log('[Login] State loaded, redirecting to', res.role, 'dashboard');
         if (res.role === 'admin') {
           currentUser = { name: 'Administrator' };
           currentRole = 'admin';
@@ -1656,11 +1702,13 @@ async function doLogin() {
           }
         }
       } else {
+        console.error('[Login] Failed to load app state');
         if (errText) errText.textContent = 'Failed to load application data. Please try again.';
         if (errEl) errEl.style.display = 'flex';
       }
       hideLoading();
     } else {
+      console.log('[Login] Login FAILED:', res.message);
       if (errText) errText.textContent = res.message || 'Invalid credentials. Please try again.';
       if (errEl) errEl.style.display = 'flex';
     }
@@ -1673,14 +1721,17 @@ async function doLogin() {
     if (errText) errText.textContent = 'An unexpected error occurred. Check console for details.';
     if (errEl) errEl.style.display = 'flex';
   }
+  _loginInProgress = false;
 }
 
 // ── Logout ──
 
 function logout() {
+  console.log('[Auth] Logging out...');
   currentUser = null;
   currentRole = '';
   appState = null;
+  _loginInProgress = false;
   sessionStorage.removeItem('userId');
   sessionStorage.removeItem('userRole');
   sessionStorage.removeItem('adminLastTab');
@@ -1701,6 +1752,7 @@ function logout() {
     clearInterval(_clockIntervals[key]);
     delete _clockIntervals[key];
   });
+  console.log('[Auth] Logout complete');
 }
 
 // ── State Management ──
@@ -2588,7 +2640,6 @@ function toggleNotifPanel() {
   markAdminNotifsRead();
 }
 
-let empNotifPanelOpen = false;
 function toggleEmpNotifPanel() {
   empNotifPanelOpen = !empNotifPanelOpen;
   const panel = document.getElementById('emp-notif-panel');
@@ -2712,19 +2763,64 @@ async function changeAdminPwd() {
 }
 
 function openAdminReset() {
-  document.getElementById('forgot-modal').style.display = 'flex';
+  console.log('[Auth] Opening forgot password modal');
+  const modal = document.getElementById('forgot-modal');
+  if (modal) {
+    modal.style.display = 'flex';
+    // Pre-fill the field if the user has typed a username on the login form
+    const loginUid = document.getElementById('uid')?.value?.trim();
+    const forgotUid = document.getElementById('forgot-uid');
+    if (forgotUid && loginUid) {
+      forgotUid.value = loginUid;
+    }
+    // Reset any previous status
+    const status = document.getElementById('fp-status-message');
+    const tempPwd = document.getElementById('fp-temp-password');
+    if (status) { status.style.display = 'none'; }
+    if (tempPwd) { tempPwd.style.display = 'none'; }
+  } else {
+    console.error('[Auth] forgot-modal element not found');
+  }
 }
 
 async function sendAdminReset() {
-  const uid = document.getElementById('forgot-uid')?.value.trim() || 'quemahtech';
+  console.log('[Auth] sendAdminReset called');
+  const uid = document.getElementById('forgot-uid')?.value?.trim();
+  if (!uid) {
+    console.log('[Auth] No email/username entered');
+    const status = document.getElementById('fp-status-message');
+    if (status) {
+      status.style.display = 'block';
+      status.style.background = '#fee2e2';
+      status.style.color = '#991b1b';
+      status.style.border = '1px solid #fecaca';
+      status.textContent = 'Please enter your admin email or username.';
+    }
+    return;
+  }
+
   const btn = document.querySelector('#forgot-modal .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Processing...'; }
+
+  // Ensure SupabaseClient is ready
+  if (typeof SupabaseClient !== 'undefined' && !SupabaseClient.ready) {
+    console.log('[Auth] Initializing SupabaseClient for forgot password...');
+    await SupabaseClient.init();
+  }
+
+  console.log('[Auth] Calling forgot-password API for:', uid);
   const res = await api('/api/auth/forgot-password', { method: 'POST', body: { uid } });
+  console.log('[Auth] Forgot-password response:', res);
+
   if (btn) { btn.disabled = false; btn.textContent = 'Generate & Email Reset'; }
   const status = document.getElementById('fp-status-message');
   const tempPwd = document.getElementById('fp-temp-password');
-  if (!status || !tempPwd) return;
+  if (!status || !tempPwd) {
+    console.error('[Auth] forgot-modal status elements not found');
+    return;
+  }
   if (res && res.success) {
+    console.log('[Auth] Password reset SUCCESS');
     status.style.display = 'block';
     status.style.background = '#dcfce7';
     status.style.color = '#166534';
@@ -2733,8 +2829,11 @@ async function sendAdminReset() {
     if (res.tempPassword) {
       tempPwd.style.display = 'block';
       tempPwd.textContent = res.tempPassword;
+    } else {
+      tempPwd.style.display = 'none';
     }
   } else {
+    console.log('[Auth] Password reset FAILED:', res?.error);
     status.style.display = 'block';
     status.style.background = '#fee2e2';
     status.style.color = '#991b1b';
@@ -3455,23 +3554,25 @@ async function initApp(retryCount) {
   retryCount = retryCount || 0;
   console.log('[EMS] Initializing application... (attempt ' + (retryCount + 1) + ')');
 
-  // Retry SupabaseClient init with backoff
-  if (typeof SupabaseClient === 'undefined' || !SupabaseClient.ready) {
-    if (typeof SupabaseClient !== 'undefined') {
-      const inited = SupabaseClient.init();
-      if (inited) {
-        console.log('[EMS] SupabaseClient initialized successfully');
-      } else if (retryCount < 5) {
-        console.warn('[EMS] SupabaseClient init failed, retrying in 500ms...');
-        setTimeout(() => initApp(retryCount + 1), 500);
-        return;
-      } else {
-        console.error('[EMS] SupabaseClient init failed after 5 retries');
-      }
-    } else if (retryCount < 10) {
-      console.warn('[EMS] SupabaseClient not loaded yet, retrying in 300ms...');
+  // Wait for SupabaseClient to exist, then await its init
+  if (typeof SupabaseClient === 'undefined') {
+    if (retryCount < 10) {
+      console.log('[EMS] SupabaseClient not loaded yet, retrying in 300ms...');
       setTimeout(() => initApp(retryCount + 1), 300);
       return;
+    }
+    console.error('[EMS] SupabaseClient never loaded.');
+  } else if (!SupabaseClient.ready) {
+    console.log('[EMS] Calling SupabaseClient.init()...');
+    const inited = await SupabaseClient.init();
+    if (inited) {
+      console.log('[EMS] SupabaseClient initialized successfully');
+    } else if (retryCount < 5) {
+      console.warn('[EMS] SupabaseClient init returned false, retrying in 500ms...');
+      setTimeout(() => initApp(retryCount + 1), 500);
+      return;
+    } else {
+      console.error('[EMS] SupabaseClient init failed after 5 retries');
     }
   }
 
@@ -3489,7 +3590,7 @@ async function initApp(retryCount) {
   const userRole = sessionStorage.getItem('userRole');
 
   if (userId && userRole) {
-    console.log('[EMS] Session found:', userId, 'role:', userRole);
+    console.log('[EMS] Session found in sessionStorage:', userId, 'role:', userRole);
     showLoading('Restoring session...', 'Loading your data');
     try {
       // Retry loadStateFromServer once if it fails
@@ -3501,14 +3602,15 @@ async function initApp(retryCount) {
       }
       if (loaded && appState) {
         if (userRole === 'admin') {
-          console.log('[EMS] Restoring admin session');
+          console.log('[EMS] Restoring admin session for:', userId);
           currentUser = { name: 'Administrator' };
           currentRole = 'admin';
           showAdminPage();
           hideLoading();
+          console.log('[EMS] Admin session restored successfully');
           return;
         } else if (userRole === 'employee') {
-          console.log('[EMS] Restoring employee session:', userId);
+          console.log('[EMS] Restoring employee session for:', userId);
           currentRole = 'employee';
           const emp = findEmployeeByIdOrEmail(userId);
           if (emp) {
@@ -3518,21 +3620,24 @@ async function initApp(retryCount) {
             hideLoading();
             return;
           } else {
-            console.warn('[EMS] Employee not found:', userId);
+            console.warn('[EMS] Employee not found in state:', userId, '- available IDs:', (appState.employees || []).map(e => e.id).join(', '));
           }
         }
+      } else {
+        console.warn('[EMS] State not loaded (loaded=' + loaded + ', appState=' + (appState ? 'set' : 'null') + ')');
       }
     } catch (e) {
       console.error('[EMS] Session restoration error:', e.message);
     }
     // Session restoration failed - clear session but preserve rememberedUser in localStorage
+    console.warn('[EMS] Session restoration failed, clearing session');
     currentUser = null;
     currentRole = '';
     sessionStorage.removeItem('userId');
     sessionStorage.removeItem('userRole');
     hideLoading();
   } else {
-    console.log('[EMS] No session, showing login page');
+    console.log('[EMS] No stored session (userId=' + userId + ', userRole=' + userRole + '), showing login page');
     const rememberedUser = localStorage.getItem('rememberedUser');
     if (rememberedUser) {
       document.getElementById('uid').value = rememberedUser;

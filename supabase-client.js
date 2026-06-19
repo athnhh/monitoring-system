@@ -9,12 +9,12 @@
   let db = null; // reference to SupabaseDB
   let ready = false;
 
-  function init() {
+  async function init() {
     if (typeof SupabaseDB === 'undefined' || !SupabaseDB.isConfigured()) {
       console.warn('[SBClient] Supabase not configured');
       return false;
     }
-    const inited = SupabaseDB.init();
+    const inited = await SupabaseDB.init();
     if (inited) {
       db = SupabaseDB;
       ready = true;
@@ -280,24 +280,42 @@
   }
 
   async function _forgotPassword(uid) {
+    console.log('[Auth] _forgotPassword called for uid:', uid);
     const normalized = (uid || '').toLowerCase().trim();
-    if (normalized !== 'quemahtech' && normalized !== 'atharvashishn@gmail.com')
+    if (normalized !== 'quemahtech' && normalized !== 'atharvashishn@gmail.com') {
+      console.log('[Auth] _forgotPassword rejected - not admin:', normalized);
       return { error: 'Unauthorized. Only admin can reset password.' };
+    }
 
     // 1. Try Supabase Auth password reset email (works if user exists in Auth)
     let emailSent = false;
     try {
+      console.log('[Auth] Sending Supabase Auth reset email to atharvashishn@gmail.com');
       const redirectUrl = window.location.origin + window.location.pathname;
       const { error } = await db.supabase.auth.resetPasswordForEmail('atharvashishn@gmail.com', {
         redirectTo: redirectUrl
       });
-      if (!error) emailSent = true;
-    } catch (_) {}
+      if (error) {
+        console.warn('[Auth] Supabase Auth reset email error:', error.message);
+      } else {
+        emailSent = true;
+        console.log('[Auth] Supabase Auth reset email sent successfully');
+      }
+    } catch (e) {
+      console.warn('[Auth] Supabase Auth reset email exception:', e.message);
+    }
 
     // 2. Always generate a temp password as fallback
+    console.log('[Auth] Generating temporary password...');
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
     const tempPwd = Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    await db.supabase.from('admin').update({ password: tempPwd }).eq('username', 'quemahtech');
+    console.log('[Auth] Updating admin password in DB...');
+    const { error: updateError } = await db.supabase.from('admin').update({ password: tempPwd }).eq('username', 'quemahtech');
+    if (updateError) {
+      console.error('[Auth] Failed to update admin password:', updateError.message);
+      return { error: 'Database error: ' + updateError.message };
+    }
+    console.log('[Auth] Admin password updated successfully');
 
     const warningMessage = 'Your admin password has been RESET. Your previous password will no longer work. Use the temporary password below to log in, then change your password in Settings.';
 
