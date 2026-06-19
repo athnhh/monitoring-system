@@ -22,17 +22,45 @@
            cfg.anonKey && cfg.anonKey !== 'YOUR_SUPABASE_ANON_KEY';
   }
 
-  function init() {
+  async function init() {
     if (!isConfigured()) {
       console.warn('[Supabase] supabase-config.js not configured.');
       return false;
     }
-    if (typeof supabaseJs === 'undefined' && typeof window.supabase === 'undefined') {
+
+    // If SDK not available as a global, try dynamic ESM import
+    if (typeof window.supabase === 'undefined') {
+      console.log('[Supabase] SDK not found as global, attempting dynamic import...');
+      // Try multiple CDN URLs in order of reliability for this package
+      const esmUrls = [
+        'https://esm.sh/@supabase/supabase-js@2',
+        'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm',
+      ];
+      let loaded = false;
+      for (const url of esmUrls) {
+        try {
+          const mod = await import(url);
+          window.supabase = { createClient: mod.createClient };
+          console.log('[Supabase] SDK loaded via dynamic import from', url);
+          loaded = true;
+          break;
+        } catch (e) {
+          console.warn('[Supabase] Dynamic import failed from', url, ':', e.message);
+        }
+      }
+      if (!loaded) {
+        console.error('[Supabase] All dynamic import attempts failed.');
+        return false;
+      }
+    }
+
+    if (typeof window.supabase === 'undefined') {
       console.warn('[Supabase] @supabase/supabase-js SDK not loaded.');
       return false;
     }
+
     try {
-      const { createClient } = window.supabase || supabaseJs;
+      const { createClient } = window.supabase;
       const cfg = getConfig();
       supabase = createClient(cfg.url, cfg.anonKey, {
         realtime: { params: { eventsPerSecond: 10 } }
